@@ -1,0 +1,10 @@
+{
+  "suite": "orders-dashboard",
+  "locators": [
+    { "file": "tests/dashboard.spec.ts", "old": "page.locator('#toolbar > [aria-label=\"Refresh orders\"]')", "expect": "healed", "level": "role", "test": "refreshes the order feed" },
+    { "file": "tests/dashboard.spec.ts", "old": "page.locator('#filter-bar > [name=\"status-filter\"]')", "expect": "healed", "level": "role", "test": "filters by status" },
+    { "file": "tests/dashboard.spec.ts", "old": "page.locator('#kpi-strip > [data-test=\"revenue-total\"]')", "expect": "healed", "level": "title", "test": "shows the revenue metric" },
+    { "file": "tests/dashboard.spec.ts", "old": "page.locator('.order-list > li:nth-child(4)')", "expect": "refused", "test": "reads the fourth order row" },
+    { "file": "tests/dashboard.spec.ts", "old": "page.locator('#orders-table td:nth-child(3).col-total')", "expect": "refused", "test": "reads the total column" }
+  ]
+}

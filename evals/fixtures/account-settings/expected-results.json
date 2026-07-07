@@ -1,0 +1,10 @@
+{
+  "suite": "account-settings",
+  "locators": [
+    { "file": "tests/settings.spec.ts", "old": "page.locator('.save-preferences')", "expect": "healed", "level": "role", "test": "saves the display name" },
+    { "file": "tests/settings.spec.ts", "old": "page.locator('#app-search-77aa21')", "expect": "healed", "level": "css", "test": "searches the connected apps" },
+    { "file": "tests/settings.spec.ts", "old": "page.locator('#digest-checkbox-52ba17')", "expect": "healed", "level": "role", "test": "toggles the weekly digest" },
+    { "file": "tests/settings.spec.ts", "old": "page.locator('[data-test=\"update-card\"]')", "expect": "healed", "level": "role", "test": "requests a card update" },
+    { "file": "tests/settings.spec.ts", "old": "page.locator('.help-center')", "expect": "healed", "level": "role", "test": "opens the help center" }
+  ]
+}

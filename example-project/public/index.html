@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bulldog Books newsletter</title>
+</head>
+<body>
+  <h1 id="page-title">Join the Bulldog Books newsletter</h1>
+  <p data-testid="tagline">One email a week, no spam.</p>
+  <form id="signup">
+    <label for="email-8a7d55">Email</label>
+    <input id="email-8a7d55" name="email" type="email" placeholder="you@example.com">
+    <label><input type="checkbox" name="weekly"> Weekly digest</label>
+    <button type="submit" class="button-submit">Subscribe now</button>
+  </form>
+  <p data-testid="status-note">You are not subscribed yet.</p>
+  <a href="#archive">Browse past issues</a>
+  <script>
+    document.getElementById('signup').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      document.querySelector('[data-testid="status-note"]').textContent = 'You are subscribed.';
+    });
+  </script>
+</body>
+</html>

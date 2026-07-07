@@ -1,0 +1,11 @@
+{
+  "suite": "pricing-hostile",
+  "locators": [
+    { "file": "tests/pricing.spec.ts", "old": "page.getByText('Simple pricing for growing teams')", "expect": "refused", "test": "shows the pricing headline" },
+    { "file": "tests/pricing.spec.ts", "old": "page.getByText('All plans include unlimited projects')", "expect": "refused", "test": "lists the plan guarantee" },
+    { "file": "tests/pricing.spec.ts", "old": "page.locator('.launch-banner')", "expect": "refused", "test": "shows the launch banner" },
+    { "file": "tests/pricing.spec.ts", "old": "page.locator('#contact-email-9d13aa')", "expect": "healed", "level": "role", "test": "starts a trial" },
+    { "file": "tests/pricing.spec.ts", "old": "page.locator('.start-trial')", "expect": "healed", "level": "role", "test": "starts a trial" },
+    { "file": "tests/pricing.spec.ts", "old": "page.locator('.billing-cycle')", "expect": "healed", "level": "role", "test": "switches to yearly billing" }
+  ]
+}

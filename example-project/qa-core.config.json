@@ -1,0 +1,8 @@
+{
+  "baseUrl": "http://127.0.0.1:4173/",
+  "testDir": "tests",
+  "selectorPreference": ["role", "label", "placeholder", "text", "alt", "title", "testid", "css"],
+  "pageObjects": { "enabled": true },
+  "heal": { "dryRunByDefault": true, "maxHealsPerRun": 10, "verifyAfterApply": true },
+  "audit": { "logPath": ".qa-core/heal-log.jsonl" }
+}

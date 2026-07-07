@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Pricing</title>
+</head>
+<body>
+  <h1>Pricing that scales with you</h1>
+  <p data-testid="plan-grid-note">Every plan ships with unlimited projects.</p>
+  <div data-testid="plan-grid">
+    <div class="plan-card"><h3>Starter</h3><p class="price">$29 per month</p></div>
+    <div class="plan-card"><h3>Team</h3><p class="price">$79 per month</p></div>
+    <div class="plan-card"><h3>Scale</h3><p class="price">$199 per month</p></div>
+  </div>
+  <select class="cycle-select" name="cycle" aria-label="Billing cycle">
+    <option value="monthly">Monthly</option>
+    <option value="yearly">Yearly</option>
+  </select>
+  <form id="trial-form">
+    <label for="contact-email-4e8b12">Work email</label>
+    <input id="contact-email-4e8b12" name="email" type="email">
+    <button type="submit" class="trial-button">Start trial</button>
+  </form>
+  <p data-testid="trial-status">No trial started.</p>
+  <a href="#sales">Talk to sales</a>
+  <script>
+    document.querySelector('.cycle-select').addEventListener('change', function (ev) {
+      if (ev.target.value === 'yearly') {
+        var prices = document.querySelectorAll('.price');
+        var yearly = ['$290 per year', '$790 per year', '$1,990 per year'];
+        for (var i = 0; i < prices.length; i++) prices[i].textContent = yearly[i];
+      }
+    });
+    document.getElementById('trial-form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      document.querySelector('[data-testid="trial-status"]').textContent = 'Trial started. Check your inbox.';
+    });
+  </script>
+</body>
+</html>

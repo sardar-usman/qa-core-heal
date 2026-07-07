@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Create your account</title>
+</head>
+<body>
+  <h1>Create your account</h1>
+  <form id="signup-form">
+    <label for="full-name">Full name</label>
+    <input id="full-name" name="fullName" type="text">
+    <input id="username" name="username" type="text" placeholder="Choose a username">
+    <label for="email-2b8c1d">Email</label>
+    <input id="email-2b8c1d" name="email" type="email">
+    <label for="password-5f90ce">Password</label>
+    <input id="password-5f90ce" name="password" type="password">
+    <select class="plan-picker" name="plan" aria-label="Plan">
+      <option value="free">Free</option>
+      <option value="pro">Pro</option>
+    </select>
+    <input type="checkbox" name="marketing" aria-label="Marketing consent">
+    <button type="submit" class="account-submit">Create account</button>
+  </form>
+  <p data-testid="signup-status">Fill in the form to get started.</p>
+  <p>Already have an account? <a href="#signin">Sign in instead</a></p>
+  <a href="#terms" class="legal-link">Terms</a>
+  <script>
+    document.getElementById('signup-form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      document.querySelector('[data-testid="signup-status"]').textContent = 'Account created. Check your email.';
+    });
+  </script>
+</body>
+</html>

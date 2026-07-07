@@ -1,0 +1,11 @@
+{
+  "suite": "signup-pom",
+  "locators": [
+    { "file": "pages/signup-page.ts", "old": "this.page.locator('#email-9c31f7')", "expect": "healed", "level": "css", "test": "creates an account with plan and consent" },
+    { "file": "pages/signup-page.ts", "old": "this.page.locator('#password-33d1ab')", "expect": "healed", "level": "css", "test": "creates an account with plan and consent" },
+    { "file": "pages/signup-page.ts", "old": "this.page.locator('.plan-selector')", "expect": "healed", "level": "role", "test": "creates an account with plan and consent" },
+    { "file": "pages/signup-page.ts", "old": "this.page.locator('[data-test=\"marketing-consent\"]')", "expect": "healed", "level": "role", "test": "creates an account with plan and consent" },
+    { "file": "pages/signup-page.ts", "old": "this.page.locator('.create-account')", "expect": "healed", "level": "role", "test": "creates an account with plan and consent" },
+    { "file": "pages/signup-page.ts", "old": "this.page.locator('.terms-link')", "expect": "healed", "level": "role", "test": "opens the terms" }
+  ]
+}

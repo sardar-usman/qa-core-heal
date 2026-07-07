@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Aurora Supply checkout</title>
+</head>
+<body>
+  <h1>Checkout</h1>
+  <p data-testid="shipping-note">Free shipping over $50.</p>
+  <form id="checkout-form">
+    <label for="email-3f8b90">Email</label>
+    <input id="email-3f8b90" name="email" type="email" placeholder="you@example.com">
+    <label for="phone-6c22aa">Phone</label>
+    <input id="phone-6c22aa" name="phone" type="tel" placeholder="(555) 000-1234">
+    <label for="card-field">Card number</label>
+    <input id="card-field" name="card" type="text" placeholder="Card number">
+    <input id="promo-field" name="promo" type="text" placeholder="Promo code">
+    <button type="button" class="promo-apply">Apply promo</button>
+    <button type="submit" class="place-order-now">Place order</button>
+  </form>
+  <p data-testid="promo-status">No promo applied.</p>
+  <p data-testid="order-status">Ready to order.</p>
+  <a href="#cart" class="cart-link">View cart</a>
+  <script>
+    document.querySelector('.promo-apply').addEventListener('click', function () {
+      document.querySelector('[data-testid="promo-status"]').textContent = 'Promo SAVE10 applied.';
+    });
+    document.getElementById('checkout-form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      document.querySelector('[data-testid="order-status"]').textContent = 'Order placed. Confirmation sent.';
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "suite": "checkout-basic",
+  "locators": [
+    { "file": "tests/checkout.spec.ts", "old": "page.locator('#email-7d21ac')", "expect": "healed", "level": "css", "test": "fills the email address" },
+    { "file": "tests/checkout.spec.ts", "old": "page.locator('#phone-4b81de')", "expect": "healed", "level": "css", "test": "fills the phone number" },
+    { "file": "tests/checkout.spec.ts", "old": "page.locator('.place-order')", "expect": "healed", "level": "role", "test": "places the order" },
+    { "file": "tests/promo.spec.ts", "old": "page.locator('.apply-promo')", "expect": "healed", "level": "role", "test": "applies a promo code" },
+    { "file": "tests/promo.spec.ts", "old": "page.locator('.view-cart')", "expect": "healed", "level": "role", "test": "opens the cart" }
+  ]
+}

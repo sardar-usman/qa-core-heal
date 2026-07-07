@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Orders dashboard</title>
+</head>
+<body>
+  <h1>Orders dashboard</h1>
+  <div id="toolbar">
+    <div class="toolbar-actions">
+      <button aria-label="Refresh orders">Refresh</button>
+      <button class="new-order-btn">New order</button>
+    </div>
+  </div>
+  <div id="filter-bar">
+    <div class="filter-group">
+      <select name="status-filter" aria-label="Status filter">
+        <option>All</option>
+        <option>Paid</option>
+        <option>Refunded</option>
+      </select>
+    </div>
+  </div>
+  <div id="kpi-strip" data-testid="kpi-strip">
+    <div class="metric-body">
+      <span data-test="revenue-total" title="Revenue total this month">$12,480</span>
+    </div>
+  </div>
+  <p class="sync-note"></p>
+  <h2>Recent activity</h2>
+  <table id="orders-table">
+    <tr><th>Order</th><th>Customer</th><th>Status</th><th>Total</th></tr>
+    <tr><td>1042</td><td>Mara Quinn</td><td class="col-status">Paid</td><td class="col-total">$310</td></tr>
+  </table>
+  <h2>Pinned</h2>
+  <ul class="pinned-list"><li>1038, Harbor Cafe, $88</li></ul>
+  <ul class="order-list">
+    <li>1042, Mara Quinn, $310</li>
+    <li>1041, Dockside Deli, $145</li>
+    <li>1040, Beacon Books, $52</li>
+  </ul>
+  <input type="search" name="q" placeholder="Search orders">
+  <a href="#export">Export CSV</a>
+  <script>
+    document.querySelector('[aria-label="Refresh orders"]').addEventListener('click', function () {
+      document.querySelector('.sync-note').textContent = 'Orders refreshed just now.';
+    });
+    document.querySelector('[name="status-filter"]').addEventListener('change', function (ev) {
+      if (ev.target.value === 'Paid') {
+        document.querySelector('[data-test="revenue-total"]').textContent = '$8,900';
+      }
+    });
+  </script>
+</body>
+</html>

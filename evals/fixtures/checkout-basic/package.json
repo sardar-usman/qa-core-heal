@@ -1,0 +1,10 @@
+{
+  "name": "eval-checkout-basic",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "serve": "node serve.mjs",
+    "test": "playwright test"
+  }
+}

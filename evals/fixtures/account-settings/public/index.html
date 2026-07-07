@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Account settings</title>
+</head>
+<body>
+  <h1>Account settings</h1>
+  <form id="profile-form">
+    <label for="display-name">Display name</label>
+    <input id="display-name" name="displayName" type="text">
+    <button type="button" class="save-settings">Save preferences</button>
+  </form>
+  <p data-testid="settings-status">No changes yet.</p>
+  <a href="#help" class="support-link">Help center</a>
+  <h2>Billing</h2>
+  <iframe id="billing-frame" src="billing.html" title="Billing"></iframe>
+  <section id="connected-apps"></section>
+  <div id="cookie-banner" style="position:fixed;bottom:0;left:0;right:0;background:#eee;padding:8px;">
+    <p>We use cookies to keep your session secure.</p>
+    <button class="accept-cookies">Accept cookies</button>
+  </div>
+  <script>
+    document.querySelector('.save-settings').addEventListener('click', function () {
+      document.querySelector('[data-testid="settings-status"]').textContent = 'Preferences saved.';
+    });
+    document.querySelector('.accept-cookies').addEventListener('click', function () {
+      document.getElementById('cookie-banner').style.display = 'none';
+    });
+    setTimeout(function () {
+      document.getElementById('connected-apps').innerHTML =
+        '<h2>Connected apps</h2>' +
+        '<input type="search" name="search" id="app-search-2c9e41" placeholder="Search connected apps">' +
+        '<label><input type="checkbox" name="digest" id="digest-checkbox-1f8a2e"> Weekly digest</label>';
+    }, 400);
+  </script>
+</body>
+</html>
