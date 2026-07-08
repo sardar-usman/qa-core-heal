@@ -402,14 +402,46 @@
         }
       ],
       "notes": []
+    },
+    {
+      "suite": "hostile-mutation",
+      "locators": 3,
+      "broken": 1,
+      "healedExpected": 0,
+      "correctHeals": 0,
+      "correctRefusals": 1,
+      "wrongHeals": 0,
+      "misses": 0,
+      "levelMatches": 0,
+      "healedGot": 0,
+      "brokenRunFailedTests": 1,
+      "brokenRunTotalTests": 2,
+      "finalPassed": 1,
+      "finalFailed": 1,
+      "expectedFailures": 1,
+      "finalOk": true,
+      "perLocator": [
+        {
+          "file": "tests/order.spec.ts",
+          "old": "page.locator('#submit-button')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        }
+      ],
+      "notes": []
     }
   ],
   "totals": {
-    "locators": 52,
-    "broken": 27,
+    "locators": 55,
+    "broken": 28,
     "healedExpected": 22,
     "correctHeals": 22,
-    "correctRefusals": 5,
+    "correctRefusals": 6,
     "wrongHeals": 0,
     "misses": 0,
     "levelMatches": 22

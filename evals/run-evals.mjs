@@ -42,6 +42,7 @@ const SUITES = [
   { name: 'orders-dashboard', port: 4183 },
   { name: 'account-settings', port: 4184 },
   { name: 'pricing-hostile', port: 4185 },
+  { name: 'hostile-mutation', port: 4186 },
 ];
 
 if (!fs.existsSync(cliJs)) {
@@ -187,8 +188,13 @@ function score(suite, expected, dry, brokenTests, finalTests) {
       }
     } else {
       if (g.status === 'refused') {
-        verdict = 'correct-refusal';
-        correctRefusals++;
+        if (e.reason && g.reason !== e.reason) {
+          verdict = 'wrong-reason';
+          notes.push(`WRONG REASON: ${e.old} refused with "${g.reason}", expected "${e.reason}"`);
+        } else {
+          verdict = 'correct-refusal';
+          correctRefusals++;
+        }
       } else if (g.status === 'healed') {
         verdict = 'wrong-heal';
         wrongHeals++;
@@ -302,5 +308,5 @@ const payload = { playwrightVersion, suites: results, totals };
 fs.writeFileSync(path.join(evalsDir, 'results.json'), JSON.stringify(payload, null, 2) + '\n');
 fs.writeFileSync(path.join(evalsDir, 'RESULTS.md'), renderMarkdown(results, totals));
 console.log('\nWrote evals/results.json and evals/RESULTS.md');
-const anyWrong = totals.wrongHeals > 0 || totals.misses > 0 || results.some((r) => !r.finalOk || r.notes.some((n) => n.startsWith('FIXTURE')));
+const anyWrong = totals.wrongHeals > 0 || totals.misses > 0 || results.some((r) => !r.finalOk || r.notes.some((n) => n.startsWith('FIXTURE') || n.startsWith('WRONG')));
 process.exitCode = anyWrong ? 1 : 0;

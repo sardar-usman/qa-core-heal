@@ -13,7 +13,8 @@ Expected refusals (no identity left to heal from) count as correct behavior.
 | orders-dashboard | 10 | 5 | 3/3 | 2/2 | 0 | 4/6 passed (2 expected failures) |
 | account-settings | 10 | 5 | 5/5 | 0/0 | 0 | 7/7 passed |
 | pricing-hostile | 10 | 6 | 3/3 | 3/3 | 0 | 3/6 passed (3 expected failures) |
-| **Total** | **52** | **27** | **22/22** | **5/5** | **0** | |
+| hostile-mutation | 3 | 1 | 0/0 | 1/1 | 0 | 1/2 passed (1 expected failure) |
+| **Total** | **55** | **28** | **22/22** | **6/6** | **0** | |
 
 Misses (expected heal, got refusal): 0
 Cascade level agreement (informational): 22/22 correct heals landed on the predicted level.

@@ -8,12 +8,12 @@ Your UI changed, your locators broke, your suite went red. qa-core-heal probes t
 
 ## The numbers
 
-Measured on 5 public eval suites in this repo (52 locators, 27 deliberately broken), Playwright 1.60:
+Measured on 6 public eval suites in this repo (55 locators, 28 deliberately broken), Playwright 1.60:
 
 | | |
 |---|---|
 | Healable breaks fixed and verified by a passing re-run | 22 / 22 |
-| Unhealable breaks correctly refused instead of guessed | 5 / 5 |
+| Unhealable breaks correctly refused instead of guessed | 6 / 6 |
 | Wrong heals (locator rewritten to the wrong element) | 0 |
 | Determinism | two full runs, byte-identical results |
 
@@ -67,6 +67,7 @@ Honesty about scope, so you are never surprised:
 2. It cannot see silent positional drift. If a list reorders, `li:nth-child(2)` still resolves, just to a different row, so heal reports it intact. Positional locators are fragile by nature; heal fixes broken ones, it does not audit passing ones.
 3. Hash-suffixed generated ids (`#manage-apps-3fc9a1`) heal only when the element offers a second identity: a role, a label, a semantic keyword. If the id was the only identity and it changed, heal refuses rather than guesses.
 4. It never commits. Applying approved diffs to your working tree is the maximum action. You review, you commit.
+5. Pages that mutate identity attributes faster than a probe can read them get a deterministic refusal, not a guess: evidence that changes while heal is looking at it is discarded, and if nothing stable confirms the match the locator is reported unhealable with an instability reason.
 
 ## How it chooses replacements
 

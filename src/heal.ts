@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { chromium, type Browser, type Page, type FrameLocator } from 'playwright';
+import { chromium, type Browser, type ElementHandle, type Page, type FrameLocator } from 'playwright';
 import { emitLocatorCall, type CascadeLevel, type Scope } from './selectors.js';
 import { healResolve } from './heal-resolve.js';
 import { installEvalShim } from './eval-shim.js';
@@ -385,38 +385,139 @@ function norm(s: string): string {
   return s.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-/** Semantic strings carried by a live element: accessible name sources + text + id. */
-async function elementSemantics(locator: ReturnType<typeof buildLocator>): Promise<string[]> {
-  return locator.first().evaluate((el) => {
-    const out: string[] = [];
-    const attrs = ['aria-label', 'placeholder', 'name', 'alt', 'title', 'value', 'data-testid', 'data-test'];
-    for (let i = 0; i < attrs.length; i++) {
-      const v = el.getAttribute(attrs[i]!);
-      if (v) out.push(v);
-    }
-    const inp = el as HTMLInputElement;
-    if (typeof inp.value === 'string' && inp.value) out.push(inp.value);
-    const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
-    if (t) out.push(t);
-    if (el.id) out.push(el.id);
-    return out;
-  }).catch(() => [] as string[]);
+/**
+ * How long the identity probe watches the element between its two reads.
+ * Long enough that any timer-driven attribute rewriting shows up, short
+ * enough to add no visible latency to a heal.
+ */
+const IDENTITY_WINDOW_MS = 45;
+
+interface IdentityProbe {
+  /** Keyed identity evidence at the start of the window. */
+  first: Array<[string, string]>;
+  /** The same evidence read again at the end of the window. */
+  second: Array<[string, string]>;
+  /** Evidence keys the MutationObserver saw change during the window. */
+  mutated: string[];
+  /**
+   * Values the MutationObserver saw pass through during the window (the
+   * oldValue of each mutation). Without these, two endpoint reads that land
+   * in the same phase of a fast flip would miss the other phase's value and
+   * the instability reason would itself be timing-dependent.
+   */
+  observed: Array<[string, string]>;
+}
+
+/**
+ * Read the element's identity evidence (accessible name sources + text + id)
+ * twice over a short window, with a MutationObserver bridging the gap so a
+ * value that flips and flips back between the reads is still caught. Runs on
+ * a pinned ElementHandle inside ONE evaluate call, so the same physical DOM
+ * node is read both times and nothing can be re-queried in between.
+ */
+async function probeIdentity(handle: ElementHandle<SVGElement | HTMLElement>): Promise<IdentityProbe> {
+  return handle.evaluate(async (el, windowMs) => {
+    const ATTRS = ['aria-label', 'placeholder', 'name', 'alt', 'title', 'value', 'data-testid', 'data-test'];
+    const read = (): Array<[string, string]> => {
+      const out: Array<[string, string]> = [];
+      for (let i = 0; i < ATTRS.length; i++) {
+        const v = el.getAttribute(ATTRS[i]!);
+        if (v) out.push(['attr:' + ATTRS[i], v]);
+      }
+      const inp = el as HTMLInputElement;
+      if (typeof inp.value === 'string' && inp.value) out.push(['prop:value', inp.value]);
+      const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (t) out.push(['text', t]);
+      if (el.id) out.push(['id', el.id]);
+      return out;
+    };
+    const mutated = new Set<string>();
+    const observed: Array<[string, string]> = [];
+    const observer = new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === 'attributes' && r.attributeName) {
+          let key: string | null = null;
+          if (r.attributeName === 'id') key = 'id';
+          else if (ATTRS.indexOf(r.attributeName) >= 0) key = 'attr:' + r.attributeName;
+          if (key) {
+            mutated.add(key);
+            if (r.oldValue) observed.push([key, r.oldValue]);
+          }
+        } else {
+          mutated.add('text');
+          if (r.type === 'characterData' && r.oldValue) observed.push(['text', r.oldValue]);
+        }
+      }
+    });
+    observer.observe(el, {
+      attributes: true, attributeOldValue: true,
+      childList: true, characterData: true, characterDataOldValue: true,
+      subtree: true,
+    });
+    const first = read();
+    await new Promise((res) => setTimeout(res, windowMs));
+    const second = read();
+    observer.disconnect();
+    return { first, second, mutated: Array.from(mutated), observed };
+  }, IDENTITY_WINDOW_MS);
+}
+
+interface ConfirmResult {
+  confirmed: boolean;
+  /** True when confirmation failed but a DISCARDED (unstable) value would have matched. */
+  unstableMatch: boolean;
 }
 
 /**
  * Confirm the re-resolved element is the SAME intended element: its accessible
  * name / text / label must still carry the original token. This is the guard
  * that makes a wrong heal (to a different element) fail instead of shipping.
+ *
+ * Identity evidence is read twice on a pinned handle with a mutation watch in
+ * between; any value that changed during the window is discarded before the
+ * match runs. Stable evidence confirms exactly as it always did. When the
+ * only evidence that would have matched was unstable, the caller refuses with
+ * a distinct instability reason instead of the generic wrong-element one, so
+ * the verdict on attribute-mutating pages is deterministic.
  */
-async function confirmSameElement(locator: ReturnType<typeof buildLocator>, token: string): Promise<boolean> {
+async function confirmSameElement(locator: ReturnType<typeof buildLocator>, token: string): Promise<ConfirmResult> {
   const nt = norm(token);
-  if (nt.length < 2) return false; // nothing specific enough to confirm against
-  const sem = await elementSemantics(locator);
-  return sem.some((s) => {
+  if (nt.length < 2) return { confirmed: false, unstableMatch: false }; // nothing specific enough to confirm against
+  const matches = (s: string): boolean => {
     const ns = norm(s);
     if (!ns) return false;
     return ns.includes(nt) || (ns.length >= 3 && nt.includes(ns));
-  });
+  };
+  const handle = await locator.first().elementHandle().catch(() => null);
+  if (!handle) return { confirmed: false, unstableMatch: false };
+  let probe: IdentityProbe;
+  try {
+    probe = await probeIdentity(handle);
+  } catch {
+    return { confirmed: false, unstableMatch: false };
+  } finally {
+    await handle.dispose().catch(() => undefined);
+  }
+  const secondByKey = new Map(probe.second);
+  const unstableKeys = new Set(probe.mutated);
+  const stable: string[] = [];
+  const discarded: string[] = [];
+  for (const [key, v1] of probe.first) {
+    const v2 = secondByKey.get(key);
+    if (!unstableKeys.has(key) && v2 === v1) {
+      stable.push(v1);
+    } else {
+      discarded.push(v1);
+      if (v2 != null && v2 !== v1) discarded.push(v2);
+    }
+  }
+  const firstKeys = new Set(probe.first.map(([k]) => k));
+  for (const [key, v2] of probe.second) {
+    if (!firstKeys.has(key)) discarded.push(v2);
+  }
+  for (const [, oldValue] of probe.observed) discarded.push(oldValue);
+  if (stable.some(matches)) return { confirmed: true, unstableMatch: false };
+  return { confirmed: false, unstableMatch: discarded.some(matches) };
 }
 
 /* ─────────────────────────── write-back ─────────────────────────── */
@@ -534,8 +635,14 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       }
       // 4. Confirm it is the SAME intended element, not just any loose match.
       const same = await confirmSameElement(resolved.locator, token);
-      if (!same) {
-        refuse(call, 're-resolved to a different element, not healing (would be wrong)', false);
+      if (!same.confirmed) {
+        refuse(
+          call,
+          same.unstableMatch
+            ? 'element identity attributes are unstable; cannot confirm the match'
+            : 're-resolved to a different element, not healing (would be wrong)',
+          false,
+        );
         continue;
       }
 

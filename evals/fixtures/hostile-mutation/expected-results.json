@@ -1,0 +1,6 @@
+{
+  "suite": "hostile-mutation",
+  "locators": [
+    { "file": "tests/order.spec.ts", "old": "page.locator('#submit-button')", "expect": "refused", "reason": "element identity attributes are unstable; cannot confirm the match", "test": "submits the order" }
+  ]
+}

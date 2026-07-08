@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Order actions</title>
+</head>
+<body>
+  <h1>Order actions</h1>
+  <button id="submit-btn-a1" title="Submit">Submit Order</button>
+  <button id="cancel-btn-b2" title="Cancel">Cancel Order</button>
+  <p data-testid="order-status">No order yet.</p>
+  <script>
+    var flip = false;
+    function rebind() {
+      var submitEl = document.getElementById('submit-btn-a1');
+      var cancelEl = document.getElementById('cancel-btn-b2');
+      if (submitEl) submitEl.onclick = function () {
+        document.querySelector('[data-testid="order-status"]').textContent = 'Order submitted.';
+      };
+      if (cancelEl) cancelEl.onclick = function () {
+        document.querySelector('[data-testid="order-status"]').textContent = 'Order cancelled.';
+      };
+    }
+    setInterval(function () {
+      flip = !flip;
+      var btns = document.querySelectorAll('button');
+      var b1 = btns[0], b2 = btns[1];
+      if (flip) {
+        b1.id = 'cancel-btn-b2'; b1.title = 'Cancel';
+        b2.id = 'submit-btn-a1'; b2.title = 'Submit';
+      } else {
+        b1.id = 'submit-btn-a1'; b1.title = 'Submit';
+        b2.id = 'cancel-btn-b2'; b2.title = 'Cancel';
+      }
+      rebind();
+    }, 1);
+    rebind();
+  </script>
+</body>
+</html>
