@@ -6,8 +6,10 @@
       "locators": 10,
       "broken": 5,
       "healedExpected": 5,
+      "intactExpected": 0,
       "correctHeals": 5,
       "correctRefusals": 0,
+      "correctIntact": 0,
       "wrongHeals": 0,
       "misses": 0,
       "levelMatches": 5,
@@ -82,8 +84,10 @@
       "locators": 12,
       "broken": 6,
       "healedExpected": 6,
+      "intactExpected": 0,
       "correctHeals": 6,
       "correctRefusals": 0,
+      "correctIntact": 0,
       "wrongHeals": 0,
       "misses": 0,
       "levelMatches": 6,
@@ -169,8 +173,10 @@
       "locators": 10,
       "broken": 5,
       "healedExpected": 3,
+      "intactExpected": 0,
       "correctHeals": 3,
       "correctRefusals": 2,
+      "correctIntact": 0,
       "wrongHeals": 0,
       "misses": 0,
       "levelMatches": 3,
@@ -245,8 +251,10 @@
       "locators": 10,
       "broken": 5,
       "healedExpected": 5,
+      "intactExpected": 0,
       "correctHeals": 5,
       "correctRefusals": 0,
+      "correctIntact": 0,
       "wrongHeals": 0,
       "misses": 0,
       "levelMatches": 5,
@@ -321,8 +329,10 @@
       "locators": 10,
       "broken": 6,
       "healedExpected": 3,
+      "intactExpected": 0,
       "correctHeals": 3,
       "correctRefusals": 3,
+      "correctIntact": 0,
       "wrongHeals": 0,
       "misses": 0,
       "levelMatches": 3,
@@ -408,8 +418,10 @@
       "locators": 3,
       "broken": 1,
       "healedExpected": 0,
+      "intactExpected": 0,
       "correctHeals": 0,
       "correctRefusals": 1,
+      "correctIntact": 0,
       "wrongHeals": 0,
       "misses": 0,
       "levelMatches": 0,
@@ -434,16 +446,309 @@
         }
       ],
       "notes": []
+    },
+    {
+      "suite": "fuzzy-typos",
+      "locators": 9,
+      "broken": 6,
+      "healedExpected": 2,
+      "intactExpected": 0,
+      "correctHeals": 2,
+      "correctRefusals": 4,
+      "correctIntact": 0,
+      "wrongHeals": 0,
+      "misses": 0,
+      "levelMatches": 2,
+      "healedGot": 2,
+      "brokenRunFailedTests": 6,
+      "brokenRunTotalTests": 7,
+      "finalPassed": 3,
+      "finalFailed": 4,
+      "expectedFailures": 4,
+      "finalOk": true,
+      "perLocator": [
+        {
+          "file": "tests/inventory.spec.ts",
+          "old": "page.locator('#quantiy-field')",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"textbox\", {\"name\":\"quantity\"})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/inventory.spec.ts",
+          "old": "page.locator('#export-button')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/inventory.spec.ts",
+          "old": "page.locator('#emai_l')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/inventory.spec.ts",
+          "old": "page.getByRole('textbox', { name: 'emial' })",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "role",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/spa.spec.ts",
+          "old": "page.getByRole('textbox', { name: 'search1' })",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"textbox\", {\"name\":\"search\"})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/spa-two.spec.ts",
+          "old": "page.getByRole('textbox', { name: 'search1' })",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "role",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "suite": "react-churn",
+      "locators": 3,
+      "broken": 2,
+      "healedExpected": 1,
+      "intactExpected": 0,
+      "correctHeals": 1,
+      "correctRefusals": 1,
+      "correctIntact": 0,
+      "wrongHeals": 0,
+      "misses": 0,
+      "levelMatches": 1,
+      "healedGot": 1,
+      "brokenRunFailedTests": 2,
+      "brokenRunTotalTests": 2,
+      "finalPassed": 1,
+      "finalFailed": 1,
+      "expectedFailures": 1,
+      "finalOk": true,
+      "perLocator": [
+        {
+          "file": "tests/search.spec.ts",
+          "old": "page.locator('[name=\"search_field_1\"]')",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"textbox\")",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/search.spec.ts",
+          "old": "page.locator('#search-panel-42')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "suite": "run-mode",
+      "locators": 11,
+      "broken": 11,
+      "healedExpected": 11,
+      "intactExpected": 0,
+      "correctHeals": 11,
+      "correctRefusals": 0,
+      "correctIntact": 0,
+      "wrongHeals": 0,
+      "misses": 0,
+      "levelMatches": 11,
+      "healedGot": 11,
+      "brokenRunTotalTests": 11,
+      "finalPassed": 11,
+      "finalFailed": 0,
+      "expectedFailures": 0,
+      "finalOk": true,
+      "scenariosPassed": 11,
+      "scenariosTotal": 11,
+      "perLocator": [
+        {
+          "scenario": "passing spec exits 0 with no probing",
+          "verdict": "pass",
+          "detail": "exit 0"
+        },
+        {
+          "scenario": "assertion failure reported as non-locator, no heal",
+          "verdict": "pass",
+          "detail": "exit 0"
+        },
+        {
+          "scenario": "locator failure heals and re-runs green (main-page URL, not the iframe)",
+          "verdict": "pass",
+          "detail": "exit 0, mainPageUrl true"
+        },
+        {
+          "scenario": "POM / role-options-style / css locator failures all heal end-to-end",
+          "verdict": "pass",
+          "detail": "exit 0, pom true, role true, css true, green true"
+        },
+        {
+          "scenario": "timeout+closed failure classified as locator and healed",
+          "verdict": "pass",
+          "detail": "exit 0, healed true, green true"
+        },
+        {
+          "scenario": "manual-browser failure heals via route inference without a trace",
+          "verdict": "pass",
+          "detail": "exit 0, healed true, green true"
+        },
+        {
+          "scenario": "two-imports-deep POM locator heals end-to-end",
+          "verdict": "pass",
+          "detail": "exit 0, healed true, green true"
+        },
+        {
+          "scenario": "unloadable config: heal succeeds purely from the trusted trace URL",
+          "verdict": "pass",
+          "detail": "exit 0, healed true, green true, trusted true, warned true"
+        },
+        {
+          "scenario": "authenticated probing: refuse+hint / heal with state / expired message",
+          "verdict": "pass",
+          "detail": "a true (exit 0), c true (exit 0), b exit 0, healed true, green true"
+        },
+        {
+          "scenario": "--auth-setup: login fn heals / throwing fails loud / silent no-auth reported",
+          "verdict": "pass",
+          "detail": "a true (exit 0), b true (exit 1), c true (exit 0), healed true, green true"
+        },
+        {
+          "scenario": "state-gated element: scan refuses, run mode heals on the failure URL",
+          "verdict": "pass",
+          "detail": "scan refused: true, run exit 0"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "suite": "demowebshop-pom",
+      "locators": 11,
+      "broken": 4,
+      "healedExpected": 3,
+      "intactExpected": 1,
+      "correctHeals": 3,
+      "correctRefusals": 1,
+      "correctIntact": 1,
+      "wrongHeals": 0,
+      "misses": 0,
+      "levelMatches": 3,
+      "healedGot": 3,
+      "brokenRunFailedTests": 4,
+      "brokenRunTotalTests": 8,
+      "finalPassed": 7,
+      "finalFailed": 1,
+      "expectedFailures": 1,
+      "finalOk": true,
+      "perLocator": [
+        {
+          "file": "pages/login-page.ts",
+          "old": "this.page.locator('#Email_1')",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "this.page.getByRole(\"textbox\", {\"name\":\"Email\"})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "pages/login-page.ts",
+          "old": "this.page.locator('#Emai_l')",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "this.page.getByRole(\"textbox\", {\"name\":\"Email\"})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "pages/login-page.ts",
+          "old": "this.page.getByRole('textbox', { name: 'Ema_il_2' })",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "this.page.getByRole(\"textbox\", {\"name\":\"Email\"})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "pages/register-page.ts",
+          "old": "this.page.locator('#register-button')",
+          "expect": "intact",
+          "got": "intact",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": true,
+          "verdict": "correct-intact"
+        },
+        {
+          "file": "pages/register-page.ts",
+          "old": "this.page.locator('.result')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        }
+      ],
+      "notes": []
     }
   ],
   "totals": {
-    "locators": 55,
-    "broken": 28,
-    "healedExpected": 22,
-    "correctHeals": 22,
-    "correctRefusals": 6,
+    "locators": 89,
+    "broken": 51,
+    "healedExpected": 39,
+    "intactExpected": 1,
+    "correctHeals": 39,
+    "correctRefusals": 12,
+    "correctIntact": 1,
     "wrongHeals": 0,
     "misses": 0,
-    "levelMatches": 22
+    "levelMatches": 39
   }
 }

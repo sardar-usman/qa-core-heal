@@ -1,0 +1,18 @@
+{
+  "suite": "react-churn",
+  "locators": [
+    {
+      "file": "tests/search.spec.ts",
+      "old": "page.locator('[name=\"search_field_1\"]')",
+      "expect": "healed",
+      "level": "role",
+      "test": "searches the catalog"
+    },
+    {
+      "file": "tests/search.spec.ts",
+      "old": "page.locator('#search-panel-42')",
+      "expect": "refused",
+      "test": "opens the search panel"
+    }
+  ]
+}

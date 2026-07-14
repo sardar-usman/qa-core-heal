@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Feedback widget</title>
+</head>
+<body>
+  <p>Send feedback</p>
+  <script>
+    // Keep the iframe alive in the trace: a mutation after load makes its
+    // frame snapshot the LAST one recorded, which is exactly how the
+    // last-snapshot heuristic picked the widget instead of the page.
+    setInterval(function () {
+      document.body.setAttribute('data-tick', String(Date.now() % 1000));
+    }, 100);
+  </script>
+</body>
+</html>

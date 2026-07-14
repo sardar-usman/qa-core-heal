@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Inventory</title>
+</head>
+<body>
+  <h1>Inventory</h1>
+  <!-- (b) The only "export" thing on the page is a LINK whose id is one
+       edit from the broken button id. Fuzzy finds it; the kind guard must
+       refuse to turn a button locator into a link. -->
+  <a href="/export.csv" id="export-buttn">Download CSV</a>
+  <form>
+    <!-- Positive case: one in-word typo away, exactly one candidate. -->
+    <label for="quantity-field">Quantity</label>
+    <input id="quantity-field" type="text" />
+    <!-- (c) Two elements carry the identical identifier the typo'd locator
+         normalizes to: refusing to pick is the only honest verdict. -->
+    <label for="contact-email">Contact email</label>
+    <input id="contact-email" name="email" type="text" />
+    <label for="backup-email">Backup email</label>
+    <input id="backup-email" name="email" type="text" />
+    <button id="save-inventory" type="submit">Save</button>
+    <button id="reset-form" type="button">Reset</button>
+  </form>
+</body>
+</html>

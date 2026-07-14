@@ -1,6 +1,6 @@
 # qa-core.config.json
 
-Lives in the repo root. Optional: when the file is absent the CLI falls back to the built-in defaults shown below (it does not create the file). `baseUrl` and `testDir` show example values; they have no built-in defaults, so without a config file you pass a spec path and `--base-url` on the command line.
+Lives in the repo root. Optional: when the file is absent the CLI falls back to the built-in defaults shown below (it does not create the file). `baseUrl` and `testDir` show example values; they have no built-in defaults. Without a config file you pass a spec path on the command line; the base URL is resolved automatically from the project's `playwright.config.ts/.js` (`use.baseURL`) or an absolute `page.goto()` in the specs, and `--base-url` is only needed when neither exists.
 
 ```json
 {

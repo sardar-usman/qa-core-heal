@@ -7,6 +7,8 @@ export interface QaCoreHealConfig {
   selectorPreference?: string[];
   pageObjects?: { enabled?: boolean; dir?: string };
   auth?: { storageState?: string };
+  /** "file#exportName" of a login function run before probing. */
+  authSetup?: string;
   heal?: { dryRunByDefault?: boolean; maxHealsPerRun?: number; verifyAfterApply?: boolean };
   audit?: { logPath?: string };
 }

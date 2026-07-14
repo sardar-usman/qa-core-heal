@@ -39,7 +39,9 @@ try {
   console.log(`\nplaywright exited with code ${t.status} (the failures are the point)\n`);
 
   console.log('STEP 2: heal in dry-run mode, proposed fixes only\n');
-  const h = spawnSync('node', [cliJs, '--dry-run'], {
+  // --scan: the demo already ran the suite in step 1; the static probe
+  // shows every locator's verdict without running the tests again.
+  const h = spawnSync('node', [cliJs, '--scan', '--dry-run'], {
     cwd: exampleDir,
     stdio: 'inherit',
   });

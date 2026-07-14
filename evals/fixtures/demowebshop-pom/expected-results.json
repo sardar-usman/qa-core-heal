@@ -1,0 +1,40 @@
+{
+  "suite": "demowebshop-pom",
+  "locators": [
+    {
+      "file": "pages/login-page.ts",
+      "old": "this.page.locator('#Email_1')",
+      "expect": "healed",
+      "level": "role",
+      "test": "fills the login email"
+    },
+    {
+      "file": "pages/login-page.ts",
+      "old": "this.page.locator('#Emai_l')",
+      "expect": "healed",
+      "level": "role",
+      "test": "fills the login email via legacy id"
+    },
+    {
+      "file": "pages/login-page.ts",
+      "old": "this.page.getByRole('textbox', { name: 'Ema_il_2' })",
+      "expect": "healed",
+      "level": "role",
+      "test": "fills the login email via mutated role name"
+    },
+    {
+      "file": "pages/register-page.ts",
+      "old": "this.page.locator('#register-button')",
+      "expect": "intact",
+      "mustNotContain": "getByRole(\"link\"",
+      "test": "shows the register form"
+    },
+    {
+      "file": "pages/register-page.ts",
+      "old": "this.page.locator('.result')",
+      "expect": "refused",
+      "reason": "not found on route /register: element may be state-dependent (selector token \"result\" suggests it appears only after user actions); static healing cannot verify it",
+      "test": "shows the registration result"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "testDir": "tests",
+  "pageObjects": { "enabled": true },
+  "audit": { "logPath": ".qa-core/heal-log.jsonl" }
+}
