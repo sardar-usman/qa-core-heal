@@ -41,6 +41,8 @@ export interface ResolvedLocator {
   arg: string | { role: string; name?: string; exact?: boolean };
   /** True when the cascade had to take `.first()` of multiple matches. */
   ambiguous: boolean;
+  /** Ambiguous only: the un-first()ed locator, so callers can NAME the candidates. */
+  allMatches?: Locator;
   /**
    * Chain of iframe selectors (outer→inner) the element lives behind. Empty /
    * undefined means the element is in the top frame. When set, replay and the
@@ -461,7 +463,7 @@ async function resolveInScope(page: Scope, spec: ResolveSpec): Promise<ResolvedL
     const priority: CascadeLevel[] = ['role', 'label', 'placeholder', 'text', 'alt', 'title', 'testid', 'css', 'xpath'];
     ambiguousCandidates.sort((a, b) => priority.indexOf(a.level) - priority.indexOf(b.level));
     const best = ambiguousCandidates[0]!;
-    return { locator: best.locator.first(), level: best.level, arg: best.arg, ambiguous: true };
+    return { locator: best.locator.first(), level: best.level, arg: best.arg, ambiguous: true, allMatches: best.locator };
   }
 
   return null;

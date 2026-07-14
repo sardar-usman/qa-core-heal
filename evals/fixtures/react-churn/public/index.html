@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Search console</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    // SPA-style churn: the whole tree is REPLACED on an interval — every
+    // node is new, the logical content identical (a React re-render).
+    // Input values survive re-renders, like controlled components.
+    function render() {
+      var prev = document.querySelector('[name="search_field"]');
+      var val = prev ? prev.value : '';
+      document.getElementById('root').innerHTML =
+        '<h1>Search console</h1>' +
+        '<form>' +
+        '<label>Search <input name="search_field" type="text" /></label>' +
+        '<button type="submit">Run search</button>' +
+        '</form>' +
+        '<a href="/help">Help center</a>';
+      document.querySelector('[name="search_field"]').value = val;
+    }
+    render();
+    setInterval(render, 150);
+  </script>
+</body>
+</html>

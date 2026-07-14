@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Lookup panel</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    // Same churn, different control: the only search-ish element here is a
+    // DIFFERENT control than what the broken locator meant — re-resolution
+    // must refuse, naming the mismatch.
+    function render() {
+      document.getElementById('root').innerHTML =
+        '<h1>Lookup panel</h1>' +
+        '<input type="search" id="global-lookup" aria-label="Global lookup" />';
+    }
+    render();
+    setInterval(render, 150);
+  </script>
+</body>
+</html>

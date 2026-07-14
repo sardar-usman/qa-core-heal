@@ -4,3 +4,6 @@ dist/
 test-results/
 .qa-core/
 *.tgz
+.tmp-test-*
+.auth/
+.env

@@ -1,0 +1,46 @@
+{
+  "suite": "fuzzy-typos",
+  "locators": [
+    {
+      "file": "tests/inventory.spec.ts",
+      "old": "page.locator('#quantiy-field')",
+      "expect": "healed",
+      "level": "role",
+      "test": "sets the quantity"
+    },
+    {
+      "file": "tests/inventory.spec.ts",
+      "old": "page.locator('#export-button')",
+      "expect": "refused",
+      "reason": "kind mismatch: expected button, candidate is link",
+      "test": "downloads the export"
+    },
+    {
+      "file": "tests/inventory.spec.ts",
+      "old": "page.locator('#emai_l')",
+      "expect": "refused",
+      "reason": "ambiguous on route /: several close matches (#contact-email, #backup-email), refusing to guess",
+      "test": "fills the contact email"
+    },
+    {
+      "file": "tests/inventory.spec.ts",
+      "old": "page.getByRole('textbox', { name: 'emial' })",
+      "expect": "refused",
+      "reason": "ambiguous on route /: several close matches (#contact-email, #backup-email), refusing to guess",
+      "test": "fills the contact email by role"
+    },
+    {
+      "file": "tests/spa.spec.ts",
+      "old": "page.getByRole('textbox', { name: 'search1' })",
+      "expect": "healed",
+      "level": "role",
+      "test": "searches accounts"
+    },
+    {
+      "file": "tests/spa-two.spec.ts",
+      "old": "page.getByRole('textbox', { name: 'search1' })",
+      "expect": "refused",
+      "test": "searches amounts"
+    }
+  ]
+}

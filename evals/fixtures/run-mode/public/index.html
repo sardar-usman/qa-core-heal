@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Orders home</title>
+</head>
+<body>
+  <h1>Orders home</h1>
+  <p id="status">Ready</p>
+  <form>
+    <label for="quantity">Quantity</label>
+    <input id="quantity" type="text" />
+  </form>
+  <!-- The details page is only reached by clicking through; specs never
+       goto it directly, so static route inference cannot see it. -->
+  <a href="/details.html" id="open-details">Open details</a>
+  <!-- Third-party iframe (different origin, like Vercel Live's feedback
+       widget): its frame snapshots must never be mistaken for the page. -->
+  <iframe src="http://127.0.0.1:4189/widget.html" title="feedback widget" width="200" height="60"></iframe>
+</body>
+</html>
