@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Normalization — ajax</title>
+</head>
+<body>
+  <h1>Deferred data</h1>
+  <!-- The uitestingplayground.com/ajax shape: the class was dropped, the
+       camelCase id remains. The broken locator .ajaxButton must confirm
+       against id "ajaxButton" — glued/camel/snake/spaced forms are the
+       same identity. -->
+  <button id="ajaxButton" type="button"
+    onclick="document.getElementById('status').textContent = 'Data loaded'">Button Triggering AJAX Request</button>
+  <p id="status"></p>
+</body>
+</html>

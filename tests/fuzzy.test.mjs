@@ -135,6 +135,74 @@ test('token containment on id-ish values requires real coverage (the .result gua
   assert.equal(r2.kind, 'match');
 });
 
+// 0.2.1 ITEM 5: exact stripped-identifier equality on an identity attribute
+// (id / name / data-testid) outranks token containment. "content" IS
+// #content and only a sub-token of #footer-content — that is not a tie.
+test('exact identifier equality on an id beats containment on a longer id', () => {
+  const r = matchFuzzy('content', [
+    { display: '#content', values: ['content'], attrOf: { content: 'id' } },
+    { display: '#footer-content', values: ['footer-content'], attrOf: { 'footer-content': 'id' } },
+  ]);
+  assert.equal(r.kind, 'match');
+  assert.equal(r.candidate.display, '#content');
+});
+
+test('exact equality works through the stripped form (glued digit suffix)', () => {
+  const r = matchFuzzy('search1', [
+    { display: '#search', values: ['search'], attrOf: { search: 'id' } },
+    { display: '#search-accounts', values: ['search-accounts'], attrOf: { 'search-accounts': 'id' } },
+  ]);
+  assert.equal(r.kind, 'match');
+  assert.equal(r.candidate.display, '#search');
+});
+
+test('two candidates BOTH exact-equal after stripping still refuse, both named', () => {
+  const r = matchFuzzy('search-box', [
+    { display: '#search_box', values: ['search_box'], attrOf: { search_box: 'id' } },
+    { display: '#searchBox', values: ['searchBox'], attrOf: { searchBox: 'id' } },
+  ]);
+  assert.equal(r.kind, 'ambiguous');
+  assert.deepEqual(r.displays, ['#search_box', '#searchBox']);
+});
+
+test('exact equality on a non-identity attribute does not break ties', () => {
+  // Only id / name / data-testid values carry tie-breaking identity.
+  const r = matchFuzzy('content', [
+    { display: '"content"', values: ['content'], attrOf: { content: 'text' } },
+    { display: '#footer-content', values: ['footer-content'], attrOf: { 'footer-content': 'id' } },
+  ]);
+  assert.equal(r.kind, 'ambiguous');
+});
+
+// 0.2.1 ITEM 3: prefix completion — the identifier as a whole prefix of
+// exactly one candidate token scores above the fuzzy band (0.8), below
+// token containment (0.9). Minimum 4 normalized chars.
+test('a whole-prefix identifier heals to its single completion', () => {
+  const r = matchFuzzy('search_f', [
+    { display: '[name="search_field"]', values: ['search_field'], attrOf: { search_field: 'name' } },
+    { display: '[name="order_notes"]', values: ['order_notes'], attrOf: { order_notes: 'name' } },
+  ]);
+  assert.equal(r.kind, 'match');
+  assert.equal(r.value, 'search_field');
+  assert.ok(r.score >= 0.8 && r.score < 0.9, `score ${r.score}`);
+});
+
+test('two prefix completions refuse as ambiguous, both named', () => {
+  const r = matchFuzzy('search_f', [
+    { display: '[name="search_field"]', values: ['search_field'], attrOf: { search_field: 'name' } },
+    { display: '[name="search_filter"]', values: ['search_filter'], attrOf: { search_filter: 'name' } },
+  ]);
+  assert.equal(r.kind, 'ambiguous');
+  assert.deepEqual(r.displays, ['[name="search_field"]', '[name="search_filter"]']);
+});
+
+test('prefixes shorter than 4 normalized chars carry no signal', () => {
+  const r = matchFuzzy('se_a', [
+    { display: '[name="search_field"]', values: ['search_field'], attrOf: { search_field: 'name' } },
+  ]);
+  assert.notEqual(r.kind, 'match');
+});
+
 test('nothing similar at all yields none', () => {
   const r = matchFuzzy('result', [
     el('#register-button', 'register-button'),

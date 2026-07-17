@@ -1,0 +1,66 @@
+{
+  "suite": "tag-typos",
+  "locators": [
+    {
+      "file": "tests/one.spec.ts",
+      "old": "page.locator('buttons.btn.btn-primary')",
+      "expect": "healed",
+      "level": "css-tag-fix",
+      "test": "clicks the primary action"
+    },
+    {
+      "file": "tests/one.spec.ts",
+      "old": "page.locator('#click-note')",
+      "expect": "intact",
+      "test": "clicks the primary action"
+    },
+    {
+      "file": "tests/two.spec.ts",
+      "old": "page.locator('buttons.btn.btn-primary')",
+      "expect": "refused",
+      "reason": "not found on route /two.html: no matching or similar element on the probed page. The element may have been removed, renamed beyond recognition, or may only appear after user actions; compound CSS selectors carry little recoverable identity (utility classes describe styling, not which element this is); consider getByRole or a data-testid",
+      "test": "picks a draft action"
+    },
+    {
+      "file": "tests/none.spec.ts",
+      "old": "page.locator('button.btn.btn-primary')",
+      "expect": "refused",
+      "reason": "not found on route /none.html: no matching or similar element on the probed page. The element may have been removed, renamed beyond recognition, or may only appear after user actions; compound CSS selectors carry little recoverable identity (utility classes describe styling, not which element this is); consider getByRole or a data-testid",
+      "test": "clicks the missing primary action"
+    },
+    {
+      "file": "tests/dashed.spec.ts",
+      "old": "page.locator('button-1.btn.btn-primary')",
+      "expect": "refused",
+      "reason": "not found on route /none.html: 'button-1' may be a custom element (dashed tag names are spec-legal) or a typo; if it's a typo, correct it directly - closest valid tag: 'button'",
+      "test": "clicks the dashed primary action"
+    },
+    {
+      "file": "tests/dashed-one.spec.ts",
+      "old": "page.locator('buttons-1.btn.btn-primary')",
+      "expect": "refused",
+      "reason": "not found on route /: 'buttons-1' may be a custom element (dashed tag names are spec-legal) or a typo; if it's a typo, correct it directly",
+      "test": "clicks the dashed action on the one-button page"
+    },
+    {
+      "file": "tests/underscore.spec.ts",
+      "old": "page.locator('buttons_1.btn.btn-primary')",
+      "expect": "healed",
+      "level": "css-tag-fix",
+      "test": "clicks the primary action via the underscored selector"
+    },
+    {
+      "file": "tests/underscore.spec.ts",
+      "old": "page.locator('#click-note')",
+      "expect": "intact",
+      "test": "clicks the primary action via the underscored selector"
+    },
+    {
+      "file": "tests/underscore-two.spec.ts",
+      "old": "page.locator('buttons_1.btn.btn-primary')",
+      "expect": "refused",
+      "reason": "not found on route /two.html: no matching or similar element on the probed page. The element may have been removed, renamed beyond recognition, or may only appear after user actions; compound CSS selectors carry little recoverable identity (utility classes describe styling, not which element this is); consider getByRole or a data-testid",
+      "test": "picks a draft action via the underscored selector"
+    }
+  ]
+}

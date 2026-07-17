@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Dynamic console</title>
+</head>
+<body>
+  <h1>Dynamic console</h1>
+  <!-- The uitestingplayground.com/dynamicid shape: the id is random on
+       EVERY load. An id-based heal would pass its re-run and break the
+       next load — the self-certifying trap. Only the accessible name is
+       stable identity here. -->
+  <button type="button">Perform Action</button>
+  <p id="dyn-note"></p>
+  <script>
+    const b = document.querySelector('button');
+    b.id = 'btn-' + crypto.randomUUID();
+    b.addEventListener('click', () => {
+      document.getElementById('dyn-note').textContent = 'performed';
+    });
+  </script>
+</body>
+</html>

@@ -11,6 +11,14 @@
     <label for="quantity">Quantity</label>
     <input id="quantity" type="text" />
   </form>
+  <!-- Exactly ONE button carrying utility classes: the count-compound
+       scenario's tag-typo'd selector (buttons.btn.btn-primary) corrects
+       to button.btn.btn-primary and must resolve uniquely here. -->
+  <button class="btn btn-primary" type="button">Primary action</button>
+  <!-- TWO chips: toHaveCount(1) on .info-chip fails with actual count 2 —
+       found some, wrong number — which must stay a non-locator failure. -->
+  <span class="info-chip">Alpha</span>
+  <span class="info-chip">Beta</span>
   <!-- The details page is only reached by clicking through; specs never
        goto it directly, so static route inference cannot see it. -->
   <a href="/details.html" id="open-details">Open details</a>

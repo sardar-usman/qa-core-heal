@@ -41,7 +41,7 @@ Run the heal engine in dry-run mode against each broken spec:
 npm run heal -- <spec-path> --base-url <baseURL> --dry-run
 ```
 
-Run with --json for parseable output. Each proposed heal carries the cascade level it resolved at (role, label, placeholder, text, alt, title, testid, css, xpath) and an ambiguous flag. Collect them all before showing the user anything.
+Run with --json for parseable output. Each proposed heal carries the cascade level it resolved at (role, label, placeholder, text, alt, title, testid, css, css-tag-fix, xpath) and an ambiguous flag (css-tag-fix means a compound CSS selector whose typo'd tag token was corrected, e.g. buttons.btn.btn-primary → button.btn.btn-primary). Collect them all before showing the user anything.
 
 ### Step 4: Present the diff
 

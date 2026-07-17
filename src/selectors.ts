@@ -22,7 +22,13 @@ import type { FrameLocator, Locator, Page } from '@playwright/test';
  * never a ">>>" piercing selector.
  */
 
-export type CascadeLevel = 'role' | 'label' | 'placeholder' | 'text' | 'alt' | 'title' | 'testid' | 'css' | 'xpath';
+/**
+ * 'css-tag-fix' is heal-only, never produced by the cascade: a compound CSS
+ * selector whose typo'd tag token was corrected against the known element
+ * names ("buttons.btn.btn-primary" → "button.btn.btn-primary"). Its emitted
+ * call is a plain .locator(css).
+ */
+export type CascadeLevel = 'role' | 'label' | 'placeholder' | 'text' | 'alt' | 'title' | 'testid' | 'css' | 'css-tag-fix' | 'xpath';
 
 /**
  * A cascade scope: the top page or a frame. FrameLocator exposes the same
@@ -569,6 +575,7 @@ export function emitLocatorCall(
     case 'testid':
       return `${root}.getByTestId(${JSON.stringify(arg as string)})${tail}`;
     case 'css':
+    case 'css-tag-fix':
       return `${root}.locator(${JSON.stringify(arg as string)})${tail}`;
     case 'xpath':
       return `${root}.locator(${JSON.stringify(`xpath=${arg as string}`)})${tail}`;

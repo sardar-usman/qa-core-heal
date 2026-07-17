@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Archive</title>
+</head>
+<body>
+  <h1>Archive console</h1>
+  <!-- v1 of the rot scenario: ONE element carries this aria-label. The
+       harness mutates this file mid-scenario to add a duplicate, modeling
+       a page that gains a second identical identity AFTER a heal. -->
+  <button id="archive-order" type="button" aria-label="Archive order"
+    onclick="document.getElementById('rot-note').textContent = 'archived'">Archive</button>
+  <p id="rot-note"></p>
+</body>
+</html>

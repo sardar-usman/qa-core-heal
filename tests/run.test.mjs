@@ -47,10 +47,18 @@ test('assertion timeout on a MISSING element is a locator failure', () => {
   assert.equal(c.selector, "locator('#Email_1')");
 });
 
-test('strict mode violation is a locator failure', () => {
+test('strict mode violation is a locator failure and carries the strict flag', () => {
   const c = classifyFailure(STRICT_VIOLATION);
   assert.equal(c.kind, 'locator');
   assert.equal(c.selector, "locator('.ico-cart')");
+  // 0.2.1 ITEM 7: strict evidence must survive classification so the probe
+  // knows a multi-match is the FAILURE, not an intact locator.
+  assert.equal(c.strict, true);
+});
+
+test('non-strict locator failures do not carry the strict flag', () => {
+  assert.notEqual(classifyFailure(ACTION_TIMEOUT).strict, true);
+  assert.notEqual(classifyFailure(ASSERT_NOT_FOUND).strict, true);
 });
 
 test('navigation and app errors are not locator failures', () => {
@@ -87,6 +95,41 @@ test('selector matching is structural, not textual', () => {
   assert.equal(selectorSignature('locator("#x")'), selectorSignature("locator('#x')"));
   assert.notEqual(selectorSignature("getByLabel('Q')"), selectorSignature("getByText('Q')"));
   assert.equal(selectorSignature('not a selector'), null);
+});
+
+// 0.2.1 ITEM 6: the canonical structure must cover ALL getByRole options,
+// insensitive to property order, quote style, and boolean representation.
+test('getByRole signatures cover every option property, order-insensitively', () => {
+  const sig = selectorSignature;
+  // Property order never matters.
+  assert.equal(
+    sig("getByRole('button', { exact: true, name: 'Go' })"),
+    sig('getByRole("button", {"name":"Go","exact":true})'),
+  );
+  // Multi-option objects, reordered and re-quoted.
+  assert.equal(
+    sig("getByRole('button', { name: 'Go', pressed: true, exact: true })"),
+    sig('getByRole("button", {"exact":true,"pressed":true,"name":"Go"})'),
+  );
+  // checked:false is MEANINGFUL (an unchecked checkbox), never dropped.
+  assert.notEqual(sig("getByRole('checkbox', { checked: false })"), sig("getByRole('checkbox')"));
+  assert.notEqual(
+    sig("getByRole('checkbox', { checked: true })"),
+    sig("getByRole('checkbox', { checked: false })"),
+  );
+  // exact:false IS the default: canonically equal to leaving it out.
+  assert.equal(
+    sig("getByRole('button', { name: 'Go', exact: false })"),
+    sig("getByRole('button', { name: 'Go' })"),
+  );
+  // level is part of the identity.
+  assert.equal(sig("getByRole('heading', { level: 2 })"), sig('getByRole("heading", {"level":2})'));
+  assert.notEqual(sig("getByRole('heading', { level: 2 })"), sig("getByRole('heading', { level: 3 })"));
+  // The real-world 0.2.1 shape matches itself across renderings.
+  assert.equal(
+    sig("getByRole('link', { name: 'Button Triggering AJAX Request', exact: true })"),
+    sig('getByRole("link", {\n      name: "Button Triggering AJAX Request",\n      exact: true,\n    })'),
+  );
 });
 
 test('collectTests extracts failure locations from error.location and the stack', () => {
@@ -182,6 +225,39 @@ test('collectTests joins evidence from ALL errors of a result', () => {
   assert.equal(c.selector, "locator('#quantiy')");
   // ...and the secondary error's location is captured.
   assert.deepEqual(t.locations, [{ file: '/proj/tests/timeout-shape.spec.ts', line: 12 }]);
+});
+
+// 0.2.1 ITEM 1: count/existence matchers failing because ZERO elements
+// matched are locator evidence — nothing matched, which is the definition
+// of a broken locator. Real shapes captured from Playwright 1.60.
+const COUNT_ZERO = 'Error: expect(locator).toHaveCount(expected) failed\n\nLocator:  locator(\'buttons.btn.btn-primary\')\nExpected: 1\nReceived: 0\nTimeout:  1500ms\n\nCall log:\n  - Expect "toHaveCount" with timeout 1500ms\n  - waiting for locator(\'buttons.btn.btn-primary\')\n    16 × locator resolved to 0 elements\n       - unexpected value "0"\n';
+const COUNT_TWO = 'Error: expect(locator).toHaveCount(expected) failed\n\nLocator:  locator(\'.info-chip\')\nExpected: 1\nReceived: 2\nTimeout:  1500ms\n\nCall log:\n  - Expect "toHaveCount" with timeout 1500ms\n  - waiting for locator(\'.info-chip\')\n    16 × locator resolved to 2 elements\n       - unexpected value "2"\n';
+const VISIBLE_MISSING = 'Error: expect(locator).toBeVisible() failed\n\nLocator: locator(\'#nope\')\nExpected: visible\nTimeout: 1500ms\nError: element(s) not found\n\nCall log:\n  - Expect "toBeVisible" with timeout 1500ms\n  - waiting for locator(\'#nope\')\n';
+const ATTACHED_MISSING = 'Error: expect(locator).toBeAttached() failed\n\nLocator: locator(\'#nope\')\nExpected: attached\nTimeout: 1500ms\nError: element(s) not found\n\nCall log:\n  - Expect "toBeAttached" with timeout 1500ms\n  - waiting for locator(\'#nope\')\n';
+const INVIEWPORT_MISSING = 'Error: expect(locator).toBeInViewport() failed\n\nLocator: locator(\'#nope\')\nExpected: in viewport\nTimeout: 1500ms\nError: element(s) not found\n\nCall log:\n  - Expect "toBeInViewport" with timeout 1500ms\n  - waiting for locator(\'#nope\')\n';
+const TEXT_MISMATCH_FOUND = 'Error: expect(locator).toHaveText(expected) failed\n\nLocator:  locator(\'#status\')\nExpected: "Done"\nReceived: "Ready"\nTimeout:  1500ms\n\nCall log:\n  - Expect "toHaveText" with timeout 1500ms\n  - waiting for locator(\'#status\')\n    16 × locator resolved to <p id="status">Ready</p>\n       - unexpected value "Ready"\n';
+
+test('toHaveCount with actual count 0 is a locator failure (nothing matched)', () => {
+  const c = classifyFailure(COUNT_ZERO);
+  assert.equal(c.kind, 'locator');
+  assert.equal(c.selector, "locator('buttons.btn.btn-primary')");
+});
+
+test('toHaveCount with actual count > 0 stays non-locator (found some, wrong number)', () => {
+  const c = classifyFailure(COUNT_TWO);
+  assert.equal(c.kind, 'other');
+});
+
+test('existence matchers on a missing element are locator failures', () => {
+  for (const msg of [VISIBLE_MISSING, ATTACHED_MISSING, INVIEWPORT_MISSING]) {
+    const c = classifyFailure(msg);
+    assert.equal(c.kind, 'locator');
+    assert.equal(c.selector, "locator('#nope')");
+  }
+});
+
+test('value matcher mismatch on a FOUND element stays non-locator (regression)', () => {
+  assert.equal(classifyFailure(TEXT_MISMATCH_FOUND).kind, 'other');
 });
 
 test('parseJsonReport survives config noise containing braces (dotenv tip line)', () => {

@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Shadow DOM — open root</title>
+</head>
+<body>
+  <!-- The uitestingplayground.com/shadowdom shape: the target button lives
+       in an OPEN shadow root; the light DOM only has the heading (the
+       pre-fix near-miss) and an unrelated button (so the nameless
+       getByRole('button') ladder step stays ambiguous and the fuzzy scan
+       must supply the shadow candidate). -->
+  <h1>GUID Generator:</h1>
+  <button id="copyAction" type="button">Copy link</button>
+  <div id="host"></div>
+  <p id="status"></p>
+  <script>
+    const root = document.getElementById('host').attachShadow({ mode: 'open' });
+    root.innerHTML = '<button id="buttonGenerate" type="button">Generate GUID</button>';
+    root.getElementById('buttonGenerate').addEventListener('click', () => {
+      document.getElementById('status').textContent = 'generated';
+    });
+  </script>
+</body>
+</html>

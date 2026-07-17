@@ -1,0 +1,6 @@
+{
+  "baseUrl": "http://127.0.0.1:4192/",
+  "testDir": "tests",
+  "pageObjects": { "enabled": true },
+  "audit": { "logPath": ".qa-core/heal-log.jsonl" }
+}

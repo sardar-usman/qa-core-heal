@@ -21,14 +21,18 @@ import { classifyFailure, collectTests, parseConsent, parseJsonReport, traceFail
  *                [--dry-run | --apply] [--yes|-y] [--json] [--audit-log <path>]
  *                [--max-heals <n>] [--verify | --no-verify]
  *
- * --auth-setup <file>#<export> (default export when #export is omitted;
- * also settable as authSetup in qa-core.config.json) runs the user's OWN
- * login function against a fresh page in the probing context before
- * probing: `await fn(page)`. It takes precedence over --storage-state. A
- * throw or timeout (60s default, --auth-setup-timeout <seconds>) fails the
- * run loudly — never a silent unauthenticated probe. Only file paths,
- * export names, and pass/fail are logged; credentials, cookie values, and
- * storage contents never are.
+ * --auth-setup <file>#<export> (or <file>:<export>, zsh-friendly; default
+ * export when no separator; also settable as authSetup in
+ * qa-core.config.json) runs the user's OWN login function against a fresh
+ * page in the probing context before probing: `await fn(page)`. When a
+ * storage state is ALSO present (flag, config, or auto-detected), the
+ * saved session is used first — fast, runs no user code — and the auth
+ * setup is the automatic fallback when that session turns out expired
+ * ("saved session expired; falling back to auth setup"); never the
+ * reverse direction. A throw or timeout (60s default,
+ * --auth-setup-timeout <seconds>) fails the run loudly — never a silent
+ * unauthenticated probe. Only file paths, export names, and pass/fail are
+ * logged; credentials, cookie values, and storage contents never are.
  *
  * Authenticated pages: --storage-state <path> probes with Playwright's
  * storageState (auto-detected from the playwright config's use.storageState
@@ -47,12 +51,13 @@ import { classifyFailure, collectTests, parseConsent, parseJsonReport, traceFail
  * Default (run-first) mode: run the spec(s) with Playwright first. All
  * green means nothing to do — no scanning, no probing. On failures, each
  * one is classified: locator failures (timeout waiting for a locator,
- * element not found, strict mode violation) are healed by probing ONLY the
- * failing selectors on the page URL each test was on when it failed (from
- * the trace); everything else (assertion value mismatch on a found element,
- * navigation/network errors, thrown app errors) is reported as not a
- * locator problem and never healed. After applying, only the previously
- * failing tests are re-run to verify.
+ * element not found, strict mode violation, a count/existence assertion
+ * that found ZERO elements) are healed by probing ONLY the failing
+ * selectors on the page URL each test was on when it failed (from the
+ * trace); everything else (assertion value mismatch on a found element,
+ * count mismatch with actual > 0, navigation/network errors, thrown app
+ * errors) is reported as not a locator problem and never healed. After
+ * applying, only the previously failing tests are re-run to verify.
  *
  * --scan mode: the static probe — no test execution, every locator in the
  * spec and its page objects probed on its inferred route. For audits and
@@ -512,6 +517,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
         url: url ?? undefined,
         test: t.title,
         locations: t.locations,
+        strict: c.strict,
       });
       locatorTests.push(t);
       say(`  → ${t.title} — locator failure: ${c.selector}${url ? `  (page: ${url})` : ''}`);

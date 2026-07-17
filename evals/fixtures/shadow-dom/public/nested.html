@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Shadow DOM — nested roots</title>
+</head>
+<body>
+  <!-- Shadow-in-shadow: the field lives two open roots deep. The light-DOM
+       input keeps the nameless textbox ladder step ambiguous, so the heal
+       must come from the recursive candidate scan. -->
+  <h1>Editor</h1>
+  <input id="noteField" type="text" aria-label="Notes" />
+  <div id="outer-host"></div>
+  <script>
+    const outer = document.getElementById('outer-host').attachShadow({ mode: 'open' });
+    outer.innerHTML = '<h2>Panel</h2><div id="inner-host"></div>';
+    const inner = outer.getElementById('inner-host').attachShadow({ mode: 'open' });
+    inner.innerHTML = '<input id="editField" type="text" />';
+  </script>
+</body>
+</html>
