@@ -96,7 +96,7 @@ A login that throws or hangs (60s default, `--auth-setup-timeout <seconds>`) fai
 
 **2. Saved sessions: `--storage-state <path>`.**
 
-Playwright's storage-state file (or `auth.storageState` in qa-core.config.json) — the right fit for CI and the standard save-auth pattern: a setup script that logs in once and writes `context.storageState({ path: '.auth/state.json' })`. With neither flag set, heal auto-detects: `use.storageState` from your playwright config, then `.auth/state.json` / `playwright/.auth/user.json` if present, announcing `using storage state from <path>`. Detection finding nothing just probes unauthenticated. An expired session is diagnosed, not papered over:
+Playwright's storage-state file (or `auth.storageState` in qa-core.config.json) — the right fit for CI and the standard save-auth pattern: a setup script that logs in once and writes `context.storageState({ path: '.auth/state.json' })`. With neither flag set, heal auto-detects: `use.storageState` from your playwright config, then `.auth/state.json` / `playwright/.auth/user.json` if present, announcing `using storage state from <path>`. Detection finding nothing just probes unauthenticated. When both are configured, the saved session is used first — it is fast and runs no user code — and an expired session automatically falls back to your login function (`saved session expired; falling back to auth setup`), never the reverse. Without an auth setup configured, an expired session is diagnosed, not papered over:
 
 ```text
 storage state was applied but /accounts still redirected to /login; the saved
@@ -111,9 +111,13 @@ And when `--auth-setup` ran but the redirect still happens: `auth setup ran but 
 
 ## How it decides
 
-**Failure classification is evidence-based.** A failure is a locator problem only when the evidence says so — a `locator.<action>:` / `expect.<matcher>:` prefix, a call-log `waiting for locator(...)` line, an `element(s) not found`, a strict mode violation — anywhere in the error, even when the top-level message is a test timeout or "Target page, context or browser has been closed". A locator that RESOLVED to a real element whose value merely mismatched is an app problem: `not a locator problem, healing won't fix this`. Navigation errors, thrown app errors, and timeouts with no pending locator action are reported, never healed.
+**Failure classification is evidence-based.** A failure is a locator problem only when the evidence says so — a `locator.<action>:` / `expect.<matcher>:` prefix, a call-log `waiting for locator(...)` line, an `element(s) not found`, a strict mode violation — anywhere in the error, even when the top-level message is a test timeout or "Target page, context or browser has been closed". A count/existence assertion (`toHaveCount`, `toBeVisible`, `toBeAttached`, `toBeInViewport`) that failed with ZERO elements found is locator evidence too: nothing matched, which is the definition of a broken locator. A locator that RESOLVED to one or more real elements whose value or count merely mismatched is an app problem: `not a locator problem, healing won't fix this` (`toHaveCount(1)` finding 2 is a wrong count, not a wrong selector). Navigation errors, thrown app errors, and timeouts with no pending locator action are reported, never healed.
 
 **The heal ladder.** Broken locators re-resolve by semantic intent through Playwright's own preference order — role with accessible name, label, placeholder, text, alt, title, testid, then CSS/XPath — with a fuzzy stage below all of that for typo'd identifiers (`#Emai_l` → `#Email`, a `getByRole` name `"Ema_il_2"` → `"Email"`), scored by edit distance and whole-word token containment (a name mutation "search1" matches the field whose accessible name contains "search" as a word), and only accepted when exactly one candidate clears the bar.
+
+**Shadow DOM.** Candidate collection recurses into every open shadow root (nested roots included), gathering the same identity evidence as light DOM — Playwright locators pierce open roots natively, and the healer sees what the locators see. A locator whose target moved into an open shadow root heals like any other. Closed shadow roots are inaccessible to Playwright and to the probe alike; when a page contains them and nothing matched, the refusal says so: `this page contains closed shadow roots the probe cannot inspect`.
+
+**Compound CSS selectors.** A selector like `.btn.btn-primary` names styling, not identity, so compound selectors stay excluded from intent and fuzzy matching; their refusals say why and point at `getByRole` / `data-testid`. The one recoverable case is a tag-token typo: when the leading tag of a compound selector is not a valid HTML/SVG element name (`buttons.btn.btn-primary`), corrections one edit away from a real tag are probed, and if exactly one correction resolves to exactly one element (and passes the kind guard), the heal is the corrected compound selector itself — `page.locator("button.btn.btn-primary")`, level `css-tag-fix` — never a reinvented locator. Two matches, zero matches, or a valid tag still refuse.
 
 **The kind guard.** The original selector says what KIND of element it meant — `#register-button` is a button, a `.fill()` target is a text input. A candidate of a conflicting kind is refused, however well the name matched:
 
@@ -121,14 +125,26 @@ And when `--auth-setup` ran but the redirect still happens: `auth setup ran but 
 kind mismatch: expected button, candidate is link
 ```
 
-**Ambiguity refuses, with names.** Nothing is ever picked from a set:
+The one exception: a `getByRole` with `exact: true` that re-resolves to an element carrying the IDENTICAL exact name under a different role. There the exact accessible name is the identity and the role is the broken part, so the role is corrected (link → button) instead of vetoed.
+
+**Ambiguity refuses, with names — but exact identity wins real ties.** Nothing is ever picked from a set:
 
 ```text
 ambiguous on route /: several close matches (#contact-email, #backup-email), refusing to guess
 ambiguous on route /: several elements match the intent (candidates: #alpha, #beta, #gamma), refusing to guess
 ```
 
-**Same-element confirmation.** Before a heal is proposed, the candidate must still carry the original locator's identity. Confirmation compares logical fingerprints — tag, key attributes, accessible-name sources, geometry — across fresh reads, so a React re-render that replaces every DOM node cannot fail a correct heal; pages that mutate identity attributes faster than a probe can read them get a deterministic instability refusal instead of a guess. When the fingerprint genuinely differs, the refusal says what differed:
+When several candidates clear the fuzzy band, exact equality of the broken identifier with a candidate's id / name / data-testid outranks token containment: `.content` heals to `#content` even with `#footer-content` on the page — that was never a tie. Two candidates both exact-equal after normalization (`#search_box` vs `#searchBox`) still refuse with both named.
+
+**Deleted positional disambiguators refuse and teach.** A strict-mode failure whose locator matches several elements means a `.first()`/`.nth()` was deleted — information the page cannot give back. A guessed position would pass the re-run while silently changing what the test verifies, so the refusal names what distinguishes the matches instead:
+
+```text
+locator matches 3 elements identical by accessible name; the original disambiguator
+(.first()/.nth()) cannot be recovered safely. Add a positional call back, or target
+by a distinguishing attribute (candidates: .plan-basic / .plan-pro / .plan-max)
+```
+
+**Same-element confirmation.** Before a heal is proposed, the candidate must still carry the original locator's identity. Confirmation compares logical fingerprints — tag, key attributes, accessible-name sources, geometry — across fresh reads, so a React re-render that replaces every DOM node cannot fail a correct heal; pages that mutate identity attributes faster than a probe can read them get a deterministic instability refusal instead of a guess. Identity matching is spelling-blind: glued, snake_case, kebab-case, camelCase, and spaced forms are the same identifier, so `.ajaxButton` confirms against an element whose id is `ajaxButton`. When the fingerprint genuinely differs, the refusal says what differed:
 
 ```text
 re-resolved element differs: expected an element matching "search panel 42"
@@ -153,7 +169,7 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--project <name>` | pick a Playwright project when their baseURLs disagree |
 | `--route <file>=<route>` | override route inference per file (repeatable) |
 | `--storage-state <path>` | probe with a saved Playwright session |
-| `--auth-setup <file>#<export>` | probe after running your login function |
+| `--auth-setup <file>#<export>` | probe after running your login function (`file:export` also works — no quotes needed in zsh) |
 | `--auth-setup-timeout <seconds>` | login timeout, default 60 |
 | `--no-trace` | skip tracing (custom browser setups); failure URLs come from route inference |
 | `--no-verify` | skip the verification re-run |
@@ -173,12 +189,12 @@ Honesty about scope, so you are never surprised:
 
 ## The numbers
 
-Measured on 10 public eval suites in this repo (89 locators, 51 deliberately broken, one suite probing a live public site, one exercising the run-first default end to end), Playwright 1.60:
+Measured on 13 public eval suites in this repo (117 locators, 72 deliberately broken, one suite probing a live public site, one exercising the run-first default end to end across 19 scenarios), Playwright 1.60:
 
 | Measure | Result |
 | --- | --- |
-| Healable breaks fixed and verified by a passing re-run | 39 / 39 |
-| Unhealable breaks correctly refused instead of guessed | 12 / 12 |
+| Healable breaks fixed and verified by a passing re-run | 52 / 52 |
+| Unhealable breaks correctly refused instead of guessed | 20 / 20 |
 | Valid locators wrongly touched | 0 |
 | Wrong heals (locator rewritten to the wrong element) | 0 |
 | Determinism | two full runs, byte-identical results |

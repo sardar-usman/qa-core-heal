@@ -1,0 +1,38 @@
+{
+  "suite": "shadow-dom",
+  "locators": [
+    {
+      "file": "tests/open.spec.ts",
+      "old": "page.locator('.buttonGenerate')",
+      "expect": "healed",
+      "level": "css",
+      "test": "generates the guid"
+    },
+    {
+      "file": "tests/open.spec.ts",
+      "old": "page.locator('#status')",
+      "expect": "intact",
+      "test": "generates the guid"
+    },
+    {
+      "file": "tests/nested.spec.ts",
+      "old": "page.locator('.editField')",
+      "expect": "healed",
+      "level": "css",
+      "test": "edits the nested field"
+    },
+    {
+      "file": "tests/nested.spec.ts",
+      "old": "page.locator('#editField')",
+      "expect": "intact",
+      "test": "edits the nested field"
+    },
+    {
+      "file": "tests/closed.spec.ts",
+      "old": "page.locator('.hiddenAction')",
+      "expect": "refused",
+      "reason": "not found on route /closed.html: no matching or similar element on the probed page. The element may have been removed, renamed beyond recognition, or may only appear after user actions; this page contains closed shadow roots the probe cannot inspect",
+      "test": "reveals the secret"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "suite": "normalization",
+  "locators": [
+    {
+      "file": "tests/ajax.spec.ts",
+      "old": "page.locator('.ajaxButton')",
+      "expect": "healed",
+      "level": "role",
+      "test": "triggers the ajax request"
+    },
+    {
+      "file": "tests/ajax.spec.ts",
+      "old": "page.locator('#status')",
+      "expect": "intact",
+      "test": "triggers the ajax request"
+    },
+    {
+      "file": "tests/content.spec.ts",
+      "old": "page.locator('.content')",
+      "expect": "healed",
+      "level": "css",
+      "test": "shows the article body"
+    },
+    {
+      "file": "tests/tie.spec.ts",
+      "old": "page.locator('.search-box')",
+      "expect": "refused",
+      "reason": "ambiguous on route /tie.html: several close matches (#search_box, #searchBox), refusing to guess",
+      "test": "shows the search widget"
+    }
+  ]
+}

@@ -41,15 +41,26 @@ function describeError(e: unknown): string {
  * login function needs our live page), so the same warnings must be
  * filtered here. Drops ONLY the known loader noise — Type Stripping /
  * stripTypeScriptTypes experimental warnings, the typeless-package reparse
- * warning, and the "To load an ES module..." hint — for the duration of
- * the load; everything else passes through. Returns the restore function.
+ * warning, and the "To load an ES module..." hint; everything else passes.
+ *
+ * Two layers, both installed ONCE and left in place for the life of the
+ * process — a restore-after-load window provably leaked on real repos:
+ *   - process.emitWarning wrapper: main-thread warnings, including ones
+ *     emitted lazily when the login function first RUNS (its imports
+ *     resolve at call time, after any load window has closed).
+ *   - process.stderr line filter: the ESM-retry hooks (module.register)
+ *     run on a worker thread whose warnings never pass through the main
+ *     thread's emitWarning at all — they arrive as fully-rendered
+ *     "(node:pid) ExperimentalWarning: ..." stderr lines.
  */
-function suppressLoaderWarnings(): () => void {
-  const original = process.emitWarning.bind(process);
+let loaderNoiseFilterInstalled = false;
+function suppressLoaderNoise(): void {
+  if (loaderNoiseFilterInstalled) return;
+  loaderNoiseFilterInstalled = true;
+  const NOISE_MARK = /Type Stripping|stripTypeScriptTypes|To load an ES module|MODULE_TYPELESS_PACKAGE_JSON/i;
   const isLoaderNoise = (message: string, code?: string): boolean =>
-    /Type Stripping|stripTypeScriptTypes/i.test(message)
-    || /To load an ES module/.test(message)
-    || code === 'MODULE_TYPELESS_PACKAGE_JSON';
+    NOISE_MARK.test(message) || code === 'MODULE_TYPELESS_PACKAGE_JSON';
+  const original = process.emitWarning.bind(process);
   const filtered: typeof process.emitWarning = (warning, ...rest) => {
     const message = typeof warning === 'string' ? warning : (warning as Error)?.message ?? '';
     const opt = rest[0] as { code?: string } | string | undefined;
@@ -60,47 +71,89 @@ function suppressLoaderWarnings(): () => void {
     (original as (...args: unknown[]) => void)(warning, ...rest);
   };
   process.emitWarning = filtered;
-  return () => { process.emitWarning = original; };
+  // Rendered warning lines from the hooks thread. Only whole lines that
+  // are unambiguously a noise warning are dropped, plus the
+  // "(Use `node --trace-warnings ...)" hint DIRECTLY following one.
+  const NOISE_LINE = /^\(node:\d+\) (?:\[[A-Z_]+\] )?(?:ExperimentalWarning|Warning): /;
+  const HINT_LINE = /^\(Use `node --trace-warnings/;
+  let lastDropped = false;
+  const origWrite = process.stderr.write.bind(process.stderr);
+  const filteredWrite = (chunk: unknown, ...rest: unknown[]): boolean => {
+    const text = typeof chunk === 'string'
+      ? chunk
+      : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : null;
+    if (text == null) return (origWrite as (...a: unknown[]) => boolean)(chunk, ...rest);
+    const kept = text.split('\n').filter((line) => {
+      if (NOISE_LINE.test(line) && NOISE_MARK.test(line)) { lastDropped = true; return false; }
+      if (lastDropped && HINT_LINE.test(line)) return false;
+      if (line.trim().length > 0) lastDropped = false;
+      return true;
+    }).join('\n');
+    if (kept === text) return (origWrite as (...a: unknown[]) => boolean)(chunk, ...rest);
+    if (kept.replace(/\n/g, '').length === 0) {
+      const cb = rest.find((r) => typeof r === 'function') as (() => void) | undefined;
+      cb?.();
+      return true;
+    }
+    // Some lines dropped: write the remainder, dropping any encoding arg
+    // (kept is a plain string now).
+    return (origWrite as (...a: unknown[]) => boolean)(kept, ...rest.filter((r) => typeof r !== 'string'));
+  };
+  process.stderr.write = filteredWrite as typeof process.stderr.write;
 }
 
 /**
- * Resolve "file#exportName" (default export when #export is omitted) into
- * a callable. Throws with a labeled, actionable message on every failure —
- * a broken auth setup must never degrade into an unauthenticated probe.
+ * Resolve "file#exportName" — or "file:exportName", so zsh users need no
+ * quotes — into a callable (default export when no separator). Throws with
+ * a labeled, actionable message on every failure — a broken auth setup
+ * must never degrade into an unauthenticated probe.
  */
 export async function loadAuthSetup(spec: string, baseDir: string): Promise<AuthSetup> {
   const hash = spec.lastIndexOf('#');
-  const filePart = hash > 0 ? spec.slice(0, hash) : spec;
-  const exportName = hash > 0 ? spec.slice(hash + 1) : 'default';
+  let filePart = spec;
+  let exportName = 'default';
+  if (hash > 0) {
+    filePart = spec.slice(0, hash);
+    exportName = spec.slice(hash + 1);
+  } else {
+    // ':' alternative: the suffix must look like an export identifier, and
+    // the colon must not be a Windows drive separator (C:\...).
+    const colon = spec.lastIndexOf(':');
+    if (colon > 1 && /^[A-Za-z_$][\w$]*$/.test(spec.slice(colon + 1))) {
+      filePart = spec.slice(0, colon);
+      exportName = spec.slice(colon + 1);
+    }
+  }
   const label = `${filePart}#${exportName}`;
   const abs = path.resolve(baseDir, filePart);
   if (!fs.existsSync(abs)) {
-    throw new Error(`auth setup module not found: ${abs}`);
+    // A '#' value pointing nowhere is often a shell-mangled path: some
+    // shells treat unquoted '#' as a comment start.
+    const hint = spec.includes('#')
+      ? " (values containing '#' need quotes in some shells: --auth-setup 'file#export', or use the ':' separator: file:export)"
+      : '';
+    throw new Error(`auth setup module not found: ${abs}${hint}`);
   }
   // CJS interop for ESM-parsed modules that call require(...), resolved
   // against the user's module so their node_modules win.
   (globalThis as { require?: NodeJS.Require }).require = createRequire(abs);
   let mod: Record<string, unknown>;
-  const restoreWarnings = suppressLoaderWarnings();
+  suppressLoaderNoise();
   try {
-    try {
-      mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
-    } catch (e1) {
-      if (!abs.endsWith('.ts')) {
-        throw new Error(`auth setup ${label} failed to load: ${describeError(e1)}`);
-      }
-      try {
-        const { register } = await import('node:module');
-        register(HOOK_URL);
-        mod = (await import(pathToFileURL(abs).href + '?qa-auth-esm-retry')) as Record<string, unknown>;
-      } catch (e2) {
-        throw new Error(
-          `auth setup ${label} failed to load: import failed (${describeError(e1)}); ESM retry failed (${describeError(e2)})`,
-        );
-      }
+    mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
+  } catch (e1) {
+    if (!abs.endsWith('.ts')) {
+      throw new Error(`auth setup ${label} failed to load: ${describeError(e1)}`);
     }
-  } finally {
-    restoreWarnings();
+    try {
+      const { register } = await import('node:module');
+      register(HOOK_URL);
+      mod = (await import(pathToFileURL(abs).href + '?qa-auth-esm-retry')) as Record<string, unknown>;
+    } catch (e2) {
+      throw new Error(
+        `auth setup ${label} failed to load: import failed (${describeError(e1)}); ESM retry failed (${describeError(e2)})`,
+      );
+    }
   }
   const candidate = mod[exportName] ?? (exportName === 'default' ? mod.default : undefined);
   if (typeof candidate !== 'function') {

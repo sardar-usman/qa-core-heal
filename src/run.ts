@@ -18,7 +18,16 @@ export function stripAnsi(s: string): string {
 }
 
 export type FailureClass =
-  | { kind: 'locator'; selector: string | null }
+  | {
+      kind: 'locator';
+      selector: string | null;
+      /**
+       * True when the evidence was a strict mode violation: the locator
+       * matched SEVERAL elements. The probe must treat a multi-match as
+       * the failure itself, not as an intact locator.
+       */
+      strict?: boolean;
+    }
   | { kind: 'other'; summary: string };
 
 /** First non-empty line of a message, for compact reporting. */
@@ -32,19 +41,36 @@ function firstLine(msg: string): string {
  * explicit element(s)-not-found, a `locator.<action>:` / `expect.<matcher>:`
  * prefix, or a call-log "waiting for locator/getBy..." line — regardless of
  * the top-level message (a test timeout, a "Target page, context or browser
- * has been closed" after teardown, anything). The one earlier gate: when the
- * locator RESOLVED to a real element, the failure is about the element's
- * state, not its identity — that stays non-locator even with a call log.
+ * has been closed" after teardown, anything). A count/existence matcher
+ * (toHaveCount, toBeVisible, toBeAttached, toBeInViewport) that failed with
+ * ZERO elements found is locator evidence too: nothing matched. The one
+ * earlier gate: when the locator RESOLVED to a real element (one or more),
+ * the failure is about the element's state or count, not its identity —
+ * that stays non-locator even with a call log.
  *
- * Non-locator: found-element assertion mismatches, navigation/network
- * errors, thrown app errors, and timeouts with no pending locator action.
+ * Non-locator: found-element assertion mismatches, count mismatches with
+ * actual > 0, navigation/network errors, thrown app errors, and timeouts
+ * with no pending locator action.
  */
 export function classifyFailure(rawMessage: string): FailureClass {
   const msg = stripAnsi(rawMessage);
   if (/strict mode violation/.test(msg)) {
-    return { kind: 'locator', selector: extractSelector(msg) };
+    return { kind: 'locator', selector: extractSelector(msg), strict: true };
   }
   if (/element\(s\) not found/.test(msg)) {
+    return { kind: 'locator', selector: extractSelector(msg) };
+  }
+  // Count/existence matchers that failed because ZERO elements matched:
+  // an actual count of 0 means nothing matched, which is the definition of
+  // a broken locator. Checked BEFORE the resolved-to gate below, whose
+  // pattern would otherwise swallow toHaveCount's "locator resolved to
+  // 0 elements" call-log line. A count mismatch with actual > 0 (found
+  // some, wrong number) falls through to that gate and stays non-locator,
+  // as do value matchers on found elements (toHaveText and friends).
+  if (
+    /\bexpect(?:\(locator\))?\.(?:toHaveCount|toBeVisible|toBeAttached|toBeInViewport)\b/.test(msg)
+    && (/locator resolved to 0 elements/.test(msg) || /^Received:\s*0\s*$/m.test(msg))
+  ) {
     return { kind: 'locator', selector: extractSelector(msg) };
   }
   // The locator resolved to a real element: whatever failed, it was not

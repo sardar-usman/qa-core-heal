@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Tag typos — one button</title>
+</head>
+<body>
+  <h1>Dispatch console</h1>
+  <!-- Exactly ONE element matching .btn.btn-primary: the tag-typo'd
+       selector buttons.btn.btn-primary corrects to button.btn.btn-primary
+       and resolves uniquely, so css-tag-fix may heal it. -->
+  <button class="btn btn-primary" type="button"
+    onclick="document.getElementById('click-note').textContent = 'clicked'">Primary action</button>
+  <button class="btn btn-secondary" type="button">Secondary action</button>
+  <p id="click-note"></p>
+</body>
+</html>

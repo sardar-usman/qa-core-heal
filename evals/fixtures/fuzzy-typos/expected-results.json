@@ -41,6 +41,32 @@
       "old": "page.getByRole('textbox', { name: 'search1' })",
       "expect": "refused",
       "test": "searches amounts"
+    },
+    {
+      "file": "tests/prefix.spec.ts",
+      "old": "page.locator('[name=\"search_f\"]')",
+      "expect": "healed",
+      "level": "css",
+      "test": "searches the catalog by prefix"
+    },
+    {
+      "file": "tests/prefix.spec.ts",
+      "old": "page.locator('[name=\"search_field\"]')",
+      "expect": "intact",
+      "test": "searches the catalog by prefix"
+    },
+    {
+      "file": "tests/prefix-two.spec.ts",
+      "old": "page.locator('[name=\"search_f\"]')",
+      "expect": "refused",
+      "reason": "ambiguous on route /prefix-two.html: several close matches ([name=\"search_field\"], [name=\"search_filter\"]), refusing to guess",
+      "test": "searches the filtered catalog by prefix"
+    },
+    {
+      "file": "tests/prefix-two.spec.ts",
+      "old": "page.locator('[name=\"search_field\"]')",
+      "expect": "intact",
+      "test": "searches the filtered catalog by prefix"
     }
   ]
 }

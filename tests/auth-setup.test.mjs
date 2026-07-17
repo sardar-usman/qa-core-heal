@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -232,7 +233,11 @@ test('an auth setup that never authenticates gets the redirect-after-auth messag
   }
 });
 
-test('--auth-setup takes precedence over --storage-state, with a note', async () => {
+// 0.2.1 ITEM 4: a saved session is used FIRST (fast, side-effect free);
+// when it turns out expired (redirect to a login-looking route) and an
+// auth setup is configured, the probe retries via the login function.
+// Never the reverse: a failing auth setup never falls back to a session.
+test('an expired storage state falls back to the configured auth setup and heals', async () => {
   const server = await startAuthServer();
   const base = `http://127.0.0.1:${server.address().port}`;
   const dir = writeProject(base);
@@ -250,7 +255,97 @@ test('--auth-setup takes precedence over --storage-state, with a note', async ()
       targets: [{ selector: "locator('#quantiy')", url: `${base}/app`, test: 'x' }],
     }));
     assert.equal(result.locators[0].status, 'healed');
-    assert.match(stderr, /--auth-setup takes precedence over --storage-state/);
+    assert.match(stderr, /saved session expired; falling back to auth setup/);
+    assert.match(stderr, /auth setup .*login\.ts#login succeeded/);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a VALID storage state wins: the auth setup never runs', async () => {
+  const server = await startAuthServer();
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const dir = writeProject(base);
+  const statePath = path.join(dir, 'valid.json');
+  fs.writeFileSync(statePath, JSON.stringify({
+    cookies: [{ name: 'session', value: 'valid-token', domain: '127.0.0.1', path: '/', expires: -1, httpOnly: false, secure: false, sameSite: 'Lax' }],
+    origins: [],
+  }));
+  // A login that would fail loudly if it ever ran: proves it did not.
+  fs.writeFileSync(path.join(dir, 'utils/tripwire.ts'), `export async function login(): Promise<void> {
+  throw new Error('tripwire: auth setup ran despite a valid session');
+}
+`);
+  try {
+    const { result, stderr } = await withCapturedStderr(() => heal({
+      specPaths: [path.join(dir, 'tests/a.spec.ts')],
+      baseUrl: base, write: false,
+      storageState: statePath,
+      authSetup: path.join(dir, 'utils/tripwire.ts') + '#login',
+      targets: [{ selector: "locator('#quantiy')", url: `${base}/app`, test: 'x' }],
+    }));
+    assert.equal(result.locators[0].status, 'healed');
+    assert.doesNotMatch(stderr, /tripwire|falling back/);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// 0.2.1 ITEM 6a: the warning filter's coverage window. The earlier fixture
+// inherited this repo's "type": "module" and hid the real-repo leak: in a
+// repo-shaped package the .ts auth module goes through the ESM-retry
+// hook, whose warnings (stripTypeScriptTypes, the ES-module hint) surface
+// off the main thread and bypassed the emitWarning filter. Each shape runs
+// in a FRESH child process — module.register persists per process and
+// Node de-dupes warnings, so an in-process assertion would pass vacuously.
+test('repo-shaped packages (typeless and commonjs) leak no Node warnings', () => {
+  for (const pkg of [
+    '{ "name": "repo-shaped", "private": true }',
+    '{ "name": "repo-shaped", "private": true, "type": "commonjs" }',
+  ]) {
+    const dir = fs.mkdtempSync(path.join(repoRoot, '.tmp-test-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'package.json'), pkg);
+      fs.writeFileSync(path.join(dir, 'login.ts'), `import { type Page } from '@playwright/test';
+export async function login(page: Page): Promise<void> { /* no-op */ }
+`);
+      fs.writeFileSync(path.join(dir, 'runner.mjs'), `
+import path from 'node:path';
+const { loadAuthSetup } = await import(${JSON.stringify(path.join(repoRoot, 'dist', 'auth-setup.js'))});
+const loaded = await loadAuthSetup('login.ts#login', ${JSON.stringify(dir)});
+await loaded.fn(null);
+await new Promise((r) => setTimeout(r, 300));
+`);
+      const run = spawnSync(process.execPath, [path.join(dir, 'runner.mjs')], { encoding: 'utf8' });
+      assert.equal(run.status, 0, `runner failed for ${pkg}: ${run.stderr}`);
+      for (const noise of ['ExperimentalWarning', 'Type Stripping', 'stripTypeScriptTypes', 'To load an ES module', 'MODULE_TYPELESS_PACKAGE_JSON']) {
+        assert.ok(!run.stderr.includes(noise), `stderr must not contain "${noise}" for ${pkg}, got:\n${run.stderr}`);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+// 0.2.1 ITEM 6b: ':' as an alternative export separator (zsh-friendly),
+// and a quoting hint when a '#' value points at a missing file.
+test("':' works as the export separator; '#' misses suggest quoting", async () => {
+  const server = await startAuthServer();
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const dir = writeProject(base);
+  try {
+    const viaColon = await loadAuthSetup('utils/login.ts:login', dir);
+    assert.equal(typeof viaColon.fn, 'function');
+    assert.equal(viaColon.label, 'utils/login.ts#login');
+    // A bare path with no separator still means the default export.
+    const bare = await loadAuthSetup('utils/login.ts', dir);
+    assert.equal(typeof bare.fn, 'function');
+    await assert.rejects(
+      () => loadAuthSetup('utils/missing.ts#login', dir),
+      /not found[\s\S]*quote/i,
+    );
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });

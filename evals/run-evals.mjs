@@ -45,6 +45,15 @@ const SUITES = [
   { name: 'hostile-mutation', port: 4186 },
   { name: 'fuzzy-typos', port: 4187 },
   { name: 'react-churn', port: 4191 },
+  // Compound-selector tag typos: css-tag-fix corrections, unique-match
+  // gating, and the compound-selector teaching refusal (0.2.1 items 2+3).
+  { name: 'tag-typos', port: 4192 },
+  // Identifier-form normalization: camelCase/glued confirmation evidence
+  // and exact-equality fuzzy tie-breaking (0.2.1 items 4+5).
+  { name: 'normalization', port: 4193 },
+  // Open/nested shadow-root candidate collection and the closed-root
+  // refusal note (0.2.1 batch 3).
+  { name: 'shadow-dom', port: 4194 },
   // Run-first mode scenarios: the CLI's default behavior (run tests, heal
   // only real locator failures on their failure-time pages).
   { name: 'run-mode', port: 4188, mode: 'run' },
@@ -417,6 +426,179 @@ async function runScenarioSuite(suite) {
       cleanArtifacts(suiteDir);
     }
 
+    // 12. ITEM 1 (0.2.1) scenario A: toHaveCount(1) on a selector matching
+    //     NOTHING. Actual count 0 = nothing matched = locator evidence; the
+    //     failure must classify as locator, heal, and re-run green.
+    {
+      const r = runCli(suiteDir, ['tests/count-zero.spec.ts', '-y']);
+      const src = fs.readFileSync(path.join(suiteDir, 'tests/count-zero.spec.ts'), 'utf8');
+      const healed = src.includes('getByRole("textbox"') && !src.includes('#quantiy');
+      const green = healed && playwrightFilePasses(suiteDir, 'tests/count-zero.spec.ts');
+      if (healed && green) correctHeals++;
+      else if (healed) wrongHeals++;
+      else misses++;
+      scenario('toHaveCount(1) with actual 0 classifies as locator and heals green',
+        r.status === 0 && r.stdout.includes("locator failure: locator('#quantiy')")
+          && r.stdout.includes('✓ re-run passed') && healed && green,
+        `exit ${r.status}, healed ${healed}, green ${green}`);
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+    }
+
+    // 13. ITEM 1 scenario B: toHaveCount(1) on a selector matching TWO
+    //     elements. Found some, wrong number: a non-locator failure,
+    //     sources untouched.
+    {
+      const r = runCli(suiteDir, ['tests/count-two.spec.ts']);
+      const unchanged = sourcesUnchanged();
+      if (!unchanged) wrongHeals++;
+      scenario('toHaveCount(1) with actual 2 stays non-locator, no heal',
+        r.status === 0
+          && r.stdout.includes("not a locator problem, healing won't fix this")
+          && unchanged,
+        `exit ${r.status}, unchanged ${unchanged}`);
+    }
+
+    // 14. ITEMS 1+2 end-to-end (the reported real-world case): a compound
+    //     selector with a typo'd tag token asserted via toHaveCount(1).
+    //     Classifies as locator (count 0), heals via css-tag-fix to the
+    //     CORRECTED COMPOUND SELECTOR (never a reinvented locator), green.
+    {
+      const r = runCli(suiteDir, ['tests/count-compound.spec.ts', '-y']);
+      const src = fs.readFileSync(path.join(suiteDir, 'tests/count-compound.spec.ts'), 'utf8');
+      const healed = src.includes('page.locator("button.btn.btn-primary")') && !src.includes('buttons.btn');
+      const green = healed && playwrightFilePasses(suiteDir, 'tests/count-compound.spec.ts');
+      if (healed && green) correctHeals++;
+      else if (healed) wrongHeals++;
+      else misses++;
+      scenario('tag-typo compound selector heals to the corrected selector via css-tag-fix',
+        r.status === 0 && r.stdout.includes('(level=css-tag-fix)')
+          && r.stdout.includes('✓ re-run passed') && healed && green,
+        `exit ${r.status}, healed ${healed}, green ${green}`);
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+    }
+
+    // 15. ITEM 6 (0.2.1): a prettier-wrapped (multi-line) getByRole with
+    //     exact:true in a POM must be MATCHED TO SOURCE — never "could not
+    //     be matched" — and healed across a mutated role (link -> button).
+    {
+      const r = runCli(suiteDir, ['tests/role-mutated.spec.ts', '-y']);
+      const pom = fs.readFileSync(path.join(suiteDir, 'pages/nav-page.ts'), 'utf8');
+      const healed = pom.includes('this.page.getByRole("button", {"name":"Primary action","exact":true})')
+        && !pom.includes("'link'");
+      const green = healed && playwrightFilePasses(suiteDir, 'tests/role-mutated.spec.ts');
+      if (healed && green) correctHeals++;
+      else if (healed) wrongHeals++;
+      else misses++;
+      scenario('multi-line POM getByRole(exact) matches source and heals the mutated role',
+        r.status === 0 && !r.stdout.includes('could not be matched to source')
+          && r.stdout.includes('✓ re-run passed') && healed && green,
+        `exit ${r.status}, healed ${healed}, green ${green}`);
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+    }
+
+    // 16. ITEM 7: strict-mode violation from a deleted .first() — three
+    //     buttons identical by accessible name. A guessed position would
+    //     pass the re-run while silently changing what the test verifies,
+    //     so the only correct output is a teaching refusal naming the
+    //     distinguishing attributes. Never .first()/.nth().
+    {
+      const r = runCli(suiteDir, ['tests/strict-first.spec.ts', '-y']);
+      const unchanged = sourcesUnchanged();
+      if (!unchanged) wrongHeals++;
+      const msgOk = r.stdout.includes('locator matches 3 elements identical by accessible name')
+        && r.stdout.includes('(candidates: .plan-basic / .plan-pro / .plan-max)')
+        && r.stdout.includes('the original disambiguator (.first()/.nth()) cannot be recovered safely');
+      const noPositional = !r.stdout.includes('✓ healed')
+        && !/healed to .*\.(first|nth)\(/.test(r.stdout);
+      scenario('deleted .first(): strict multi-match refuses with distinguishing attributes',
+        r.status === 0 && r.stdout.includes('locator failure:') && msgOk && noPositional && unchanged,
+        `exit ${r.status}, msgOk ${msgOk}, noPositional ${noPositional}, unchanged ${unchanged}`);
+    }
+
+    // 17. ITEM 4 (0.2.1 final batch): expired storage state + configured
+    //     auth setup — the probe falls back to the login function and
+    //     heals without user intervention. Never the reverse direction.
+    {
+      const r = runCli(suiteDir, [
+        'tests/auth-app.spec.ts',
+        '--storage-state', 'auth-states/expired.json',
+        '--auth-setup', 'utils/login.ts#login',
+        '-y',
+      ]);
+      const stdio = (r.stdout ?? '') + (r.stderr ?? '');
+      const src = fs.readFileSync(path.join(suiteDir, 'tests/auth-app.spec.ts'), 'utf8');
+      const healed = src.includes('getByRole("textbox"');
+      const green = healed && playwrightFilePasses(suiteDir, 'tests/auth-app.spec.ts');
+      if (healed && green) correctHeals++;
+      else if (healed) wrongHeals++;
+      else misses++;
+      scenario('expired storage state falls back to the configured auth setup and heals',
+        r.status === 0
+          && stdio.includes('saved session expired; falling back to auth setup')
+          && stdio.includes('auth setup utils/login.ts#login succeeded')
+          && r.stdout.includes('✓ re-run passed') && healed && green,
+        `exit ${r.status}, healed ${healed}, green ${green}`);
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+    }
+
+    // 18. ITEM 5: identity rot. Heal on page v1; the page then GAINS a
+    //     duplicate aria-label; a later run must refuse with both
+    //     candidates named — never silently re-heal to either.
+    {
+      const rotHtml = path.join(suiteDir, 'public/rot.html');
+      const rotBackup = fs.readFileSync(rotHtml, 'utf8');
+      const r1 = runCli(suiteDir, ['tests/rot.spec.ts', '-y']);
+      const healedSrc = fs.readFileSync(path.join(suiteDir, 'tests/rot.spec.ts'), 'utf8');
+      const healed = healedSrc.includes('getByRole("button"') && !healedSrc.includes('#archive-ordr');
+      const green = healed && playwrightFilePasses(suiteDir, 'tests/rot.spec.ts');
+      if (healed && green) correctHeals++;
+      else if (healed) wrongHeals++;
+      else misses++;
+      // The page gains a second element with the SAME accessible name.
+      fs.writeFileSync(rotHtml, rotBackup.replace(
+        '<p id="rot-note">',
+        '<button id="archive-copy" type="button" aria-label="Archive order">Copy</button>\n  <p id="rot-note">',
+      ));
+      const r2 = runCli(suiteDir, ['tests/rot.spec.ts', '-y']);
+      const after = fs.readFileSync(path.join(suiteDir, 'tests/rot.spec.ts'), 'utf8');
+      const untouched = after === healedSrc;
+      const refusedBoth = r2.stdout.includes('locator matches 2 elements identical by accessible name')
+        && r2.stdout.includes('(candidates: #archive-order / #archive-copy)');
+      fs.writeFileSync(rotHtml, rotBackup);
+      scenario('duplicate-identity rot: pass 2 refuses with both candidates named, no re-heal',
+        r1.status === 0 && healed && green
+          && r2.status === 0 && refusedBoth && untouched
+          && !r2.stdout.includes('✓ healed'),
+        `pass1 exit ${r1.status} healed ${healed} green ${green}; pass2 exit ${r2.status}, refusedBoth ${refusedBoth}, untouched ${untouched}`);
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+    }
+
+    // 19. ITEM 7: dynamic (per-load random) id, role mutated with
+    //     exact:true. The heal must be getByRole with the exact name and
+    //     exact:true preserved — the random id would pass the re-run and
+    //     break the NEXT load (self-certifying trap), so it must never
+    //     be proposed.
+    {
+      const r = runCli(suiteDir, ['tests/dynamic-id.spec.ts', '-y']);
+      const src = fs.readFileSync(path.join(suiteDir, 'tests/dynamic-id.spec.ts'), 'utf8');
+      const healed = src.includes('page.getByRole("button", {"name":"Perform Action","exact":true})');
+      const noIdHeal = !src.includes('btn-') && !/locator\("#/.test(src.replace('#dyn-note', ''));
+      const green = healed && playwrightFilePasses(suiteDir, 'tests/dynamic-id.spec.ts');
+      if (healed && green) correctHeals++;
+      else if (healed) wrongHeals++;
+      else misses++;
+      scenario('dynamic id: heals to exact-name getByRole, random id never proposed',
+        r.status === 0 && r.stdout.includes('✓ re-run passed') && healed && noIdHeal && green,
+        `exit ${r.status}, healed ${healed}, noIdHeal ${noIdHeal}, green ${green}`);
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+    }
+
     // 4. State-gated element (reached by clicking, no goto names its page):
     //    --scan must refuse; the default run mode heals on the REAL failure
     //    URL taken from the trace.
@@ -446,12 +628,12 @@ async function runScenarioSuite(suite) {
     cleanArtifacts(suiteDir);
   }
 
-  const SCENARIOS = 11;
+  const SCENARIOS = 19;
   return {
     suite: suite.name,
-    locators: 11,
-    broken: 11,
-    healedExpected: 11,
+    locators: 17,
+    broken: 17,
+    healedExpected: 17,
     intactExpected: 0,
     correctHeals,
     correctRefusals: 0,
@@ -622,7 +804,7 @@ function renderMarkdown(results, totals) {
   lines.push('AND the test that uses the locator passes after the heal is applied.');
   lines.push('Expected refusals (no identity left to heal from) count as correct behavior.');
   lines.push('');
-  lines.push('| Suite | Locators | Broken | Healed | Correctly refused | Intact kept | Wrong heals | Final suite status |');
+  lines.push('| Suite | Locators | Broken | Healed | Correctly refused | Intact kept | Wrong heals | Post-heal green |');
   lines.push('|---|---|---|---|---|---|---|---|');
   for (const r of results) {
     const status = `${r.finalPassed}/${r.brokenRunTotalTests} passed` +
@@ -660,7 +842,7 @@ for (const suite of selected) {
   const r = suite.mode === 'run' ? await runScenarioSuite(suite) : await runSuite(suite);
   const intactBit = r.intactExpected > 0 ? ` · intact ${r.correctIntact}/${r.intactExpected}` : '';
   const scenarioBit = r.scenariosTotal ? ` · scenarios ${r.scenariosPassed}/${r.scenariosTotal}` : '';
-  console.log(`    heals ${r.correctHeals}/${r.healedExpected} · refusals ${r.correctRefusals}/${r.broken - r.healedExpected}${intactBit}${scenarioBit} · wrong ${r.wrongHeals} · final ${r.finalPassed}/${r.brokenRunTotalTests}${r.finalOk ? '' : ' !!'}`);
+  console.log(`    heals ${r.correctHeals}/${r.healedExpected} · refusals ${r.correctRefusals}/${r.broken - r.healedExpected}${intactBit}${scenarioBit} · wrong ${r.wrongHeals} · post-heal green ${r.finalPassed}/${r.brokenRunTotalTests}${r.finalOk ? '' : ' !!'}`);
   results.push(r);
 }
 

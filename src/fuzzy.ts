@@ -68,6 +68,12 @@ const NAME_ISH = new Set(['aria-label', 'label', 'placeholder', 'text']);
 /** Strong-match score for token containment: above the fuzzy band, below exact. */
 const CONTAINMENT_SCORE = 0.9;
 
+/** Prefix completion ("search_f" → "search_field"): above the fuzzy band,
+ *  below token containment — a strong signal, weaker than whole-word identity. */
+const PREFIX_SCORE = 0.85;
+/** Normalized prefixes shorter than this carry too little signal. */
+const MIN_PREFIX_LENGTH = 4;
+
 /**
  * Token containment: the stripped identifier's words appearing as a
  * CONTIGUOUS whole-word run of the candidate value. "search1" (stripped to
@@ -160,6 +166,24 @@ export function matchFuzzy(source: string, candidates: FuzzyCandidate[]): FuzzyV
   const sourceTokens = shortToken
     ? []
     : wordTokens(stripAutoSuffixes(humanizeIdentifier(source)) ?? source).filter((w) => !GENERATED_WORD(w));
+  // Prefix completion, token-anchored: every word of the identifier
+  // except the last must EQUAL the candidate's corresponding word, and
+  // the last — the truncated fragment — must be a proper prefix of the
+  // candidate's word in that position, nothing left over
+  // ("search_f" → "search_field"). A single-word identifier gets no
+  // prefix signal: "email" completing to "emailz9" is the hash-suffix
+  // trap, not a truncation.
+  const prefixScore = (v: string): number => {
+    if (sourceTokens.length < 2 || sourceTokens.join('').length < MIN_PREFIX_LENGTH) return 0;
+    const vt = wordTokens(v);
+    if (vt.length !== sourceTokens.length) return 0;
+    for (let i = 0; i < sourceTokens.length - 1; i++) {
+      if (vt[i] !== sourceTokens[i]) return 0;
+    }
+    const frag = sourceTokens[sourceTokens.length - 1]!;
+    const target = vt[vt.length - 1]!;
+    return target.length > frag.length && target.startsWith(frag) ? PREFIX_SCORE : 0;
+  };
   const scored: Array<{ candidate: FuzzyCandidate; value: string; score: number }> = [];
   const generatedOnly: Array<{ candidate: FuzzyCandidate; value: string; score: number }> = [];
   for (const c of candidates) {
@@ -171,7 +195,7 @@ export function matchFuzzy(source: string, candidates: FuzzyCandidate[]): FuzzyV
         if (!bestGenerated || g > bestGenerated.score) bestGenerated = { value: v, score: g };
         continue;
       }
-      const s = Math.max(similarity(source, v), containmentScore(sourceTokens, v, c.attrOf?.[v]));
+      const s = Math.max(similarity(source, v), containmentScore(sourceTokens, v, c.attrOf?.[v]), prefixScore(v));
       if (!best || s > best.score) best = { value: v, score: s };
     }
     if (best) scored.push({ candidate: c, value: best.value, score: best.score });
@@ -184,7 +208,26 @@ export function matchFuzzy(source: string, candidates: FuzzyCandidate[]): FuzzyV
     return { kind: 'match', candidate: m.candidate, value: m.value, score: m.score };
   }
   if (band.length > 1) {
-    return { kind: 'ambiguous', displays: band.map((m) => m.candidate.display) };
+    // Exact stripped-identifier equality on an identity attribute (id /
+    // name / data-testid) outranks token containment: "content" IS
+    // #content and only a sub-token of #footer-content — that is not a
+    // tie. Two candidates BOTH exact-equal after stripping remain a
+    // genuine tie, refused with exactly those named.
+    const IDENTITY_ATTRS = new Set(['id', 'name', 'data-testid', 'data-test']);
+    const exactForms = new Set([normalizeIdentifier(source)]);
+    const strippedSource = stripAutoSuffixes(humanizeIdentifier(source));
+    if (strippedSource) exactForms.add(normalizeIdentifier(strippedSource));
+    const exact = band.filter((s) => {
+      const attr = s.candidate.attrOf?.[s.value];
+      return attr !== undefined && IDENTITY_ATTRS.has(attr)
+        && exactForms.has(normalizeIdentifier(s.value));
+    });
+    if (exact.length === 1) {
+      const m = exact[0]!;
+      return { kind: 'match', candidate: m.candidate, value: m.value, score: m.score };
+    }
+    const pool = exact.length > 1 ? exact : band;
+    return { kind: 'ambiguous', displays: pool.map((m) => m.candidate.display) };
   }
   if (!shortToken) {
     const top = (list: typeof scored): Array<{ display: string; score: number }> =>
