@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Class attribute — heal</title>
+</head>
+<body>
+  <!-- The previously working heal: same contaminating code samples and
+       prose, but ONE button genuinely carries the accessible name
+       "Button". [aria-label="Button"] must heal to the role/name locator
+       with a clean, unambiguous verdict. -->
+  <h3>Class Attribute</h3>
+  <p>Record primary (blue) button click and press ok in alert popup.</p>
+  <code>//button[@class='btn-primary']</code>
+  <button class="btn-primary" type="button"
+    onclick="document.getElementById('click-note').textContent = 'clicked'">Button</button>
+  <p id="click-note"></p>
+</body>
+</html>

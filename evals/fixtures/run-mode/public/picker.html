@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Preferences</title>
+</head>
+<body>
+  <!-- Custom combobox, CLOSED: the options are rendered only when the
+       widget opens, so role "option" does not exist in the accessibility
+       tree (or the DOM) on a fresh load. A probe can neither find nor
+       verify it — the refusal must teach that, never heal. -->
+  <h1>Preferences</h1>
+  <button id="color-picker" type="button" aria-haspopup="listbox" aria-expanded="false">Choose color</button>
+  <script>
+    document.getElementById('color-picker').addEventListener('click', () => {
+      const list = document.createElement('ul');
+      list.setAttribute('role', 'listbox');
+      list.innerHTML = '<li role="option">Blue</li><li role="option">Green</li>';
+      document.body.appendChild(list);
+      document.getElementById('color-picker').setAttribute('aria-expanded', 'true');
+    });
+  </script>
+</body>
+</html>

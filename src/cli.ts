@@ -10,7 +10,7 @@ import { loadConfig } from './config.js';
 import { appendAuditLog, type AuditEntry } from './audit.js';
 import { findPlaywrightConfig, supportsTypeStripping, typeStrippingGateMessage } from './playwright-config.js';
 import { classifyFailure, collectTests, parseConsent, parseJsonReport, traceFailureUrl, type TestOutcome } from './run.js';
-import { describeFailedRun, runPlaywrightCli } from './playwright-cli.js';
+import { describeFailedRun, runPlaywrightCli, toCliFileFilter } from './playwright-cli.js';
 
 /**
  * qa-core-heal CLI.
@@ -521,6 +521,7 @@ async function main(): Promise<void> {
   if (!cli.scan) {
     await runFirstFlow({
       cli, specs, write, verify, say, runPass, printDiff, writeAudit,
+      displayTarget: cli.specPath,
     });
     return;
   }
@@ -601,7 +602,7 @@ async function main(): Promise<void> {
         const root = projectRootFor(spec);
         const rel = path.relative(root, spec);
         say(`▸ Verifying ${rel} with a re-run`);
-        const run = runPlaywrightCli(root, ['test', rel], 32 * 1024 * 1024);
+        const run = runPlaywrightCli(root, ['test', toCliFileFilter(rel)], 32 * 1024 * 1024);
         logChildRun(cli, run);
         verifiedBySpec.set(spec, run.status === 0);
         say(run.status === 0 ? '  ✓ re-run passed' : '  ✗ re-run FAILED (audit entries record verified=false)');
@@ -679,6 +680,8 @@ interface RunFirstCtx {
     verifiedFor: (h: HealResult['healed'][number]) => boolean,
     revertedFor?: (h: HealResult['healed'][number]) => boolean,
   ) => void;
+  /** The spec target exactly as the user typed it, for the run echo. */
+  displayTarget?: string;
 }
 
 /**
@@ -688,14 +691,18 @@ interface RunFirstCtx {
 async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   const { cli, specs, write, verify, say, runPass, printDiff, writeAudit } = ctx;
   const root = projectRootFor(specs[0]!);
-  const rels = specs.map((s) => path.relative(root, s));
+  // Display form: forward slashes, unescaped. Child filters go through
+  // toCliFileFilter at the spawn sites.
+  const rels = specs.map((s) => path.relative(root, s).split(path.sep).join('/'));
 
-  say(`▸ Running ${rels.length === 1 ? rels[0]! : `${rels.length} spec files`} to find failures`);
+  // The echo shows what the USER typed (verbatim, their separators), never
+  // a converted form; testDir-derived runs keep the derived description.
+  say(`▸ Running ${ctx.displayTarget ?? (rels.length === 1 ? rels[0]! : `${rels.length} spec files`)} to find failures`);
   // --no-trace: for setups where tracing is unavailable or unwanted (custom
   // browser launches, older Playwright); failure URLs then come from static
   // route inference, or the locator is refused when no route is knowable.
   const traceArgs = cli.noTrace ? [] : ['--trace', 'retain-on-failure'];
-  const run = runPlaywrightCli(root, ['test', ...rels, '--reporter=json', ...traceArgs], 64 * 1024 * 1024);
+  const run = runPlaywrightCli(root, ['test', ...rels.map(toCliFileFilter), '--reporter=json', ...traceArgs], 64 * 1024 * 1024);
   logChildRun(cli, run);
   const report = parseJsonReport(run.stdout ?? '') as { config?: { rootDir?: string } } | null;
   if (!report) {
@@ -880,7 +887,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   const verifiedByTitle = new Map<string, boolean>();
   if (applied && verify && result.healed.length > 0) {
     const rootDir = report.config?.rootDir ?? root;
-    const fileArgOf = (t: TestOutcome): string => path.relative(root, path.resolve(rootDir, t.file));
+    const fileArgOf = (t: TestOutcome): string => toCliFileFilter(path.relative(root, path.resolve(rootDir, t.file)));
     const fileArgs = [...new Set(locatorTests.map(fileArgOf))];
     const grep = locatorTests.map((t) => escapeRegex(t.title)).join('|');
     say(`▸ Verifying: re-running ${locatorTests.length} previously failing test(s)`);

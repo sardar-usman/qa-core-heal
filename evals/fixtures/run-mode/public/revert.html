@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Orders — revert</title>
+</head>
+<body>
+  <!-- The heal target LOOKS right (id one edit away, kind matches) but is
+       the WRONG element for the test: clicking it does nothing, so the
+       assertion still fails after the heal. The verify re-run must catch
+       that and REVERT the edit, leaving the file byte-identical. -->
+  <h1>Orders</h1>
+  <button id="submit-order" type="button">Submit</button>
+  <p id="submit-note"></p>
+</body>
+</html>

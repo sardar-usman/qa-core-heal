@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Checkout — transient overlay</title>
+</head>
+<body>
+  <!-- The overlay clears after 2s: Playwright's own actionability retries
+       ride it out and the test passes. Run-first mode must then do
+       NOTHING — no scanning, no probing, no healing. -->
+  <h1>Checkout</h1>
+  <button id="pay-now" type="button"
+    onclick="document.getElementById('pay-note').textContent = 'paid'">Pay now</button>
+  <p id="pay-note"></p>
+  <div class="promo-overlay" style="position: fixed; inset: 0; opacity: 0;"></div>
+  <script>
+    setTimeout(() => document.querySelector('.promo-overlay').remove(), 2000);
+  </script>
+</body>
+</html>

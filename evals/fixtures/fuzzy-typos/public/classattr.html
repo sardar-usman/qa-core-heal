@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Class attribute — contamination</title>
+</head>
+<body>
+  <!-- Models uitestingplayground.com/classattr: the page DISPLAYS XPath
+       selector strings as instructional code samples, plus a prose line
+       containing the word "button". None of that is element identity.
+       The buttons themselves carry no accessible name, so the broken
+       [aria-label="Button"] must REFUSE — without naming selector strings
+       or prose as close matches. -->
+  <h3>Class Attribute</h3>
+  <p>Record primary (blue) button click and press ok in alert popup.</p>
+  <p>Do not use this:</p>
+  <code>//button[@class='btn-primary']</code>
+  <p>Correct XPath is:</p>
+  <code>//button[contains(concat(' ', normalize-space(@class), ' '), ' btn-primary ')]</code>
+  <button class="btn-primary" type="button"></button>
+  <button class="btn-success" type="button"></button>
+  <button class="btn-warning" type="button"></button>
+</body>
+</html>

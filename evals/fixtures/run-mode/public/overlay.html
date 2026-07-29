@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Checkout</title>
+</head>
+<body>
+  <!-- Modeled on the community tester's shared pages: an INVISIBLE overlay
+       sits over the whole viewport and never goes away. The button's
+       locator is perfectly healthy — the overlay eats the click. That is
+       a UX defect verdict, never a heal candidate. -->
+  <h1>Checkout</h1>
+  <button id="pay-now" type="button"
+    onclick="document.getElementById('pay-note').textContent = 'paid'">Pay now</button>
+  <p id="pay-note"></p>
+  <div class="promo-overlay" style="position: fixed; inset: 0; opacity: 0;"></div>
+</body>
+</html>
