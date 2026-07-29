@@ -70,6 +70,23 @@ test('getBy-style selectors extract with their options intact', () => {
   const c = classifyFailure(GETBY_TIMEOUT);
   assert.equal(c.kind, 'locator');
   assert.equal(c.selector, "getByRole('textbox', { name: 'Ema_il_2' })");
+  assert.notEqual(c.chained, true);
+});
+
+// 0.3.1: chained locators. Matching just the chain's BASE would probe the
+// wrong thing and report a false intact while the test stays red.
+test('a chained locator extracts as the full chain and carries the chained flag', () => {
+  const c = classifyFailure("TimeoutError: locator.click: Timeout 2500ms exceeded.\nCall log:\n  - waiting for locator('#country').locator('optionx').first()\n");
+  assert.equal(c.kind, 'locator');
+  assert.equal(c.selector, "locator('#country').locator('optionx').first()");
+  assert.equal(c.chained, true);
+});
+
+test('positional wrappers alone are NOT chains — the base stays matchable', () => {
+  const c = classifyFailure("TimeoutError: locator.click: Timeout 2500ms exceeded.\nCall log:\n  - waiting for locator('#one-of-many').first()\n");
+  assert.equal(c.kind, 'locator');
+  assert.equal(c.selector, "locator('#one-of-many')");
+  assert.notEqual(c.chained, true);
 });
 
 test('selector matching is structural, not textual', () => {

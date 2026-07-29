@@ -744,6 +744,36 @@ async function runScenarioSuite(suite) {
       cleanArtifacts(suiteDir);
     }
 
+    // 25. 0.3.1: a CHAINED locator in a POM. Only literal top-level calls
+    //     can be matched and healed — the tool must teach that, never
+    //     match the chain's base (a false intact) and never claim a tool
+    //     bug. Exit 0: a documented limitation is not an error.
+    {
+      const r = runCli(suiteDir, ['tests/chained.spec.ts', '-y']);
+      const unchanged = sourcesUnchanged();
+      const msgOk = r.stdout.includes('this locator appears to be built by chaining (a .locator()/.getBy…() call on another locator); '
+        + "only literal top-level locator calls (page.locator('…'), page.getByRole(…)) can be matched and healed")
+        && r.stdout.includes("locator('#country').locator('optionx')");
+      scenario('chained POM locator: teaching message, no false intact, no bug-report claim',
+        r.status === 0 && msgOk && unchanged
+          && !r.stdout.includes('bug worth reporting')
+          && !r.stdout.includes('1 intact'),
+        `exit ${r.status}, msgOk ${msgOk}, unchanged ${unchanged}`);
+    }
+
+    // 26. 0.3.1: a VARIABLE-BUILT selector in a POM (the exact field
+    //     shape: bare locator('option') matching no literal source).
+    {
+      const r = runCli(suiteDir, ['tests/dynamic-selector.spec.ts', '-y']);
+      const unchanged = sourcesUnchanged();
+      const msgOk = r.stdout.includes('this locator appears to be built dynamically (a variable, template, or concatenated selector); '
+        + "only literal top-level locator calls (page.locator('…'), page.getByRole(…)) can be matched and healed");
+      scenario('variable-built POM selector: teaching message, never "bug worth reporting"',
+        r.status === 0 && msgOk && unchanged
+          && !r.stdout.includes('bug worth reporting'),
+        `exit ${r.status}, msgOk ${msgOk}, unchanged ${unchanged}`);
+    }
+
     // 4. State-gated element (reached by clicking, no goto names its page):
     //    --scan must refuse; the default run mode heals on the REAL failure
     //    URL taken from the trace.
@@ -773,7 +803,7 @@ async function runScenarioSuite(suite) {
     cleanArtifacts(suiteDir);
   }
 
-  const SCENARIOS = 24;
+  const SCENARIOS = 26;
   return {
     suite: suite.name,
     locators: 17,

@@ -119,7 +119,17 @@ export interface HealTarget {
    * itself (positional intent was deleted), never as an intact locator.
    */
   strict?: boolean;
+  /**
+   * The failing locator is a CHAIN (locator('select').locator('option')).
+   * Never structurally matched: matching just the base would probe the
+   * wrong thing and report a false intact.
+   */
+  chained?: boolean;
 }
+
+/** Why an unmatched target could not be matched, for honest reporting. */
+export type UnmatchedShape = 'chained' | 'dynamic' | 'unknown';
+export type UnmatchedTarget = HealTarget & { shape: UnmatchedShape };
 
 export interface HealDetail { file: string; line: number; old: string; new: string; level: CascadeLevel }
 export interface UnhealDetail { file: string; selector: string; reason: string }
@@ -155,8 +165,9 @@ export interface HealResult {
   locators: LocatorReport[];
   /** Spec path -> every file gathered for it (itself + page objects). */
   specFiles: Record<string, string[]>;
-  /** Targets that matched NO locator call in the gathered sources. */
-  unmatchedTargets: HealTarget[];
+  /** Targets that matched NO locator call in the gathered sources, with
+   *  WHY: chained, dynamically built, or genuinely unknown (a tool bug). */
+  unmatchedTargets: UnmatchedTarget[];
   /** Files that could not be read while gathering; their locators were skipped. */
   fileErrors: FileError[];
   /**
@@ -1601,7 +1612,31 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
   // structurally-matching call nearest the frame wins, or the single
   // locator call sitting exactly on the frame line — with structural
   // matching across the whole import graph as the fallback.
-  const unmatchedTargets: HealTarget[] = [];
+  const unmatchedTargets: UnmatchedTarget[] = [];
+  // Why a target could not be matched: inspect the source lines its stack
+  // points at. A locator-method call hanging off something other than
+  // page/this.page is a chain; a call whose first argument is not a
+  // string literal (variable, concatenation, ${}-template) is dynamic.
+  const unmatchedShapeOf = (target: HealTarget): UnmatchedShape => {
+    for (const loc of target.locations ?? []) {
+      const f = files.find((file) => path.resolve(file.path) === path.resolve(loc.file));
+      const line = f?.src.split('\n')[loc.line - 1];
+      if (!line) continue;
+      if (/(?<!\bpage)\.\s*(?:locator|getBy[A-Za-z]+)\s*\(/.test(line)) return 'chained';
+      if (/(?:locator|getBy[A-Za-z]+)\s*\(\s*(?!['"`])\S/.test(line)) return 'dynamic';
+      if (/(?:locator|getBy[A-Za-z]+)\s*\(\s*`[^`]*\$\{/.test(line)) return 'dynamic';
+    }
+    // The stack often points at the SPEC line while the construction lives
+    // in a POM getter. When the runtime selector matches no literal call
+    // but the gathered sources DO build locators non-literally somewhere,
+    // that construction is the overwhelmingly likely origin — "bug worth
+    // reporting" stays reserved for repos where no such construction
+    // exists and a literal-looking call genuinely failed to match.
+    const buildsDynamically = files.some((f) =>
+      /\.(?:locator|getBy[A-Za-z]+)\(\s*(?!['"`])[^)\s]/.test(f.src)
+      || /\.(?:locator|getBy[A-Za-z]+)\(\s*`[^`]*\$\{/.test(f.src));
+    return buildsDynamically ? 'dynamic' : 'unknown';
+  };
   const selected: Array<{ call: LocatorCall; routes: string[]; noRoute?: boolean; strict?: boolean }> = [];
   if (opts.targets) {
     const sigOfCall = new Map<LocatorCall, string>();
@@ -1639,6 +1674,14 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
     const urlsByCall = new Map<LocatorCall, Set<string>>();
     const strictCalls = new Set<LocatorCall>();
     for (const target of opts.targets) {
+      // A chained locator is never structurally matched: only literal
+      // top-level calls can be matched and healed, and matching the
+      // chain's BASE would probe the wrong element and report a false
+      // intact while the test stays red.
+      if (target.chained) {
+        unmatchedTargets.push({ ...target, shape: 'chained' });
+        continue;
+      }
       const sig = selectorSignature(target.selector);
       const structural = sig ? calls.filter((c) => sigOfCall.get(c) === sig) : [];
       let matches: LocatorCall[] = [];
@@ -1657,7 +1700,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         if (atLine.length === 1) { matches = atLine; break; }
       }
       if (matches.length === 0) matches = structural;
-      if (matches.length === 0) { unmatchedTargets.push(target); continue; }
+      if (matches.length === 0) { unmatchedTargets.push({ ...target, shape: unmatchedShapeOf(target) }); continue; }
       // Sanity-check the trace URL before trusting it as the failure page.
       let targetUrl = target.url;
       if (targetUrl) {

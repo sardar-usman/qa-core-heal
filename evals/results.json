@@ -938,13 +938,13 @@
       "misses": 0,
       "levelMatches": 17,
       "healedGot": 17,
-      "brokenRunTotalTests": 24,
-      "finalPassed": 24,
+      "brokenRunTotalTests": 26,
+      "finalPassed": 26,
       "finalFailed": 0,
       "expectedFailures": 0,
       "finalOk": true,
-      "scenariosPassed": 24,
-      "scenariosTotal": 24,
+      "scenariosPassed": 26,
+      "scenariosTotal": 26,
       "perLocator": [
         {
           "scenario": "passing spec exits 0 with no probing",
@@ -1060,6 +1060,16 @@
           "scenario": "wrong-element heal: verify fails, edit reverted, audit triple, json reverted",
           "verdict": "pass",
           "detail": "exit 1/1, msgOk true, unchanged true/true, auditOk true, jsonOk true"
+        },
+        {
+          "scenario": "chained POM locator: teaching message, no false intact, no bug-report claim",
+          "verdict": "pass",
+          "detail": "exit 0, msgOk true, unchanged true"
+        },
+        {
+          "scenario": "variable-built POM selector: teaching message, never \"bug worth reporting\"",
+          "verdict": "pass",
+          "detail": "exit 0, msgOk true, unchanged true"
         },
         {
           "scenario": "state-gated element: scan refuses, run mode heals on the failure URL",

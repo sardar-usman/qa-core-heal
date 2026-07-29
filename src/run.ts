@@ -27,6 +27,14 @@ export type FailureClass =
        * the failure itself, not as an intact locator.
        */
       strict?: boolean;
+      /**
+       * True when the failing locator is a CHAIN
+       * (locator('select').locator('option')): only literal top-level
+       * calls can be matched and healed, and matching just the chain's
+       * base would probe the wrong thing and report a false intact.
+       * `selector` carries the full chain text for honest display.
+       */
+      chained?: boolean;
     }
   | { kind: 'other'; summary: string };
 
@@ -57,10 +65,14 @@ function firstLine(msg: string): string {
 export function classifyFailure(rawMessage: string): FailureClass {
   const msg = stripAnsi(rawMessage);
   if (/strict mode violation/.test(msg)) {
-    return { kind: 'locator', selector: extractSelector(msg), strict: true };
+    const info = extractSelectorInfo(msg);
+    return { kind: 'locator', selector: info?.selector ?? null, strict: true, ...(info?.chained ? { chained: true } : {}) };
   }
   if (/element\(s\) not found/.test(msg)) {
-    return { kind: 'locator', selector: extractSelector(msg) };
+    {
+      const info = extractSelectorInfo(msg);
+      return { kind: 'locator', selector: info?.selector ?? null, ...(info?.chained ? { chained: true } : {}) };
+    }
   }
   // Count/existence matchers that failed because ZERO elements matched:
   // an actual count of 0 means nothing matched, which is the definition of
@@ -73,7 +85,10 @@ export function classifyFailure(rawMessage: string): FailureClass {
     /\bexpect(?:\(locator\))?\.(?:toHaveCount|toBeVisible|toBeAttached|toBeInViewport)\b/.test(msg)
     && (/locator resolved to 0 elements/.test(msg) || /^Received:\s*0\s*$/m.test(msg))
   ) {
-    return { kind: 'locator', selector: extractSelector(msg) };
+    {
+      const info = extractSelectorInfo(msg);
+      return { kind: 'locator', selector: info?.selector ?? null, ...(info?.chained ? { chained: true } : {}) };
+    }
   }
   // Pointer interception: the target RESOLVED and is actionable — the
   // locator is healthy, never a heal candidate — but another element sits
@@ -96,7 +111,10 @@ export function classifyFailure(rawMessage: string): FailureClass {
     return { kind: 'other', summary: firstLine(msg) };
   }
   if (/(?:^|[\s:])(?:locator|expect)\.\w+:/.test(msg) || /waiting for (locator|getBy)/.test(msg)) {
-    return { kind: 'locator', selector: extractSelector(msg) };
+    {
+      const info = extractSelectorInfo(msg);
+      return { kind: 'locator', selector: info?.selector ?? null, ...(info?.chained ? { chained: true } : {}) };
+    }
   }
   if (/page\.goto|net::|Navigation failed|NS_ERROR|Protocol error/.test(msg)) {
     return { kind: 'other', summary: firstLine(msg) };
@@ -123,23 +141,55 @@ function skipString(s: string, i: number): number {
  * The selector call text out of an error message: the first
  * locator(...)/getByX(...) after a known marker, parens balanced so
  * options objects survive ("getByRole('textbox', { name: 'X' })").
+ * A CHAINED rendering ("locator('select').locator('option')") is
+ * followed through every link: `selector` is the full chain text and
+ * `chained` is set — truncating to the base call would structurally
+ * match the base literal in source and probe the wrong thing.
  */
-export function extractSelector(msg: string): string | null {
+export function extractSelectorInfo(msg: string): { selector: string; chained: boolean } | null {
   const m = msg.match(/(?:strict mode violation:|waiting for|Locator:)\s+((?:locator|getBy[A-Za-z]+)\()/);
   if (!m || m.index == null) return null;
   const start = msg.indexOf(m[1]!, m.index);
-  const open = start + m[1]!.length - 1;
-  let depth = 0;
-  for (let j = open; j < msg.length; j++) {
-    const c = msg[j];
-    if (c === '"' || c === "'" || c === '`') { j = skipString(msg, j) - 1; continue; }
-    if (c === '(') depth++;
-    else if (c === ')') {
-      depth--;
-      if (depth === 0) return msg.slice(start, j + 1);
+  const closeOf = (open: number): number => {
+    let depth = 0;
+    for (let j = open; j < msg.length; j++) {
+      const c = msg[j];
+      if (c === '"' || c === "'" || c === '`') { j = skipString(msg, j) - 1; continue; }
+      if (c === '(') depth++;
+      else if (c === ')') {
+        depth--;
+        if (depth === 0) return j;
+      }
+    }
+    return -1;
+  };
+  let close = closeOf(start + m[1]!.length - 1);
+  if (close < 0) return null;
+  // Follow every rendered link. Sub-locator links (.locator/.getBy…/
+  // .filter) make the selector a CHAIN; positional wrappers (.first/
+  // .nth/.last) do not — their base IS the target locator and stays
+  // matchable exactly as before.
+  let chained = false;
+  let end = close;
+  for (;;) {
+    const link = msg.slice(close + 1).match(/^\.((?:locator|getBy[A-Za-z]+|filter|first|last|nth))\(/);
+    if (!link) break;
+    const next = closeOf(close + 1 + link[0].length - 1);
+    if (next < 0) break;
+    close = next;
+    if (link[1] === 'filter' || link[1] === 'locator' || link[1]!.startsWith('getBy')) {
+      chained = true;
+      end = close;
+    } else if (chained) {
+      end = close;
     }
   }
-  return null;
+  return { selector: msg.slice(start, end + 1), chained };
+}
+
+/** Back-compat convenience: just the (possibly chained) selector text. */
+export function extractSelector(msg: string): string | null {
+  return extractSelectorInfo(msg)?.selector ?? null;
 }
 
 /* ─────────────────────────── consent ─────────────────────────── */

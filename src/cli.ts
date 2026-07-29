@@ -741,7 +741,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     result: HealResult | null,
     applied: boolean,
     nonLocator: Array<{ test: string; reason: string; file?: string }>,
-    unmatchedTargets: HealTarget[] = [],
+    unmatchedTargets: Array<HealTarget & { shape?: 'chained' | 'dynamic' | 'unknown' }> = [],
     rerunPassed: boolean | null = null,
   ): void => {
     const locators = result?.locators ?? [];
@@ -777,13 +777,16 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
         refused: count('refused'),
         locators,
         nonLocatorFailures: nonLocator,
-        unmatchedFailures: unmatchedTargets.map((u) => ({ selector: u.selector, test: u.test ?? null })),
+        unmatchedFailures: unmatchedTargets.map((u) => ({ selector: u.selector, test: u.test ?? null, shape: u.shape ?? 'unknown' })),
         verdicts,
         summary: {
           heals: count('healed'),
           refusals: count('refused'),
           nonLocator: nonLocator.length,
-          errors: unmatchedTargets.length + (result?.fileErrors.length ?? 0),
+          // Chained/dynamic unmatched are a documented limitation, not a
+          // tool error; only unknown-shape unmatched count here.
+          errors: unmatchedTargets.filter((u) => u.shape !== 'chained' && u.shape !== 'dynamic').length
+            + (result?.fileErrors.length ?? 0),
         },
         fileErrors: result?.fileErrors ?? [],
       }, null, 2));
@@ -812,6 +815,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
         test: t.title,
         locations: t.locations,
         strict: c.strict,
+        chained: c.chained,
       });
       locatorTests.push(t);
       say(`  → ${t.title} — locator failure: ${c.selector}${url ? `  (page: ${url})` : ''}`);
@@ -839,10 +843,22 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   const fileSkipped = preview.unmatchedTargets.filter((u) =>
     u.locations?.some((l) => erroredFiles.has(path.resolve(l.file))));
   const unmatched = preview.unmatchedTargets.filter((u) => !fileSkipped.includes(u));
+  // "Bug worth reporting" only ever fires for a literal, matchable-looking
+  // call that genuinely failed to match. Chained and dynamically built
+  // locators are a documented limitation and get the honest teaching
+  // message instead.
+  const unknownUnmatched = unmatched.filter((u) => u.shape !== 'chained' && u.shape !== 'dynamic');
   if (unmatched.length > 0) {
     say('');
     for (const u of unmatched) {
-      say(`✗ 1 failing locator could not be matched to source: ${u.selector} (from ${u.test ?? 'unknown test'}). This is a bug worth reporting.`);
+      if (u.shape === 'chained' || u.shape === 'dynamic') {
+        const how = u.shape === 'chained'
+          ? 'by chaining (a .locator()/.getBy…() call on another locator)'
+          : 'dynamically (a variable, template, or concatenated selector)';
+        say(`✗ could not heal ${u.selector} (from ${u.test ?? 'unknown test'}): this locator appears to be built ${how}; only literal top-level locator calls (page.locator('…'), page.getByRole(…)) can be matched and healed`);
+      } else {
+        say(`✗ 1 failing locator could not be matched to source: ${u.selector} (from ${u.test ?? 'unknown test'}). This is a bug worth reporting.`);
+      }
     }
   }
   let result = preview;
@@ -946,9 +962,10 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   if (result.fileErrors.length > 0) {
     say(`${fileSkipped.length > 0 ? fileSkipped.length : result.fileErrors.length} locator(s) skipped due to file errors`);
   }
-  // Unmatched targets are a bug in heal's matching, not a user mistake:
-  // exit 1 (takes precedence over the not-applied exit 2).
-  if (unmatched.length > 0) process.exitCode = 1;
+  // UNKNOWN-shape unmatched targets are a bug in heal's matching, not a
+  // user mistake: exit 1 (takes precedence over the not-applied exit 2).
+  // Chained/dynamic unmatched are a documented limitation, not an error.
+  if (unknownUnmatched.length > 0) process.exitCode = 1;
 }
 
 main().catch((err: unknown) => {
