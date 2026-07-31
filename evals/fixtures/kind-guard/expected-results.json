@@ -1,0 +1,39 @@
+{
+  "suite": "kind-guard",
+  "locators": [
+    {
+      "file": "tests/upload.spec.ts",
+      "old": "page.getByRole(\"button\", { name: \"Upload\" })",
+      "expect": "refused",
+      "reason": "kind mismatch: expected button, candidate is heading",
+      "test": "starts the upload"
+    },
+    {
+      "file": "tests/layers.spec.ts",
+      "old": "page.locator('#blueButton')",
+      "expect": "refused",
+      "reason": "nameless heal refused: getByRole(\"button\") has no accessible name and carries less identity than the broken selector it would replace; any sole button on the page would match. Give the element an accessible name or a data-testid, or re-record the locator",
+      "test": "clicks the blue layer button"
+    },
+    {
+      "file": "tests/panel.spec.ts",
+      "old": "page.locator('#uploadButton')",
+      "expect": "refused",
+      "reason": "kind mismatch: expected button, but the candidate's kind cannot be verified (<div>); refusing to guess",
+      "test": "uploads from the panel"
+    },
+    {
+      "file": "tests/panel.spec.ts",
+      "old": "page.locator('#saveInvoiceButton')",
+      "expect": "healed",
+      "level": "role",
+      "test": "saves the invoice"
+    },
+    {
+      "file": "tests/panel.spec.ts",
+      "old": "page.locator('#keep-me')",
+      "expect": "intact",
+      "test": "keeps the intact locator"
+    }
+  ]
+}

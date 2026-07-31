@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Kind guard — heading trap</title>
+</head>
+<body>
+  <!-- The 0.3.2 field trap: the page HEADING echoes the broken button's
+       name. getByText("Upload") resolves to this h2 uniquely — but the
+       original declared role button, and a heading is definitively not a
+       button. The only real button carries no 'upload' token, so no
+       legitimate heal exists on this page. -->
+  <h2>File Upload</h2>
+  <form>
+    <input type="file" id="f" />
+    <button id="startBtn" type="submit">Start</button>
+  </form>
+</body>
+</html>

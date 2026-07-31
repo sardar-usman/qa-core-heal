@@ -19,10 +19,11 @@ Expected refusals (no identity left to heal from) count as correct behavior.
 | tag-typos | 9 | 7 | 2/2 | 5/5 | 2/2 | 0 | 2/7 passed (5 expected failures) |
 | normalization | 4 | 3 | 2/2 | 1/1 | 1/1 | 0 | 2/3 passed (1 expected failure) |
 | shadow-dom | 5 | 3 | 2/2 | 1/1 | 2/2 | 0 | 2/3 passed (1 expected failure) |
+| kind-guard | 6 | 4 | 1/1 | 3/3 | 1/1 | 0 | 2/5 passed (3 expected failures) |
 | run-mode | 17 | 17 | 17/17 | 0/0 | — | 0 | 28/28 passed |
 | demowebshop-pom | 11 | 4 | 3/3 | 1/1 | 1/1 | 0 | 7/8 passed (1 expected failure) |
-| **Total** | **120** | **74** | **53/53** | **21/21** | **9/9** | **0** | |
+| **Total** | **126** | **78** | **54/54** | **24/24** | **10/10** | **0** | |
 
 Misses (expected heal, got refusal): 0
-Cascade level agreement (informational): 53/53 correct heals landed on the predicted level.
+Cascade level agreement (informational): 54/54 correct heals landed on the predicted level.
 

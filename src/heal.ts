@@ -1489,7 +1489,17 @@ type RouteOutcome =
     }
   | { kind: 'no-identity' }
   | { kind: 'redirected'; to: string }
-  | { kind: 'unresolved'; closest?: string }
+  | {
+      kind: 'unresolved';
+      closest?: string;
+      /**
+       * The ladder's ONLY resolution was a nameless getByRole(role) that
+       * CONFIRMED as the intended element. It is never proposed (a heal
+       * must not carry less identity than what it replaces) — it survives
+       * here as refusal evidence so the message can teach why.
+       */
+      namelessRole?: string;
+    }
   | { kind: 'ambiguous'; closeMatches?: string[]; candidates?: string[] }
   | {
       kind: 'resolved';
@@ -1499,6 +1509,8 @@ type RouteOutcome =
       unstableMatch: boolean;
       /** The candidate element's actual kind, for the kind-mismatch guard. */
       candidateKind: ElementKind | null;
+      /** The candidate's tag, so an indefinite-kind refusal can name it. */
+      candidateTag: string | null;
       /** The token confirmation ran against, for mismatch diagnostics. */
       confirmToken: string;
       /** On a genuine mismatch: what WAS found (tag/attrs/geometry). */
@@ -1870,12 +1882,21 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       frameChain: string[] | undefined,
       confirmToken: string,
     ): Promise<RouteOutcome> => {
-      const info = await locator.first().evaluate((el) => ({
-        tag: el.tagName.toLowerCase(),
-        type: el.getAttribute('type'),
-        role: el.getAttribute('role'),
-        href: el.hasAttribute('href'),
-      })).catch(() => null);
+      // The kind read tolerates re-render churn: a locator.evaluate that
+      // lands mid-detach throws, and a null read on a DECLARED expectation
+      // now refuses (indefinite rule) — a transient read failure must not
+      // masquerade as an unverifiable candidate. The locator re-resolves
+      // on each retry.
+      let info: { tag: string; type: string | null; role: string | null; href: boolean } | null = null;
+      for (let attempt = 0; attempt < 3 && info == null; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 60));
+        info = await locator.first().evaluate((el) => ({
+          tag: el.tagName.toLowerCase(),
+          type: el.getAttribute('type'),
+          role: el.getAttribute('role'),
+          href: el.hasAttribute('href'),
+        })).catch(() => null);
+      }
       const same = await confirmSameElement(locator, confirmToken);
       let newRaw = emitLocatorCall(level, arg, false, frameChain);
       if (call.root === 'this.page') newRaw = 'this.' + newRaw;
@@ -1894,6 +1915,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         kind: 'resolved', newRaw, level,
         confirmed: same.confirmed, unstableMatch: same.unstableMatch,
         candidateKind: info ? kindOfElement(info) : null,
+        candidateTag: info?.tag ?? null,
         confirmToken,
         mismatch: same.got,
         roleCorrected,
@@ -1933,9 +1955,14 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       const cand = verdict.candidate as ScannedElement;
       const value = verdict.value;
       // Prefer the semantic ladder for the matched identifier, but only
-      // when it lands on the SAME element the scan found.
+      // when it lands on the SAME element the scan found — and never when
+      // the ladder's answer is a NAMELESS getByRole(role): an anonymous
+      // call is not a semantic upgrade over the concrete attribute selector
+      // the scan actually matched (less-identity rule).
       const ladder = await resolveIntent(page, { intent: humanize(value) });
-      if (ladder && !ladder.ambiguous && (ladder.frameChain?.length ?? 0) === 0) {
+      const ladderNameless = ladder != null && ladder.level === 'role'
+        && typeof ladder.arg === 'object' && ladder.arg !== null && !('name' in ladder.arg);
+      if (ladder && !ladder.ambiguous && !ladderNameless && (ladder.frameChain?.length ?? 0) === 0) {
         const identity = await ladder.locator.first().evaluate((el) => ({
           tag: el.tagName.toLowerCase(), id: el.id || null, name: el.getAttribute('name'),
         })).catch(() => null);
@@ -2032,7 +2059,11 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         href: el.hasAttribute('href'),
       })).catch(() => null);
       const candidateKind = info ? kindOfElement(info) : null;
-      if (kindConflict(expectedKindsOf(call), candidateKind)) return null;
+      const expected = expectedKindsOf(call);
+      if (kindConflict(expected, candidateKind)) return null;
+      // A declared expectation with an UNVERIFIABLE candidate kind is the
+      // same guess the gate refuses below — never propose it from here.
+      if (expected.length > 0 && candidateKind === null) return null;
       let newRaw = emitLocatorCall(
         'css-tag-fix', hit.css, false,
         call.frameChain.length > 0 ? call.frameChain : undefined,
@@ -2041,7 +2072,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       return {
         kind: 'resolved', newRaw, level: 'css-tag-fix',
         confirmed: true, unstableMatch: false,
-        candidateKind, confirmToken: hit.css,
+        candidateKind, candidateTag: info?.tag ?? null, confirmToken: hit.css,
       };
     };
 
@@ -2160,6 +2191,10 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       if (stripped && norm(stripped).length >= 2 && !tokens.includes(stripped)) tokens.push(stripped);
       let sawAmbiguous = false;
       let ambiguousCandidates: string[] | null = null;
+      // A nameless getByRole(role) resolution that CONFIRMED: parked, never
+      // proposed (less-identity rule). The pipeline keeps looking for a
+      // heal that names its target; the park becomes refusal evidence.
+      let parkedNamelessRole: string | null = null;
       for (const tk of tokens) {
         const resolved = await healResolve(page, { intent: tk });
         if (!resolved) continue;
@@ -2171,6 +2206,17 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           }
           continue;
         }
+        const namelessRole = resolved.level === 'role'
+          && typeof resolved.arg === 'object' && resolved.arg !== null && !('name' in resolved.arg)
+          ? String((resolved.arg as { role: string }).role)
+          : null;
+        if (namelessRole) {
+          const o = await resolvedOutcome(call, resolved.locator, resolved.level, resolved.arg, resolved.frameChain, tk);
+          if (o.kind === 'resolved' && o.confirmed) { parkedNamelessRole = namelessRole; continue; }
+          // Unconfirmed: keep today's mismatch diagnostics (what WAS found)
+          // — there was never a proposal to make here.
+          return o;
+        }
         return resolvedOutcome(call, resolved.locator, resolved.level, resolved.arg, resolved.frameChain, tk);
       }
 
@@ -2180,11 +2226,16 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       const source = fuzzySource(call);
       if (source && call.frameChain.length === 0) {
         const fz = await fuzzyProbe(call, source);
-        if (fz) return fz;
+        if (fz) {
+          if (fz.kind === 'unresolved' && !fz.closest && parkedNamelessRole) {
+            return { ...fz, namelessRole: parkedNamelessRole };
+          }
+          return fz;
+        }
       }
       return sawAmbiguous
         ? { kind: 'ambiguous', candidates: ambiguousCandidates ?? undefined }
-        : { kind: 'unresolved' };
+        : { kind: 'unresolved', ...(parkedNamelessRole ? { namelessRole: parkedNamelessRole } : {}) };
     };
 
     // Phase 1: probe every selected locator on every route it belongs to,
@@ -2368,11 +2419,23 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         // element's absence on a fresh load is EXPECTED, not evidence of
         // removal or renaming. Scored near-misses, when any exist, stay
         // appended after the teaching line.
+        // A parked nameless resolution (0.3.2): the ladder DID confirm the
+        // intended element, but only as an anonymous getByRole(role). That
+        // is never proposed — a heal must not carry less identity than the
+        // broken selector it replaces — and it outranks the speculative
+        // hedges below (the element is demonstrably present, not
+        // state-dependent or removed). Near-miss evidence still wins: it
+        // names concrete candidates.
+        const namelessRole = entries
+          .map((e) => (e.o.kind === 'unresolved' ? e.o.namelessRole : undefined))
+          .find((r) => r != null);
         const gated = stateGatedRole(call);
         refuse(call, withClosedNote(gated
           ? `not found on ${where}: role '${gated.role}' elements exist only while ${gated.widget} is open; a fresh page load cannot show them. Static probing cannot verify this locator - check the ${gated.role} name manually or re-record it.${closest ? ` Closest candidates below the confidence threshold: ${closest}` : ''}`
           : closest
           ? `not found on ${where}: closest candidates below the confidence threshold: ${closest}`
+          : namelessRole
+          ? `nameless heal refused: getByRole("${namelessRole}") has no accessible name and carries less identity than the broken selector it would replace; any sole ${namelessRole} on the page would match. Give the element an accessible name or a data-testid, or re-record the locator`
           : hint
             ? withCompoundHint(call, `not found on ${where}: element may be state-dependent (selector token "${hint}" suggests it appears only after user actions); static healing cannot verify it`)
             : dashHint
@@ -2399,6 +2462,31 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         !e.o.roleCorrected && kindConflict(expectedKinds, e.o.candidateKind));
       if (clash) {
         refuse(call, `kind mismatch: expected ${expectedKinds.join(' or ')}, candidate is ${clash.o.candidateKind}`, false);
+        continue;
+      }
+      // The indefinite half of the guard (0.3.2): when the original DECLARES
+      // a kind, a candidate whose kind cannot be determined (unknown tag, no
+      // role attribute, or a failed kind read) must not pass as "no definite
+      // conflict" — that is exactly how a heading was proposed for a button.
+      // No expectation still never blocks: the guard refuses wrong heals, it
+      // does not invent new reasons to block plausible ones.
+      const indefinite = resolvedEntries.find((e) =>
+        !e.o.roleCorrected && expectedKinds.length > 0 && e.o.candidateKind === null);
+      if (indefinite) {
+        const tag = indefinite.o.candidateTag;
+        refuse(call, `kind mismatch: expected ${expectedKinds.join(' or ')}, but the candidate's kind cannot be verified${tag ? ` (<${tag}>)` : ''}; refusing to guess`, false);
+        continue;
+      }
+      // The less-identity rule (0.3.2): a replacement must never carry LESS
+      // identity than the broken locator it replaces. A nameless
+      // getByRole("role") names nothing — any sole element with that role,
+      // on any future version of the page, would match — while even a
+      // broken #id names its target. Refuse on principle.
+      const nameless = resolvedEntries.find((e) =>
+        e.o.level === 'role' && /\.getByRole\("[A-Za-z]+"\)$/.test(e.o.newRaw));
+      if (nameless) {
+        const role = nameless.o.newRaw.match(/\.getByRole\("([A-Za-z]+)"\)$/)![1]!;
+        refuse(call, `nameless heal refused: getByRole("${role}") has no accessible name and carries less identity than the broken selector it would replace; any sole ${role} on the page would match. Give the element an accessible name or a data-testid, or re-record the locator`, false);
         continue;
       }
       // A heal landing on a level the config excludes is refused, not applied.

@@ -52,6 +52,21 @@ test('kindOfElement classifies live elements', () => {
   assert.equal(kindOfElement({ tag: 'div', type: null, role: null, href: false }), null);
 });
 
+// 0.3.2 field bug: a heading whose text echoed a broken button's name was
+// proposed as its heal. Headings are DEFINITELY not interactive targets —
+// they must read as a definite kind so the guard can veto, not as null.
+test('headings have a definite kind and conflict with interactive expectations', () => {
+  assert.equal(kindOfElement({ tag: 'h2', type: null, role: null, href: false }), 'heading');
+  assert.equal(kindOfElement({ tag: 'h1', type: null, role: null, href: false }), 'heading');
+  assert.equal(kindOfElement({ tag: 'h6', type: null, role: null, href: false }), 'heading');
+  assert.equal(kindOfElement({ tag: 'div', type: null, role: 'heading', href: false }), 'heading');
+  assert.equal(kindConflict(['button'], 'heading'), true);
+  assert.equal(kindConflict(['link'], 'heading'), true);
+  // A heading expectation is never declared (no heading keyword/role in the
+  // expectation maps), so nothing that healed before can newly expect one.
+  assert.deepEqual(kindsFromTokens('#section-heading'), []);
+});
+
 test('kindConflict fires only on a definite mismatch', () => {
   assert.equal(kindConflict(['button'], 'link'), true);
   assert.equal(kindConflict(['textbox'], 'link'), true);

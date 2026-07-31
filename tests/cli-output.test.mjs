@@ -50,14 +50,17 @@ test('x', async ({ page }) => {
     // "heals available but not applied".
     const preview = await runCli(['tests/a.spec.ts', '--scan', '--base-url', base]);
     assert.equal(preview.status, 2);
-    assert.match(preview.stdout, /\+ page\.getByRole\("textbox"\)/); // the proposed diff is shown
+    // 0.3.2: the smart-CSS email fallback this fixture was built for now
+    // actually wins — the nameless getByRole("textbox") that used to
+    // shadow it is refused by the less-identity rule.
+    assert.match(preview.stdout, /\+ page\.locator\("input\[type=\\"email\\"\]"\)/); // the proposed diff is shown
     assert.match(preview.stdout, /not applied/);
     assert.match(preview.stdout, /--yes/);
     assert.equal(fs.readFileSync(specPath, 'utf8'), brokenSpec); // nothing written
     // -y (alias of --yes): applies and exits 0.
     const applied = await runCli(['tests/a.spec.ts', '--scan', '--base-url', base, '-y', '--no-verify']);
     assert.equal(applied.status, 0);
-    assert.match(fs.readFileSync(specPath, 'utf8'), /page\.getByRole\("textbox"\)/);
+    assert.match(fs.readFileSync(specPath, 'utf8'), /input\[type=\\"email\\"\]/);
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });

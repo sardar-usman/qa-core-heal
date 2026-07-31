@@ -126,7 +126,7 @@
           "old": "this.page.locator('.plan-selector')",
           "expect": "healed",
           "got": "healed",
-          "gotNew": "this.page.getByRole(\"combobox\")",
+          "gotNew": "this.page.getByRole(\"combobox\", {\"name\":\"plan selector\"})",
           "expectLevel": "role",
           "gotLevel": "role",
           "testPassed": true,
@@ -293,7 +293,7 @@
           "old": "page.locator('#digest-checkbox-52ba17')",
           "expect": "healed",
           "got": "healed",
-          "gotNew": "page.getByRole(\"checkbox\")",
+          "gotNew": "page.getByRole(\"checkbox\", {\"name\":\"digest\"})",
           "expectLevel": "role",
           "gotLevel": "role",
           "testPassed": true,
@@ -382,9 +382,9 @@
           "old": "page.locator('#contact-email-9d13aa')",
           "expect": "healed",
           "got": "healed",
-          "gotNew": "page.getByRole(\"textbox\")",
-          "expectLevel": "role",
-          "gotLevel": "role",
+          "gotNew": "page.locator(\"input[type=\\\"email\\\"]\")",
+          "expectLevel": "css",
+          "gotLevel": "css",
           "testPassed": true,
           "verdict": "correct-heal"
         },
@@ -638,7 +638,7 @@
           "old": "page.locator('[name=\"search_field_1\"]')",
           "expect": "healed",
           "got": "healed",
-          "gotNew": "page.getByRole(\"textbox\")",
+          "gotNew": "page.getByRole(\"textbox\", {\"name\":\"search\"})",
           "expectLevel": "role",
           "gotLevel": "role",
           "testPassed": true,
@@ -926,6 +926,84 @@
       "notes": []
     },
     {
+      "suite": "kind-guard",
+      "locators": 6,
+      "broken": 4,
+      "healedExpected": 1,
+      "intactExpected": 1,
+      "correctHeals": 1,
+      "correctRefusals": 3,
+      "correctIntact": 1,
+      "wrongHeals": 0,
+      "misses": 0,
+      "levelMatches": 1,
+      "healedGot": 1,
+      "brokenRunFailedTests": 4,
+      "brokenRunTotalTests": 5,
+      "finalPassed": 2,
+      "finalFailed": 3,
+      "expectedFailures": 3,
+      "finalOk": true,
+      "perLocator": [
+        {
+          "file": "tests/upload.spec.ts",
+          "old": "page.getByRole(\"button\", { name: \"Upload\" })",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "role",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/layers.spec.ts",
+          "old": "page.locator('#blueButton')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/panel.spec.ts",
+          "old": "page.locator('#uploadButton')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/panel.spec.ts",
+          "old": "page.locator('#saveInvoiceButton')",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"button\", {\"name\":\"save Invoice Button\"})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/panel.spec.ts",
+          "old": "page.locator('#keep-me')",
+          "expect": "intact",
+          "got": "intact",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": true,
+          "verdict": "correct-intact"
+        }
+      ],
+      "notes": []
+    },
+    {
       "suite": "run-mode",
       "locators": 17,
       "broken": 17,
@@ -1169,15 +1247,15 @@
     }
   ],
   "totals": {
-    "locators": 120,
-    "broken": 74,
-    "healedExpected": 53,
-    "intactExpected": 9,
-    "correctHeals": 53,
-    "correctRefusals": 21,
-    "correctIntact": 9,
+    "locators": 126,
+    "broken": 78,
+    "healedExpected": 54,
+    "intactExpected": 10,
+    "correctHeals": 54,
+    "correctRefusals": 24,
+    "correctIntact": 10,
     "wrongHeals": 0,
     "misses": 0,
-    "levelMatches": 53
+    "levelMatches": 54
   }
 }

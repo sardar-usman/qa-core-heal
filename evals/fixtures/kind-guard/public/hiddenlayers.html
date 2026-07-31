@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Kind guard — anonymous heal trap</title>
+</head>
+<body>
+  <!-- The nameless-heal trap: exactly ONE button on the page, so the
+       nameless getByRole fallback resolves it, and its class is
+       normalization-equal to the broken '#blueButton', so confirmation
+       passes — but a class is styling, not identity the ladder or the
+       fuzzy scan may name. The only expressible "heal" is the bare
+       getByRole("button"), which carries NO identity: any sole button on
+       any future version of this page would match. Refuse and teach. -->
+  <h1>Layers</h1>
+  <button class="blue-button" type="button">Go</button>
+</body>
+</html>

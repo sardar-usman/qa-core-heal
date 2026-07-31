@@ -10,7 +10,7 @@
  * The guard turns that into a refusal; refusing is correct, guessing is not.
  */
 
-export type ElementKind = 'button' | 'link' | 'textbox' | 'checkbox' | 'radio' | 'combobox';
+export type ElementKind = 'button' | 'link' | 'textbox' | 'checkbox' | 'radio' | 'combobox' | 'heading';
 
 /** Keyword -> kind, matched against whole word tokens only ("selector" is not "select"). */
 const TOKEN_KINDS: Record<string, ElementKind> = {
@@ -30,6 +30,13 @@ const ROLE_KINDS: Record<string, ElementKind> = {
   checkbox: 'checkbox',
   radio: 'radio',
   combobox: 'combobox', listbox: 'combobox',
+  // Definite NON-interactive kind: headings routinely echo the names of
+  // the controls beneath them (0.3.2 field case: an h2 "File Upload"
+  // proposed for a broken Upload button), so a heading candidate must be
+  // definitely a heading, never "kind unknown". Deliberately absent from
+  // TOKEN_KINDS: no selector token or trailing API ever EXPECTS a heading,
+  // so nothing that healed before can newly declare one.
+  heading: 'heading',
 };
 
 /**
@@ -76,6 +83,7 @@ export function kindOfElement(info: ElementInfo): ElementKind | null {
     if (k) return k;
   }
   const tag = info.tag.toLowerCase();
+  if (/^h[1-6]$/.test(tag)) return 'heading';
   if (tag === 'a') return info.href ? 'link' : null;
   if (tag === 'button') return 'button';
   if (tag === 'select') return 'combobox';

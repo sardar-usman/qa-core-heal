@@ -166,7 +166,9 @@ test('--dry-run prints the diff, states its contract, and leaves sources byte-id
     const r = await runCli(['tests/a.spec.ts', '--dry-run'], dir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /- page\.locator\('#email-7d21ac'\)/);
-    assert.match(r.stdout, /\+ page\.getByRole\("textbox"\)/);
+    // 0.3.2: the heal names its target (input[type="email"]) — the old
+    // nameless getByRole("textbox") is refused by the less-identity rule.
+    assert.match(r.stdout, /\+ page\.locator\("input\[type=\\"email\\"\]"\)/);
     assert.match(r.stdout, /dry run: no files changed, heal not verified/);
     const hashAfter = crypto.createHash('sha256').update(fs.readFileSync(specPath)).digest('hex');
     assert.equal(hashAfter, hashBefore);
@@ -183,7 +185,7 @@ test('--yes is accepted and auto-approves an evidence-based heal', async () => {
   try {
     const r = await runCli(['tests/a.spec.ts', '--yes', '--no-verify'], dir);
     assert.equal(r.status, 0);
-    assert.match(fs.readFileSync(path.join(dir, 'tests/a.spec.ts'), 'utf8'), /getByRole\("textbox"\)/);
+    assert.match(fs.readFileSync(path.join(dir, 'tests/a.spec.ts'), 'utf8'), /input\[type=\\"email\\"\]/);
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -215,7 +217,7 @@ test('clicks flux', async ({ page }) => {
     assert.ok(healed, JSON.stringify(payload.verdicts));
     assert.equal(healed.testTitle, 'fills mail');
     assert.match(healed.before, /#email-7d21ac/);
-    assert.match(healed.after, /getByRole/);
+    assert.match(healed.after, /input\[type=\\?"email\\?"\]/);
     const refused = payload.verdicts.find((v) => !v.healApplied);
     assert.equal(refused.after, null);
     assert.match(refused.message, /not found on route/);

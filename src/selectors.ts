@@ -295,19 +295,6 @@ async function resolveInScope(page: Scope, spec: ResolveSpec): Promise<ResolvedL
       }
     }
 
-    // 1b. Nameless fallback: only for the guessed role, only when all named
-    //     variants failed. Resolves elements like role="progressbar" that have
-    //     no accessible name on the page. Only wins when exactly one element
-    //     has that role (otherwise pushed to ambiguousCandidates as usual).
-    if (role) {
-      const r0 = role as Parameters<Page['getByRole']>[0];
-      const wn = await tryCandidate({
-        locator: page.getByRole(r0),
-        level: 'role',
-        arg: { role },
-      });
-      if (wn) return wn;
-    }
   }
 
   // 2. getByLabel: explicit hint, then intent
@@ -460,6 +447,25 @@ async function resolveInScope(page: Scope, spec: ResolveSpec): Promise<ResolvedL
     const byXPath = page.locator(`xpath=${spec.xpath}`);
     const w = await tryCandidate({ locator: byXPath, level: 'xpath', arg: spec.xpath });
     if (w) return w;
+  }
+
+  // 11. Nameless getByRole fallback, LAST (0.3.2: it used to run right
+  //     after the named role variants, short-circuiting every richer
+  //     level — label, text, title — and producing anonymous
+  //     getByRole("button") resolutions that carry no identity at all).
+  //     Resolves elements like role="progressbar" with no accessible name.
+  //     Only wins when exactly one element has that role, and only when
+  //     every level that could NAME the element has failed. The heal
+  //     pipeline never proposes this shape (less-identity rule); it parks
+  //     it as refusal evidence.
+  if (role) {
+    const r0 = role as Parameters<Page['getByRole']>[0];
+    const wn = await tryCandidate({
+      locator: page.getByRole(r0),
+      level: 'role',
+      arg: { role },
+    });
+    if (wn) return wn;
   }
 
   // Nothing resolved uniquely. If we have ambiguous candidates, take the

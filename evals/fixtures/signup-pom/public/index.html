@@ -14,7 +14,12 @@
     <input id="email-2b8c1d" name="email" type="email">
     <label for="password-5f90ce">Password</label>
     <input id="password-5f90ce" name="password" type="password">
-    <select class="plan-picker" name="plan" aria-label="Plan">
+    <!-- aria-label carries the full identity (0.3.2): with the bare
+         "Plan" the only resolution for '.plan-selector' was the anonymous
+         getByRole("combobox") — the exact shape the less-identity rule now
+         refuses. A descriptive accessible name lets the heal NAME its
+         target, which is also what a real fix on a real page looks like. -->
+    <select class="plan-picker" name="plan" aria-label="Plan selector">
       <option value="free">Free</option>
       <option value="pro">Pro</option>
     </select>

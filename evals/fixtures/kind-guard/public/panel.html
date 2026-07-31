@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Kind guard — indefinite candidate + healthy control</title>
+</head>
+<body>
+  <h1>Invoice panel</h1>
+  <!-- Indefinite-kind trap: the broken '#uploadButton' declares a button,
+       and the matching aria-label lands on a DIV — an element whose kind
+       cannot be verified. Proposing it would be a guess. -->
+  <div aria-label="upload button" class="clicky" tabindex="0">⬆</div>
+  <!-- Control heal: the broken '#saveInvoiceButton' declares a button and
+       the matching aria-label IS a real button — the guard must not block it. -->
+  <button aria-label="save invoice button" type="button"
+    onclick="document.getElementById('note').textContent = 'saved'">💾</button>
+  <!-- Intact control. -->
+  <button id="keep-me" type="button">Keep</button>
+  <p id="note"></p>
+</body>
+</html>

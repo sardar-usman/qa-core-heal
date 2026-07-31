@@ -54,6 +54,10 @@ const SUITES = [
   // Open/nested shadow-root candidate collection and the closed-root
   // refusal note (0.2.1 batch 3).
   { name: 'shadow-dom', port: 4194 },
+  // Element-kind guard closure (0.3.2): an indefinite candidate kind must
+  // not pass a declared expectation (heading trap, unverifiable-div trap),
+  // and a nameless getByRole heal is refused on the less-identity rule.
+  { name: 'kind-guard', port: 4195 },
   // Run-first mode scenarios: the CLI's default behavior (run tests, heal
   // only real locator failures on their failure-time pages).
   { name: 'run-mode', port: 4188, mode: 'run' },
