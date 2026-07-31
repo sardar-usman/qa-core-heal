@@ -220,6 +220,38 @@ test('collectTests extracts failure locations from error.location and the stack'
     { file: '/proj/tests/login.spec.ts', line: 7 },
     { file: '/proj/pages/login.ts', line: 12 },
   ]);
+  // 0.3.2 field bug (Windows): the file capture could not span the drive
+  // colon, so EVERY win32 stack frame parsed to nothing — matching ran
+  // with no line rescue and unmatched literals fell to shape guessing.
+  const winReport = {
+    suites: [{
+      specs: [{
+        title: 'generates a guid',
+        ok: false,
+        file: '18-shadow-dom.spec.js',
+        tests: [{
+          results: [{
+            status: 'failed',
+            error: {
+              message: 'TimeoutError: locator.click: Timeout 2500ms exceeded.',
+              stack: [
+                'TimeoutError: locator.click: Timeout 2500ms exceeded.',
+                '    at Object.<anonymous> (C:\\repo\\e2e\\systematic\\18-shadow-dom.spec.js:12:15)',
+                '    at C:\\repo\\e2e\\systematic\\18-shadow-dom.spec.js:6:9',
+                '    at run (node:internal/foo:1:1)',
+              ].join('\n'),
+            },
+            attachments: [],
+          }],
+        }],
+      }],
+    }],
+  };
+  const [w] = collectTests(winReport);
+  assert.deepEqual(w.locations, [
+    { file: 'C:\\repo\\e2e\\systematic\\18-shadow-dom.spec.js', line: 12 },
+    { file: 'C:\\repo\\e2e\\systematic\\18-shadow-dom.spec.js', line: 6 },
+  ]);
 });
 
 // 0.3.0: pointer interception. The target RESOLVED and is actionable —

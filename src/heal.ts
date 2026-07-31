@@ -1643,14 +1643,34 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       if (/(?:locator|getBy[A-Za-z]+)\s*\(\s*`[^`]*\$\{/.test(line)) return 'dynamic';
     }
     // The stack often points at the SPEC line while the construction lives
-    // in a POM getter. When the runtime selector matches no literal call
-    // but the gathered sources DO build locators non-literally somewhere,
-    // that construction is the overwhelmingly likely origin — "bug worth
-    // reporting" stays reserved for repos where no such construction
-    // exists and a literal-looking call genuinely failed to match.
+    // in a POM getter. The fallback sniff is scoped to the failing test's
+    // OWN files — the stack-pointed files plus what they import (one hop,
+    // where POM construction lives) — NEVER the gathered sources at large
+    // (0.3.2 field bug: a dynamic builder in an unrelated neighbor spec
+    // tainted every unmatched literal with the polite "built dynamically"
+    // message, hiding a real matching bug). No evidence in the test's own
+    // files means "bug worth reporting", which is the honest default.
+    const locFiles = new Set((target.locations ?? []).map((l) => path.resolve(l.file)));
+    const evidence = new Set(locFiles);
+    for (const f of files) {
+      if (!locFiles.has(path.resolve(f.path))) continue;
+      const fromDir = path.dirname(path.resolve(f.path));
+      for (const im of f.src.matchAll(/(?:from\s+|require\(\s*)['"](\.\.?\/[^'"]+)['"]/g)) {
+        const base = path.resolve(fromDir, im[1]!);
+        for (const g of files) {
+          const gp = path.resolve(g.path);
+          if (gp === base || gp === `${base}.ts` || gp === `${base}.js`
+            || gp === `${base}.mjs` || gp === `${base}.cjs`
+            || gp === path.join(base, 'index.ts') || gp === path.join(base, 'index.js')) {
+            evidence.add(gp);
+          }
+        }
+      }
+    }
     const buildsDynamically = files.some((f) =>
-      /\.(?:locator|getBy[A-Za-z]+)\(\s*(?!['"`])[^)\s]/.test(f.src)
-      || /\.(?:locator|getBy[A-Za-z]+)\(\s*`[^`]*\$\{/.test(f.src));
+      evidence.has(path.resolve(f.path))
+      && (/\.(?:locator|getBy[A-Za-z]+)\(\s*(?!['"`])[^)\s]/.test(f.src)
+        || /\.(?:locator|getBy[A-Za-z]+)\(\s*`[^`]*\$\{/.test(f.src)));
     return buildsDynamically ? 'dynamic' : 'unknown';
   };
   const selected: Array<{ call: LocatorCall; routes: string[]; noRoute?: boolean; strict?: boolean }> = [];

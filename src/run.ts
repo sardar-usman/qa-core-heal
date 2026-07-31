@@ -378,7 +378,10 @@ export function collectTests(report: { suites?: ReportSuite[] }): TestOutcome[] 
       };
       for (const err of errs) {
         pushLoc(err.location?.file, err.location?.line);
-        for (const sm of stripAnsi(err.stack ?? '').matchAll(/\sat\s+(?:.*?\()?([^():\n]+):(\d+):\d+\)?/g)) {
+        // The file capture allows an optional win32 drive prefix ("C:"):
+        // without it, no Windows stack frame can parse at all (the class
+        // excludes ':'), and matching loses its line-based rescue entirely.
+        for (const sm of stripAnsi(err.stack ?? '').matchAll(/\sat\s+(?:.*?\()?((?:[A-Za-z]:)?[^():\n]+):(\d+):\d+\)?/g)) {
           pushLoc(sm[1], Number(sm[2]));
         }
       }
