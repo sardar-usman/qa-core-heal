@@ -147,3 +147,33 @@ test('a never-found selector without evidence refuses with the hedged reason', a
     + 'The element may have been removed, renamed beyond recognition, or may only appear after user actions.',
   );
 });
+
+// 0.3.2 field case (/dynamicid): a one-edit text mutation fuzzy-matches the
+// heading at 0.90, but the SUBSTRING getByText resolves the heading AND a
+// button whose caption contains the phrase — the confirmed match used to be
+// silently dropped into the generic not-found refusal. The heal must fall
+// back to the exact form and EMIT it with { exact: true }.
+test('a one-edit text match that is substring-ambiguous heals via the exact form', async () => {
+  const html = '<html><body><h2>Dynamic ID</h2>'
+    + '<button type="button">Button with Dynamic ID</button></body></html>';
+  const loc = await healOne(html, 'page.getByText("Dynamic 1ID").click()');
+  assert.equal(loc.status, 'healed');
+  assert.equal(loc.new, 'page.getByText("Dynamic ID", { exact: true })');
+});
+
+test('a text match ambiguous even in exact form refuses naming the candidate', async () => {
+  const html = '<html><body><h2>Dynamic ID</h2>'
+    + '<p><span>Dynamic ID</span></p>'
+    + '<button type="button">Button with Dynamic ID</button></body></html>';
+  const loc = await healOne(html, 'page.getByText("Dynamic 1ID").click()');
+  assert.equal(loc.status, 'refused');
+  assert.match(loc.reason, /^ambiguous on route \/: several close matches/);
+  assert.match(loc.reason, /Dynamic ID/);
+});
+
+test('a substring-unique text match keeps the plain getByText emit (the Scenarios control)', async () => {
+  const html = '<html><body><h2>Overview</h2><p>Scenario</p></body></html>';
+  const loc = await healOne(html, 'page.getByText("Scenarios").click()');
+  assert.equal(loc.status, 'healed');
+  assert.equal(loc.new, 'page.getByText("Scenario")');
+});

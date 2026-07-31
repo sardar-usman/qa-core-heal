@@ -44,7 +44,7 @@ export interface ResolvedLocator {
   locator: Locator;
   level: CascadeLevel;
   /** The argument used to construct the winning locator, emitted into the spec. */
-  arg: string | { role: string; name?: string; exact?: boolean };
+  arg: string | { role: string; name?: string; exact?: boolean } | { text: string; exact: true };
   /** True when the cascade had to take `.first()` of multiple matches. */
   ambiguous: boolean;
   /** Ambiguous only: the un-first()ed locator, so callers can NAME the candidates. */
@@ -572,8 +572,15 @@ export function emitLocatorCall(
       return `${root}.getByLabel(${JSON.stringify(arg as string)})${tail}`;
     case 'placeholder':
       return `${root}.getByPlaceholder(${JSON.stringify(arg as string)})${tail}`;
-    case 'text':
+    case 'text': {
+      // The exact form exists for pages where the text is unique as a
+      // whole string but a SUBSTRING of some longer caption: the plain
+      // getByText would be ambiguous at runtime (0.3.2 field case).
+      if (typeof arg === 'object' && 'text' in arg) {
+        return `${root}.getByText(${JSON.stringify(arg.text)}, { exact: true })${tail}`;
+      }
       return `${root}.getByText(${JSON.stringify(arg as string)})${tail}`;
+    }
     case 'alt':
       return `${root}.getByAltText(${JSON.stringify(arg as string)})${tail}`;
     case 'title':

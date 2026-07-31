@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Dynamic ID demo</title>
+</head>
+<body>
+  <!-- The 0.3.2 field shape (/dynamicid): the mutated getByText("Dynamic
+       1ID") fuzzy-matches this heading at 0.90 — but the substring form
+       getByText("Dynamic ID") resolves TWO elements (this heading and the
+       button whose caption contains the phrase), which used to silently
+       drop the confirmed match into the generic not-found refusal. The
+       exact form is unique: the heal must carry { exact: true }. -->
+  <h2 onclick="document.getElementById('note').textContent = 'section'">Dynamic ID</h2>
+  <button type="button">Button with Dynamic ID</button>
+  <!-- Control from the same field report: the substring form is unique
+       here, so the plain getByText emit stays. -->
+  <p onclick="document.getElementById('note').textContent = 'scenario'">Scenario</p>
+  <p id="note"></p>
+</body>
+</html>

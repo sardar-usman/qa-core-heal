@@ -87,6 +87,20 @@
       "old": "page.locator('#click-note')",
       "expect": "intact",
       "test": "clicks the named primary button"
+    },
+    {
+      "file": "tests/dynamicid.spec.ts",
+      "old": "page.getByText(\"Dynamic 1ID\")",
+      "expect": "healed",
+      "level": "text",
+      "test": "opens the dynamic id section"
+    },
+    {
+      "file": "tests/dynamicid.spec.ts",
+      "old": "page.getByText(\"Scenarios\")",
+      "expect": "healed",
+      "level": "text",
+      "test": "opens the scenario notes"
     }
   ]
 }

@@ -449,20 +449,20 @@
     },
     {
       "suite": "fuzzy-typos",
-      "locators": 16,
-      "broken": 10,
-      "healedExpected": 4,
+      "locators": 20,
+      "broken": 12,
+      "healedExpected": 6,
       "intactExpected": 3,
-      "correctHeals": 4,
+      "correctHeals": 6,
       "correctRefusals": 6,
       "correctIntact": 3,
       "wrongHeals": 0,
       "misses": 0,
-      "levelMatches": 4,
-      "healedGot": 4,
-      "brokenRunFailedTests": 10,
-      "brokenRunTotalTests": 11,
-      "finalPassed": 5,
+      "levelMatches": 6,
+      "healedGot": 6,
+      "brokenRunFailedTests": 12,
+      "brokenRunTotalTests": 13,
+      "finalPassed": 7,
       "finalFailed": 6,
       "expectedFailures": 6,
       "finalOk": true,
@@ -609,6 +609,28 @@
           "gotLevel": "css",
           "testPassed": true,
           "verdict": "correct-intact"
+        },
+        {
+          "file": "tests/dynamicid.spec.ts",
+          "old": "page.getByText(\"Dynamic 1ID\")",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByText(\"Dynamic ID\", { exact: true })",
+          "expectLevel": "text",
+          "gotLevel": "text",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/dynamicid.spec.ts",
+          "old": "page.getByText(\"Scenarios\")",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByText(\"Scenario\")",
+          "expectLevel": "text",
+          "gotLevel": "text",
+          "testPassed": true,
+          "verdict": "correct-heal"
         }
       ],
       "notes": []
@@ -1247,15 +1269,15 @@
     }
   ],
   "totals": {
-    "locators": 126,
-    "broken": 78,
-    "healedExpected": 54,
+    "locators": 130,
+    "broken": 80,
+    "healedExpected": 56,
     "intactExpected": 10,
-    "correctHeals": 54,
+    "correctHeals": 56,
     "correctRefusals": 24,
     "correctIntact": 10,
     "wrongHeals": 0,
     "misses": 0,
-    "levelMatches": 54
+    "levelMatches": 56
   }
 }

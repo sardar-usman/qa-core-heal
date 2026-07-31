@@ -1908,6 +1908,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         && call.args.exact === true
         && level === 'role'
         && typeof arg === 'object'
+        && 'role' in arg
         && arg.exact === true
         && !!call.args.name
         && arg.name === call.args.name;
@@ -2022,6 +2023,22 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
               : page.locator(arg);
       let n = 0;
       try { n = await locator.count(); } catch { n = 0; }
+      if (n !== 1 && level === 'text') {
+        // 0.3.2 field case: the matched text is unique as a WHOLE string
+        // but a substring of some longer caption ("Dynamic ID" inside
+        // "Button with Dynamic ID"), so the substring getByText is
+        // ambiguous. A confirmed 0.9 match must not be silently dropped
+        // into the generic not-found refusal: try the exact form — unique
+        // means heal (emitted WITH { exact: true }); still ambiguous means
+        // an honest ambiguity refusal naming the candidate.
+        const exactLoc = page.getByText(arg, { exact: true });
+        let ne = 0;
+        try { ne = await exactLoc.count(); } catch { ne = 0; }
+        if (ne === 1) {
+          return resolvedOutcome(call, exactLoc, 'text', { text: arg, exact: true }, undefined, value);
+        }
+        return { kind: 'ambiguous', closeMatches: [cand.display] };
+      }
       if (n !== 1) return { kind: 'unresolved' };
       return resolvedOutcome(call, locator, level, arg, undefined, value);
     };
