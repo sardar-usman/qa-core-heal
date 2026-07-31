@@ -20,7 +20,7 @@ Expected refusals (no identity left to heal from) count as correct behavior.
 | normalization | 4 | 3 | 2/2 | 1/1 | 1/1 | 0 | 2/3 passed (1 expected failure) |
 | shadow-dom | 5 | 3 | 2/2 | 1/1 | 2/2 | 0 | 2/3 passed (1 expected failure) |
 | kind-guard | 6 | 4 | 1/1 | 3/3 | 1/1 | 0 | 2/5 passed (3 expected failures) |
-| run-mode | 17 | 17 | 17/17 | 0/0 | — | 0 | 28/28 passed |
+| run-mode | 17 | 17 | 17/17 | 0/0 | — | 0 | 29/29 passed |
 | demowebshop-pom | 11 | 4 | 3/3 | 1/1 | 1/1 | 0 | 7/8 passed (1 expected failure) |
 | **Total** | **130** | **80** | **56/56** | **24/24** | **10/10** | **0** | |
 

@@ -1038,13 +1038,13 @@
       "misses": 0,
       "levelMatches": 17,
       "healedGot": 17,
-      "brokenRunTotalTests": 28,
-      "finalPassed": 28,
+      "brokenRunTotalTests": 29,
+      "finalPassed": 29,
       "finalFailed": 0,
       "expectedFailures": 0,
       "finalOk": true,
-      "scenariosPassed": 28,
-      "scenariosTotal": 28,
+      "scenariosPassed": 29,
+      "scenariosTotal": 29,
       "perLocator": [
         {
           "scenario": "passing spec exits 0 with no probing",
@@ -1180,6 +1180,11 @@
           "scenario": ".or() combinator chain: teaching message, first arm never healed alone",
           "verdict": "pass",
           "detail": "exit 0, msgOk true, unchanged true"
+        },
+        {
+          "scenario": "literal shapes: const-assigned + duplicated literals match and probe normally",
+          "verdict": "pass",
+          "detail": "exit 0, probed true, unchanged true"
         },
         {
           "scenario": "state-gated element: scan refuses, run mode heals on the failure URL",

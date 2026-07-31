@@ -813,6 +813,27 @@ async function runScenarioSuite(suite) {
         `exit ${r.status}, msgOk ${msgOk}, unchanged ${unchanged}`);
     }
 
+    // 29. 0.3.2 field shapes: LITERAL calls that must match and probe
+    //     normally — a const-assigned literal (the stack points at the
+    //     action line, not the call line) and the same literal duplicated
+    //     across tests. All three probe and refuse on the merits: no
+    //     "built dynamically"/"built by chaining" softening (the fixture's
+    //     dynamic POM getter is a gathered neighbor and must not taint
+    //     them) and no false "bug worth reporting".
+    {
+      const r = runCli(suiteDir, ['tests/literal-shapes.spec.ts', '-y']);
+      const unchanged = sourcesUnchanged();
+      const probed = r.stdout.includes('3 failing locator(s)')
+        && r.stdout.includes("getByRole('button', { name: 'Generate GUID' })")
+        && r.stdout.includes("getByRole('link', { name: 'Primary Button' })");
+      scenario('literal shapes: const-assigned + duplicated literals match and probe normally',
+        r.status === 0 && probed && unchanged
+          && !r.stdout.includes('appears to be built')
+          && !r.stdout.includes('bug worth reporting')
+          && !r.stdout.includes('could not be matched to source'),
+        `exit ${r.status}, probed ${probed}, unchanged ${unchanged}`);
+    }
+
     // 4. State-gated element (reached by clicking, no goto names its page):
     //    --scan must refuse; the default run mode heals on the REAL failure
     //    URL taken from the trace.
@@ -842,7 +863,7 @@ async function runScenarioSuite(suite) {
     cleanArtifacts(suiteDir);
   }
 
-  const SCENARIOS = 28;
+  const SCENARIOS = 29;
   return {
     suite: suite.name,
     locators: 17,
