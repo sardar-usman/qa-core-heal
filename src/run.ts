@@ -165,19 +165,36 @@ export function extractSelectorInfo(msg: string): { selector: string; chained: b
   };
   let close = closeOf(start + m[1]!.length - 1);
   if (close < 0) return null;
-  // Follow every rendered link. Sub-locator links (.locator/.getBy…/
-  // .filter) make the selector a CHAIN; positional wrappers (.first/
-  // .nth/.last) do not — their base IS the target locator and stays
-  // matchable exactly as before.
+  // Follow every rendered link. The rendered vocabulary is closed
+  // (audited against the Playwright Locator API, each shape captured
+  // empirically from real error messages):
+  //   CHAIN LINKS — the base alone is NOT the target; matching it is the
+  //   false-intact trap:
+  //     .locator/.getBy…      sub-locator inside the base
+  //     .filter               narrows the base by extra conditions
+  //     .and/.or              combinators (0.3.2 field bug: an .and()
+  //                           with a mutated argument truncated to its
+  //                           healthy base → "1 intact", tests red)
+  //     .contentFrame         crosses into a frame document; a
+  //                           .frameLocator(sel) call renders as
+  //                           .locator(sel).contentFrame() and never
+  //                           appears under its own name
+  //   PASS-THROUGHS — the base IS the target and stays matchable:
+  //     .first/.last/.nth     positional wrappers
+  //     .describe             cosmetic; dropped from renderings entirely
+  //                           (handled anyway in case that changes)
   let chained = false;
   let end = close;
   for (;;) {
-    const link = msg.slice(close + 1).match(/^\.((?:locator|getBy[A-Za-z]+|filter|first|last|nth))\(/);
+    const link = msg.slice(close + 1).match(/^\.((?:locator|getBy[A-Za-z]+|filter|and|or|contentFrame|frameLocator|describe|first|last|nth))\(/);
     if (!link) break;
     const next = closeOf(close + 1 + link[0].length - 1);
     if (next < 0) break;
     close = next;
-    if (link[1] === 'filter' || link[1] === 'locator' || link[1]!.startsWith('getBy')) {
+    const name = link[1]!;
+    const isChainLink = name === 'filter' || name === 'locator' || name.startsWith('getBy')
+      || name === 'and' || name === 'or' || name === 'contentFrame' || name === 'frameLocator';
+    if (isChainLink) {
       chained = true;
       end = close;
     } else if (chained) {

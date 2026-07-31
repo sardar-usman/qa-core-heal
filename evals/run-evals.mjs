@@ -774,6 +774,41 @@ async function runScenarioSuite(suite) {
         `exit ${r.status}, msgOk ${msgOk}, unchanged ${unchanged}`);
     }
 
+    // 27. 0.3.2 field bug: an .and() COMBINATOR chain whose argument was
+    //     mutated. The base getByRole alone is healthy and matches a POM
+    //     literal — before the fix the chain truncated to that base,
+    //     which probed intact: "1 intact · 0 healed", exit 0, tests red.
+    //     Combinators are chain links: teaching message, full chain
+    //     named, NO intact claim, sources untouched.
+    {
+      const r = runCli(suiteDir, ['tests/and-chain.spec.ts', '-y']);
+      const unchanged = sourcesUnchanged();
+      const msgOk = r.stdout.includes('this locator appears to be built by chaining (a .locator()/.getBy…() call on another locator); '
+        + "only literal top-level locator calls (page.locator('…'), page.getByRole(…)) can be matched and healed")
+        && r.stdout.includes(".and(locator('.btnprimary'))");
+      scenario('.and() combinator chain: teaching message, no false intact, sources untouched',
+        r.status === 0 && msgOk && unchanged
+          && !r.stdout.includes('bug worth reporting')
+          && !r.stdout.includes('1 intact'),
+        `exit ${r.status}, msgOk ${msgOk}, unchanged ${unchanged}`);
+    }
+
+    // 28. The .or() twin: both arms broken — the first arm must never be
+    //     probed or healed as if it were the whole locator.
+    {
+      const r = runCli(suiteDir, ['tests/or-chain.spec.ts', '-y']);
+      const unchanged = sourcesUnchanged();
+      const msgOk = r.stdout.includes('this locator appears to be built by chaining (a .locator()/.getBy…() call on another locator); '
+        + "only literal top-level locator calls (page.locator('…'), page.getByRole(…)) can be matched and healed")
+        && r.stdout.includes(".or(getByLabel('Nope'))");
+      scenario('.or() combinator chain: teaching message, first arm never healed alone',
+        r.status === 0 && msgOk && unchanged
+          && !r.stdout.includes('bug worth reporting')
+          && !r.stdout.includes('1 intact')
+          && !r.stdout.includes('healed:'),
+        `exit ${r.status}, msgOk ${msgOk}, unchanged ${unchanged}`);
+    }
+
     // 4. State-gated element (reached by clicking, no goto names its page):
     //    --scan must refuse; the default run mode heals on the REAL failure
     //    URL taken from the trace.
@@ -803,7 +838,7 @@ async function runScenarioSuite(suite) {
     cleanArtifacts(suiteDir);
   }
 
-  const SCENARIOS = 26;
+  const SCENARIOS = 28;
   return {
     suite: suite.name,
     locators: 17,

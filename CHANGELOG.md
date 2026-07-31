@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 (unreleased)
+
+**Combinator chains (`.and()`/`.or()`) are chains.** Field case (0.3.1): a POM locator `getByRole('button', { name: 'Button', exact: true }).and(locator('.btnprimary'))` had its `.and()` argument mutated to a nonexistent class — and the run reported "1 intact · 0 healed" with exit 0 while all 3 tests stayed red. The chain extractor treated only `.locator`/`.getBy…`/`.filter` as chain links, so the rendering truncated at `.and(` to its HEALTHY base, which matched the base literal in the POM and probed intact: the exact false-clean-bill trap the 0.3.1 chain fix was built to close. The fix comes with a full audit of Playwright's Locator API, each rendering captured empirically: `.and`/`.or` are chain links (this bug); `.contentFrame()` is a chain link too (a frame chain renders as `locator(sel).contentFrame().locator(…)` — matching the iframe base is the same trap — and `.frameLocator(sel)` never appears under its own name, it renders as `.locator(sel).contentFrame()`); `.describe()` is a pass-through that Playwright drops from renderings entirely (handled defensively regardless); positional `.first()`/`.last()`/`.nth()` stay non-chains and their bases stay healable exactly as before. Combinator-chained targets get the existing chained teaching message with the full chain named, exit 0, sources untouched. Pinned by two new run-mode scenarios (the mutated-`.and()` field shape — no intact claim — and the `.or()` twin, whose broken first arm must never be probed or healed as a chain fragment), plus extraction unit tests for every audited method.
+
 ## 0.3.1 (2026-07-29)
 
 A patch from the 0.3.0 field round: Windows spec filters now reach Playwright in a form it can match, chained and dynamically built locators get honest teaching messages instead of false claims, and the release commit is made whole.

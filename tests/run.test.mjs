@@ -89,6 +89,46 @@ test('positional wrappers alone are NOT chains — the base stays matchable', ()
   assert.notEqual(c.chained, true);
 });
 
+// 0.3.2 field bug: .and()/.or() combinators were not in the chain-link
+// set, so the chain truncated to its base — for .and() a HEALTHY base
+// that matched the source literal and probed intact: "1 intact · 0
+// healed", exit 0, all tests red. The exact false-clean-bill trap the
+// chain fix exists to close.
+test('an .and() combinator is a chain link — full chain text, chained flag (the field shape)', () => {
+  const c = classifyFailure("TimeoutError: locator.click: Timeout 2500ms exceeded.\nCall log:\n  - waiting for getByRole('button', { name: 'Button', exact: true }).and(locator('.btnprimary-zz'))\n");
+  assert.equal(c.kind, 'locator');
+  assert.equal(c.selector, "getByRole('button', { name: 'Button', exact: true }).and(locator('.btnprimary-zz'))");
+  assert.equal(c.chained, true);
+});
+
+test('an .or() combinator is a chain link — never probe just the first arm', () => {
+  const c = classifyFailure("TimeoutError: locator.click: Timeout 2500ms exceeded.\nCall log:\n  - waiting for locator('.btnprimary-zz').or(getByLabel('Nope'))\n");
+  assert.equal(c.kind, 'locator');
+  assert.equal(c.selector, "locator('.btnprimary-zz').or(getByLabel('Nope'))");
+  assert.equal(c.chained, true);
+});
+
+// Empirical (Playwright 1.60): frame chains render as
+// .locator(sel).contentFrame().locator(...) — .frameLocator() itself is
+// normalized to that form and never appears. Matching the iframe base
+// would be the same false-intact trap.
+test('a .contentFrame() frame chain is a chain — the iframe base is not the target', () => {
+  const c = classifyFailure("TimeoutError: locator.click: Timeout 2500ms exceeded.\nCall log:\n  - waiting for locator('#fr').contentFrame().locator('.btnprimary-zz')\n");
+  assert.equal(c.kind, 'locator');
+  assert.equal(c.selector, "locator('#fr').contentFrame().locator('.btnprimary-zz')");
+  assert.equal(c.chained, true);
+});
+
+// Empirical: .describe() is dropped from renderings entirely (the message
+// shows the bare base). If a future Playwright ever rendered it, it is a
+// pass-through like the positional wrappers: same selector, not a chain.
+test('.describe() is a pass-through, never a chain link', () => {
+  const c = classifyFailure("TimeoutError: locator.click: Timeout 2500ms exceeded.\nCall log:\n  - waiting for locator('.btnprimary-zz').describe('primary button')\n");
+  assert.equal(c.kind, 'locator');
+  assert.equal(c.selector, "locator('.btnprimary-zz')");
+  assert.notEqual(c.chained, true);
+});
+
 test('selector matching is structural, not textual', () => {
   // The real-project bug: source AST style vs Playwright's error rendering.
   assert.equal(

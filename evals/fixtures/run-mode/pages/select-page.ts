@@ -15,4 +15,18 @@ export class SelectPage {
   get dynamicOptions() {
     return this.page.locator(OPTION_TAG + 'x');
   }
+
+  // The 0.3.2 field shape: an .and() combinator whose argument was
+  // mutated (.btnprimary vs the page's .btn-primary). The base getByRole
+  // alone is HEALTHY and matches a literal — probing only the base would
+  // report a false "1 intact" while every test using this stays red.
+  get primaryAction() {
+    return this.page.getByRole('button', { name: 'Button', exact: true }).and(this.page.locator('.btnprimary'));
+  }
+
+  // The .or() twin: both arms broken; the first arm alone would be
+  // probed (and "healed") as a chain fragment if the chain were missed.
+  get anyAction() {
+    return this.page.locator('.btnprimary').or(this.page.getByLabel('Nope'));
+  }
 }

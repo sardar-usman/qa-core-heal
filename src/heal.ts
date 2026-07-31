@@ -1615,14 +1615,18 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
   const unmatchedTargets: UnmatchedTarget[] = [];
   // Why a target could not be matched: inspect the source lines its stack
   // points at. A locator-method call hanging off something other than
-  // page/this.page is a chain; a call whose first argument is not a
-  // string literal (variable, concatenation, ${}-template) is dynamic.
+  // page/this.page is a chain — as is a combinator/narrowing call
+  // (.and/.or/.filter/.contentFrame) hanging off a call result, anchored
+  // to a ')' receiver so array .filter() on a plain identifier can never
+  // false-positive; a call whose first argument is not a string literal
+  // (variable, concatenation, ${}-template) is dynamic.
   const unmatchedShapeOf = (target: HealTarget): UnmatchedShape => {
     for (const loc of target.locations ?? []) {
       const f = files.find((file) => path.resolve(file.path) === path.resolve(loc.file));
       const line = f?.src.split('\n')[loc.line - 1];
       if (!line) continue;
       if (/(?<!\bpage)\.\s*(?:locator|getBy[A-Za-z]+)\s*\(/.test(line)) return 'chained';
+      if (/\)\s*\.\s*(?:and|or|filter|contentFrame|frameLocator)\s*\(/.test(line)) return 'chained';
       if (/(?:locator|getBy[A-Za-z]+)\s*\(\s*(?!['"`])\S/.test(line)) return 'dynamic';
       if (/(?:locator|getBy[A-Za-z]+)\s*\(\s*`[^`]*\$\{/.test(line)) return 'dynamic';
     }

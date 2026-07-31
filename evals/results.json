@@ -938,13 +938,13 @@
       "misses": 0,
       "levelMatches": 17,
       "healedGot": 17,
-      "brokenRunTotalTests": 26,
-      "finalPassed": 26,
+      "brokenRunTotalTests": 28,
+      "finalPassed": 28,
       "finalFailed": 0,
       "expectedFailures": 0,
       "finalOk": true,
-      "scenariosPassed": 26,
-      "scenariosTotal": 26,
+      "scenariosPassed": 28,
+      "scenariosTotal": 28,
       "perLocator": [
         {
           "scenario": "passing spec exits 0 with no probing",
@@ -1068,6 +1068,16 @@
         },
         {
           "scenario": "variable-built POM selector: teaching message, never \"bug worth reporting\"",
+          "verdict": "pass",
+          "detail": "exit 0, msgOk true, unchanged true"
+        },
+        {
+          "scenario": ".and() combinator chain: teaching message, no false intact, sources untouched",
+          "verdict": "pass",
+          "detail": "exit 0, msgOk true, unchanged true"
+        },
+        {
+          "scenario": ".or() combinator chain: teaching message, first arm never healed alone",
           "verdict": "pass",
           "detail": "exit 0, msgOk true, unchanged true"
         },
