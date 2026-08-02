@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>XPath identity suite</title>
+</head>
+<body>
+  <h1>Prime console</h1>
+  <!-- Field shape 1: the XPath pins @aria-label='Enable Prime mode', but
+       the label evolved (capital M). Attribute equality in XPath is
+       case-sensitive → broken; the aria-label identity is recoverable. -->
+  <a href="#prime" aria-label="Enable Prime Mode"
+     onclick="document.getElementById('note').textContent = 'prime'">Enable</a>
+  <!-- Field shape 2: the XPath pins //div[@role="status"] + contains
+       "Prime accounts", but the markup evolved div → p. The role+text
+       identity is recoverable. -->
+  <p role="status">Prime accounts</p>
+  <!-- H-XPATH-01: bare text identity via normalize-space(); the caption
+       evolved (Sync capitalized) so the exact text equality is broken. -->
+  <button type="button"
+    onclick="document.getElementById('note').textContent = 'sync'">Start Sync</button>
+  <!-- Opaque counter-cases target these; none of them may heal. -->
+  <ul><li class="row">First row</li><li class="row">Second row</li></ul>
+  <div class="box-styled">Styled box</div>
+  <p id="note"></p>
+</body>
+</html>

@@ -101,6 +101,13 @@
       "expect": "healed",
       "level": "text",
       "test": "opens the scenario notes"
+    },
+    {
+      "file": "tests/inputfeld.spec.ts",
+      "old": "page.locator('#inputFeld')",
+      "expect": "healed",
+      "level": "css",
+      "test": "fills the amount"
     }
   ]
 }

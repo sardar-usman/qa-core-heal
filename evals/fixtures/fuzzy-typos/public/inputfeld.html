@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mid-word typo</title>
+</head>
+<body>
+  <!-- The 0.3.2 confirm-kill regression page: the sole input's id is one
+       mid-word edit from the broken '#inputFeld'. The intent pass resolves
+       the input namelessly but cannot confirm the broken token against it;
+       that mismatch must be STASHED, not terminal — the fuzzy stage owns
+       this heal and confirms against the candidate's own identity. -->
+  <h1>Payment</h1>
+  <label for="inputField">Amount</label>
+  <input id="inputField" type="text" />
+</body>
+</html>

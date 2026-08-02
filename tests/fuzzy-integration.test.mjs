@@ -177,3 +177,15 @@ test('a substring-unique text match keeps the plain getByText emit (the Scenario
   assert.equal(loc.status, 'healed');
   assert.equal(loc.new, 'page.getByText("Scenario")');
 });
+
+// 0.3.2 structural fix: an intent-pass resolution that fails confirmation
+// is stashed, never terminal — the fuzzy stage (which confirms against
+// the scored CANDIDATE's identity, not the broken string) still runs.
+// Before the fix this shape refused and killed every mid-word-typo heal.
+test('a mid-word typo heals even when an earlier resolution failed confirmation', async () => {
+  const html = '<html><body><label for="inputField">Amount</label>'
+    + '<input id="inputField" type="text" /></body></html>';
+  const loc = await healOne(html, "page.locator('#inputFeld').fill('42')");
+  assert.equal(loc.status, 'healed');
+  assert.equal(loc.new, 'page.locator("#inputField")');
+});

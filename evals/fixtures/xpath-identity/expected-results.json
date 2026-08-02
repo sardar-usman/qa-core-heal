@@ -1,0 +1,47 @@
+{
+  "suite": "xpath-identity",
+  "locators": [
+    {
+      "file": "tests/heals.spec.ts",
+      "old": "page.locator(\"//a[@aria-label='Enable Prime mode']\")",
+      "expect": "healed",
+      "level": "role",
+      "test": "enables prime mode"
+    },
+    {
+      "file": "tests/heals.spec.ts",
+      "old": "page.locator('//div[@role=\"status\"][contains(., \"Prime accounts\")]')",
+      "expect": "healed",
+      "level": "text",
+      "test": "sees the prime account status"
+    },
+    {
+      "file": "tests/heals.spec.ts",
+      "old": "page.locator(\"//*[normalize-space()='Start sync']\")",
+      "expect": "healed",
+      "level": "role",
+      "test": "starts the sync"
+    },
+    {
+      "file": "tests/opaque.spec.ts",
+      "old": "page.locator('//ul/li[3]')",
+      "expect": "refused",
+      "reason": "no semantic identity (nameless / opaque selector) to re-resolve or confirm",
+      "test": "clicks the first row positionally"
+    },
+    {
+      "file": "tests/opaque.spec.ts",
+      "old": "page.locator(\"//div[contains(@class,'btn-primary')]\")",
+      "expect": "refused",
+      "reason": "no semantic identity (nameless / opaque selector) to re-resolve or confirm",
+      "test": "clicks via class containment trick"
+    },
+    {
+      "file": "tests/opaque.spec.ts",
+      "old": "page.locator('//h1/following-sibling::section')",
+      "expect": "refused",
+      "reason": "no semantic identity (nameless / opaque selector) to re-resolve or confirm",
+      "test": "clicks via sibling axis"
+    }
+  ]
+}

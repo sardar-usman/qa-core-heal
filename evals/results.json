@@ -449,20 +449,20 @@
     },
     {
       "suite": "fuzzy-typos",
-      "locators": 20,
-      "broken": 12,
-      "healedExpected": 6,
+      "locators": 22,
+      "broken": 13,
+      "healedExpected": 7,
       "intactExpected": 3,
-      "correctHeals": 6,
+      "correctHeals": 7,
       "correctRefusals": 6,
       "correctIntact": 3,
       "wrongHeals": 0,
       "misses": 0,
-      "levelMatches": 6,
-      "healedGot": 6,
-      "brokenRunFailedTests": 12,
-      "brokenRunTotalTests": 13,
-      "finalPassed": 7,
+      "levelMatches": 7,
+      "healedGot": 7,
+      "brokenRunFailedTests": 13,
+      "brokenRunTotalTests": 14,
+      "finalPassed": 8,
       "finalFailed": 6,
       "expectedFailures": 6,
       "finalOk": true,
@@ -629,6 +629,17 @@
           "gotNew": "page.getByText(\"Scenario\")",
           "expectLevel": "text",
           "gotLevel": "text",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/inputfeld.spec.ts",
+          "old": "page.locator('#inputFeld')",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.locator(\"#inputField\")",
+          "expectLevel": "css",
+          "gotLevel": "css",
           "testPassed": true,
           "verdict": "correct-heal"
         }
@@ -1026,6 +1037,95 @@
       "notes": []
     },
     {
+      "suite": "xpath-identity",
+      "locators": 8,
+      "broken": 6,
+      "healedExpected": 3,
+      "intactExpected": 0,
+      "correctHeals": 3,
+      "correctRefusals": 3,
+      "correctIntact": 0,
+      "wrongHeals": 0,
+      "misses": 0,
+      "levelMatches": 3,
+      "healedGot": 3,
+      "brokenRunFailedTests": 6,
+      "brokenRunTotalTests": 6,
+      "finalPassed": 3,
+      "finalFailed": 3,
+      "expectedFailures": 3,
+      "finalOk": true,
+      "perLocator": [
+        {
+          "file": "tests/heals.spec.ts",
+          "old": "page.locator(\"//a[@aria-label='Enable Prime mode']\")",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"link\", {\"name\":\"Enable Prime mode\"})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/heals.spec.ts",
+          "old": "page.locator('//div[@role=\"status\"][contains(., \"Prime accounts\")]')",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByText(\"Prime accounts\")",
+          "expectLevel": "text",
+          "gotLevel": "text",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/heals.spec.ts",
+          "old": "page.locator(\"//*[normalize-space()='Start sync']\")",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"button\", {\"name\":\"Start sync\"})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/opaque.spec.ts",
+          "old": "page.locator('//ul/li[3]')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "xpath",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/opaque.spec.ts",
+          "old": "page.locator(\"//div[contains(@class,'btn-primary')]\")",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "xpath",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/opaque.spec.ts",
+          "old": "page.locator('//h1/following-sibling::section')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "xpath",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        }
+      ],
+      "notes": []
+    },
+    {
       "suite": "run-mode",
       "locators": 17,
       "broken": 17,
@@ -1274,15 +1374,15 @@
     }
   ],
   "totals": {
-    "locators": 130,
-    "broken": 80,
-    "healedExpected": 56,
+    "locators": 140,
+    "broken": 87,
+    "healedExpected": 60,
     "intactExpected": 10,
-    "correctHeals": 56,
-    "correctRefusals": 24,
+    "correctHeals": 60,
+    "correctRefusals": 27,
     "correctIntact": 10,
     "wrongHeals": 0,
     "misses": 0,
-    "levelMatches": 56
+    "levelMatches": 60
   }
 }

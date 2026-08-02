@@ -9,7 +9,7 @@ import {
   buildRoutePlan, routesForLocator, routeLabel, resolveRoute, stripAutoSuffixes, hasExplicitRoute, type RouteOverride,
 } from './routes.js';
 import { kindsFromTokens, kindsFromTrailingApi, kindOfElement, kindConflict, type ElementKind } from './kind.js';
-import { matchFuzzy, type FuzzyCandidate } from './fuzzy.js';
+import { matchFuzzy, isGeneratedIdentifier, type FuzzyCandidate } from './fuzzy.js';
 import { loadAuthSetup, withTimeout } from './auth-setup.js';
 
 /**
@@ -683,8 +683,68 @@ function intentToken(call: LocatorCall): string {
     case 'testid': return a.testid ?? '';
     case 'css':
     case 'css-tag-fix': return tokenFromCss(a.css ?? '');
-    case 'xpath': return '';
+    // A simple attribute-equality / text-identity XPath carries the same
+    // identity its CSS spelling would; opaque shapes still yield ''.
+    case 'xpath': return xpathIdentity(a.xpath ?? '')?.token ?? '';
   }
+}
+
+/** Identity-bearing attributes an XPath equality predicate may name. */
+const XPATH_IDENTITY_ATTRS = new Set(['id', 'name', 'aria-label', 'data-testid', 'title']);
+
+/**
+ * Semantic identity from a SIMPLE XPath (0.3.2) — deliberately narrow:
+ * the CSS form [aria-label="Enable Prime mode"] already carries fuzzy
+ * identity, and the XPath spelling of the same intent must not be
+ * blinder. Recognized, and nothing else:
+ *   //tag-or-*[@attr='v']         attr ∈ id/name/aria-label/data-testid/title
+ *   //tag-or-*[normalize-space()='text'] , //tag-or-*[text()='text']
+ *   //tag-or-*[@role='r'][contains(., 'text')]   (either predicate order;
+ *                                 text()= also accepted as the text half)
+ * Everything else stays OPAQUE and refuses exactly as before: positional
+ * predicates ([1], last()), axes (::), path steps beyond the single //tag,
+ * @class equality and contains(@class, …) tricks, normalize-space(@class),
+ * bare contains(.) without a role, @role alone (that is the nameless
+ * shape), multi-condition selectors beyond role+text. The tag (and the
+ * role) feed the kind guard; the extracted token feeds the EXISTING
+ * intent/fuzzy pipeline — healed output is a semantic locator, never a
+ * repaired XPath.
+ */
+export function xpathIdentity(xp: string): { token: string; tag: string | null; role: string | null } | null {
+  const t = xp.trim();
+  const m = t.match(/^\/\/([A-Za-z][A-Za-z0-9-]*|\*)((?:\[[^\][]*\])+)$/);
+  if (!m) return null;
+  const tag = m[1] === '*' ? null : m[1]!.toLowerCase();
+  const preds = [...m[2]!.matchAll(/\[([^\][]*)\]/g)].map((p) => p[1]!.trim());
+  if (preds.length < 1 || preds.length > 2) return null;
+  type Pred = { kind: 'attr'; attr: string; value: string } | { kind: 'text'; value: string; weak: boolean };
+  const parsePred = (p: string): Pred | null => {
+    const attr = p.match(/^@([A-Za-z-]+)\s*=\s*(['"])([^'"]*)\2$/);
+    if (attr) return { kind: 'attr', attr: attr[1]!.toLowerCase(), value: attr[3]! };
+    const eqText = p.match(/^(?:normalize-space\(\s*\.?\s*\)|text\(\))\s*=\s*(['"])([^'"]*)\1$/);
+    if (eqText) return { kind: 'text', value: eqText[2]!, weak: false };
+    // contains(., …) is only a text identity WITH a role beside it — a
+    // lone substring predicate is too weak to be an identity by itself.
+    const contains = p.match(/^contains\(\s*\.\s*,\s*(['"])([^'"]*)\1\s*\)$/);
+    if (contains) return { kind: 'text', value: contains[2]!, weak: true };
+    return null;
+  };
+  const parsed: Pred[] = [];
+  for (const p of preds) {
+    const r = parsePred(p);
+    if (!r || !r.value.trim()) return null;
+    parsed.push(r);
+  }
+  if (parsed.length === 1) {
+    const p = parsed[0]!;
+    if (p.kind === 'attr' && XPATH_IDENTITY_ATTRS.has(p.attr)) return { token: p.value, tag, role: null };
+    if (p.kind === 'text' && !p.weak) return { token: p.value, tag, role: null };
+    return null;
+  }
+  const role = parsed.find((p) => p.kind === 'attr' && p.attr === 'role');
+  const textish = parsed.find((p) => p.kind === 'text');
+  if (role && textish) return { token: textish.value, tag, role: role.value.toLowerCase() };
+  return null;
 }
 
 /** Best-effort human token from a CSS selector (id / class / attribute value). */
@@ -706,8 +766,28 @@ function norm(s: string): string {
  * the API chained on the call site (.fill → text input, .check → checkable).
  * Empty when the selector says nothing about kind.
  */
+/** Unambiguous tag → expected kind (input is deliberately absent: its kind
+ *  depends on type=, which a tag name alone cannot declare). */
+const TAG_KINDS: Record<string, ElementKind> = {
+  a: 'link', button: 'button', select: 'combobox', textarea: 'textbox',
+};
+
 function expectedKindsOf(call: LocatorCall): ElementKind[] {
   const a = call.args;
+  // A parsed-identity XPath declares kind through its TAG and role — the
+  // raw selector string would leak kind words from the quoted VALUE text
+  // ("Submit button missing" is prose, not a declaration).
+  if (a.xpath) {
+    const xid = xpathIdentity(a.xpath);
+    if (xid) {
+      const out: ElementKind[] = [];
+      const tagKind = xid.tag ? TAG_KINDS[xid.tag] : undefined;
+      if (tagKind) out.push(tagKind);
+      for (const k of kindsFromTokens(xid.role ?? '')) if (!out.includes(k)) out.push(k);
+      for (const k of kindsFromTrailingApi(call.trailing)) if (!out.includes(k)) out.push(k);
+      return out;
+    }
+  }
   const selectorText = call.method === 'getByRole'
     ? (a.role ?? '')
     : (a.css ?? a.xpath ?? a.testid ?? '');
@@ -1093,7 +1173,7 @@ function fuzzySource(call: LocatorCall): string | null {
       if (am) return am[1]!;
       return a.hasText || null;
     }
-    case 'xpath': return a.hasText || null;
+    case 'xpath': return xpathIdentity(a.xpath ?? '')?.token ?? a.hasText ?? null;
   }
 }
 
@@ -1154,19 +1234,39 @@ const COMPOUND_HINT = 'compound CSS selectors carry little recoverable identity 
 
 /**
  * A CSS selector that is more than one simple token: tag+class chains,
- * multi-class stacks, combinators, positional pseudo-classes. A single
- * #id, .class, [attr] or bare tag is NOT compound.
+ * multi-class stacks, combinators, positional pseudo-classes,
+ * multi-attribute stacks. NOT compound (0.3.2 rule, documented): a single
+ * #id — including digit-leading GUID-style ids, which are invalid as raw
+ * CSS but perfectly real as HTML ids (the selector's INTENT is a lone
+ * id) — a single .class, [attr], a bare tag, and tag[attr] with one
+ * attribute (the exact shape our own smart-CSS heals emit — an attribute
+ * is identity, not styling, so the utility-class rationale of the
+ * compound hint does not apply to it).
  */
-function isCompoundCss(call: LocatorCall): boolean {
+export function isCompoundCss(call: LocatorCall): boolean {
   if (call.level !== 'css') return false;
   const css = (call.args.css ?? '').trim();
   if (!css) return false;
-  return !/^(?:[#.][A-Za-z_][\w-]*|\[[^\]]+\]|[A-Za-z][A-Za-z0-9-]*)$/.test(css);
+  return !/^(?:[#.][\w-]+|(?:[A-Za-z][A-Za-z0-9-]*)?\[[^\]]+\]|[A-Za-z][A-Za-z0-9-]*)$/.test(css);
 }
 
-function withCompoundHint(call: LocatorCall, reason: string): string {
-  if (!isCompoundCss(call)) return reason;
-  return `${reason.replace(/\.$/, '')}; ${COMPOUND_HINT}`;
+/** The generated-per-load teaching for a simple #id whose value is machine noise. */
+const GENERATED_ID_HINT = 'this id looks generated per load; target by role or a data-testid';
+
+/**
+ * The selector-shape appendix for lacking-identity refusals. Mutually
+ * exclusive by construction: the compound hint needs a NON-simple
+ * selector, the generated-id hint needs a simple #id whose entire value
+ * is generated noise (a half-generated "#email-7d21ac" gets neither — its
+ * word carries real identity the fuzzy stage can use).
+ */
+export function withCompoundHint(call: LocatorCall, reason: string): string {
+  if (isCompoundCss(call)) return `${reason.replace(/\.$/, '')}; ${COMPOUND_HINT}`;
+  if (call.level === 'css') {
+    const id = (call.args.css ?? '').trim().match(/^#([\w-]+)$/)?.[1];
+    if (id && isGeneratedIdentifier(id)) return `${reason.replace(/\.$/, '')}; ${GENERATED_ID_HINT}`;
+  }
+  return reason;
 }
 
 /** An element found by the fuzzy page scan, with enough identity to relocate it. */
@@ -2232,6 +2332,17 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       // proposed (less-identity rule). The pipeline keeps looking for a
       // heal that names its target; the park becomes refusal evidence.
       let parkedNamelessRole: string | null = null;
+      // An intent-pass resolution that FAILS same-element confirmation is
+      // STASHED, never terminal (0.3.2 field bug: it used to return
+      // immediately, so the fuzzy stage — whose confirm token is the
+      // CANDIDATE's own identity, not the broken string — never ran, and
+      // every mid-word-typo heal (#inputFeld → #inputField) died in
+      // confirmation. The intent pass confirms against the broken token
+      // by design (exact/suffix-strip: broken ≈ target by construction);
+      // fuzzy proposals confirm against the scored candidate's evidence.
+      // If fuzzy produces no CONFIRMED heal, the stashed mismatch returns
+      // byte-identically to the old behavior.
+      let stashedMismatch: RouteOutcome | null = null;
       for (const tk of tokens) {
         const resolved = await healResolve(page, { intent: tk });
         if (!resolved) continue;
@@ -2247,14 +2358,19 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           && typeof resolved.arg === 'object' && resolved.arg !== null && !('name' in resolved.arg)
           ? String((resolved.arg as { role: string }).role)
           : null;
+        const o = await resolvedOutcome(call, resolved.locator, resolved.level, resolved.arg, resolved.frameChain, tk);
         if (namelessRole) {
-          const o = await resolvedOutcome(call, resolved.locator, resolved.level, resolved.arg, resolved.frameChain, tk);
           if (o.kind === 'resolved' && o.confirmed) { parkedNamelessRole = namelessRole; continue; }
-          // Unconfirmed: keep today's mismatch diagnostics (what WAS found)
-          // — there was never a proposal to make here.
-          return o;
+          // Unconfirmed nameless: mismatch diagnostics, kept as fallback —
+          // there was never a proposal to make here.
+          if (!stashedMismatch) stashedMismatch = o;
+          continue;
         }
-        return resolvedOutcome(call, resolved.locator, resolved.level, resolved.arg, resolved.frameChain, tk);
+        if (o.kind === 'resolved' && !o.confirmed) {
+          if (!stashedMismatch) stashedMismatch = o;
+          continue;
+        }
+        return o;
       }
 
       // 4. Fuzzy stage for typo'd simple identifiers ("#Emai_l" → "#Email").
@@ -2264,12 +2380,20 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       if (source && call.frameChain.length === 0) {
         const fz = await fuzzyProbe(call, source);
         if (fz) {
+          // A CONFIRMED fuzzy heal outranks the stashed mismatch; any
+          // other fuzzy outcome yields to it — the stash is what the run
+          // reported before this fix, so refusal messages stay stable
+          // (including the churn mismatch diagnostics and the hostile
+          // unstable-evidence refusals, which arise on stash-free paths).
+          if (fz.kind === 'resolved' && fz.confirmed) return fz;
+          if (stashedMismatch) return stashedMismatch;
           if (fz.kind === 'unresolved' && !fz.closest && parkedNamelessRole) {
             return { ...fz, namelessRole: parkedNamelessRole };
           }
           return fz;
         }
       }
+      if (stashedMismatch) return stashedMismatch;
       return sawAmbiguous
         ? { kind: 'ambiguous', candidates: ambiguousCandidates ?? undefined }
         : { kind: 'unresolved', ...(parkedNamelessRole ? { namelessRole: parkedNamelessRole } : {}) };

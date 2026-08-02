@@ -58,6 +58,10 @@ const SUITES = [
   // not pass a declared expectation (heading trap, unverifiable-div trap),
   // and a nameless getByRole heal is refused on the less-identity rule.
   { name: 'kind-guard', port: 4195 },
+  // XPath semantic identity (0.3.2): unambiguous attribute-equality /
+  // role+text / bare-text XPath shapes feed the existing pipeline;
+  // positional/axis/class-trick XPaths stay opaque and refuse as before.
+  { name: 'xpath-identity', port: 4198 },
   // Run-first mode scenarios: the CLI's default behavior (run tests, heal
   // only real locator failures on their failure-time pages).
   { name: 'run-mode', port: 4188, mode: 'run' },
