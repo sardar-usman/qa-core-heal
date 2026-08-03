@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Upload</title>
+</head>
+<body>
+  <!-- 0.3.2 collection gap: a value-attribute button. The input has no
+       text content; its VALUE is its accessible name and its only
+       identity. Before the fix it never entered the candidate pool and
+       the heading's 0.50 near-miss was all the refusal could name. -->
+  <h2>File Upload</h2>
+  <form onsubmit="event.preventDefault(); document.getElementById('note').textContent = 'sent';">
+    <input type="file" id="f" />
+    <input type="submit" value="Upload" />
+  </form>
+  <p id="note"></p>
+</body>
+</html>

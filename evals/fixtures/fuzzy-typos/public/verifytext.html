@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Verify text</title>
+</head>
+<body>
+  <!-- 0.3.2 whitespace-canonicalization pin: the greeting uses a REAL
+       non-breaking space (U+00A0). Collection folds every space-category
+       codepoint to a plain space, so the emitted heal uses plain-space
+       text that Playwright's matcher tolerates at runtime (green re-run
+       pins the emit contract). -->
+  <h1>Verify</h1>
+  <p onclick="document.getElementById('note').textContent = 'greeted';">Welcome UserName!</p>
+  <p>Hello UserName!</p>
+  <p id="note"></p>
+</body>
+</html>

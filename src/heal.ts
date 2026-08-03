@@ -1330,8 +1330,17 @@ async function scanIdentifiers(
       id: string | null; name: string | null; attrOf: Record<string, string>;
     }> = [];
     const entryOf = new Map<Element, { values: string[]; attrOf: Record<string, string> }>();
+    // Whitespace canonicalization for EVERY collected identity value —
+    // and therefore for every emitted heal and confirm token: zero-width
+    // characters are DELETED (they render as nothing; a space would
+    // invent a visible gap), and all space-category codepoints (NBSP,
+    // thin space, narrow NBSP — all matched by \s) fold to a plain
+    // space. Playwright's text matcher tolerates both transformations at
+    // runtime (verified empirically: NBSP-DOM and ZWSP-DOM both match
+    // the normalized query), so the emitted source never carries
+    // invisible bytes.
     const add = (el: Element, v: string | null | undefined, attr: string): void => {
-      const t = v?.trim();
+      const t = v?.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim();
       if (!t) return;
       let entry = entryOf.get(el);
       if (!entry) {
@@ -1363,7 +1372,14 @@ async function scanIdentifiers(
         if (t && f && !labelFor.has(f)) labelFor.set(f, t);
       }
       const attrEls = Array.from(
-        root.querySelectorAll('[id], [name], [aria-label], [data-testid], [data-test], [placeholder]'),
+        root.querySelectorAll(
+          '[id], [name], [aria-label], [data-testid], [data-test], [placeholder], '
+          // Value-attribute buttons: an <input type="submit" value="Upload">
+          // has no text content, and its VALUE is its accessible name — the
+          // one identity such buttons carry (0.3.2 field gap: the Upload
+          // button never entered the candidate pool at all).
+          + 'input[type="submit" i], input[type="button" i], input[type="reset" i]',
+        ),
       ).slice(0, 2000);
       for (const el of attrEls) {
         add(el, el.id, 'id');
@@ -1371,6 +1387,10 @@ async function scanIdentifiers(
         add(el, el.getAttribute('aria-label'), 'aria-label');
         add(el, el.getAttribute('data-testid'), 'data-testid');
         add(el, el.getAttribute('data-test'), 'data-test');
+        if (el.tagName === 'INPUT'
+          && /^(submit|button|reset)$/i.test(el.getAttribute('type') ?? '')) {
+          add(el, el.getAttribute('value'), 'value');
+        }
         add(el, el.getAttribute('placeholder'), 'placeholder');
         if (el.id && labelFor.has(el.id)) add(el, labelFor.get(el.id)!, 'label');
       }
@@ -2123,6 +2143,14 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           break;
         case 'data-test':
           arg = `[data-test="${value.replace(/"/g, '\\"')}"]`;
+          level = 'css';
+          break;
+        // A value-attribute button (<input type="submit" value="Upload">):
+        // the value IS the accessible name, so the ladder preference above
+        // usually re-expresses it as getByRole; this direct form is the
+        // fallback when it cannot.
+        case 'value':
+          arg = `input[value="${value.replace(/"/g, '\\"')}"]`;
           level = 'css';
           break;
         case 'text':

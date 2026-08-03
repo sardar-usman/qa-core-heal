@@ -108,6 +108,20 @@
       "expect": "healed",
       "level": "css",
       "test": "fills the amount"
+    },
+    {
+      "file": "tests/upload.spec.ts",
+      "old": "page.getByRole(\"button\", { name: \"Uploadd\" })",
+      "expect": "healed",
+      "level": "role",
+      "test": "starts the upload"
+    },
+    {
+      "file": "tests/verifytext.spec.ts",
+      "old": "page.getByText(\"Welcome UserNam!\")",
+      "expect": "healed",
+      "level": "text",
+      "test": "greets the user"
     }
   ]
 }

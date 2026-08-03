@@ -449,20 +449,20 @@
     },
     {
       "suite": "fuzzy-typos",
-      "locators": 22,
-      "broken": 13,
-      "healedExpected": 7,
+      "locators": 26,
+      "broken": 15,
+      "healedExpected": 9,
       "intactExpected": 3,
-      "correctHeals": 7,
+      "correctHeals": 9,
       "correctRefusals": 6,
       "correctIntact": 3,
       "wrongHeals": 0,
       "misses": 0,
-      "levelMatches": 7,
-      "healedGot": 7,
-      "brokenRunFailedTests": 13,
-      "brokenRunTotalTests": 14,
-      "finalPassed": 8,
+      "levelMatches": 9,
+      "healedGot": 9,
+      "brokenRunFailedTests": 15,
+      "brokenRunTotalTests": 16,
+      "finalPassed": 10,
       "finalFailed": 6,
       "expectedFailures": 6,
       "finalOk": true,
@@ -640,6 +640,28 @@
           "gotNew": "page.locator(\"#inputField\")",
           "expectLevel": "css",
           "gotLevel": "css",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/upload.spec.ts",
+          "old": "page.getByRole(\"button\", { name: \"Uploadd\" })",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"button\", {\"name\":\"Upload\",\"exact\":true})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/verifytext.spec.ts",
+          "old": "page.getByText(\"Welcome UserNam!\")",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByText(\"Welcome UserName!\")",
+          "expectLevel": "text",
+          "gotLevel": "text",
           "testPassed": true,
           "verdict": "correct-heal"
         }
@@ -1374,15 +1396,15 @@
     }
   ],
   "totals": {
-    "locators": 140,
-    "broken": 87,
-    "healedExpected": 60,
+    "locators": 144,
+    "broken": 89,
+    "healedExpected": 62,
     "intactExpected": 10,
-    "correctHeals": 60,
+    "correctHeals": 62,
     "correctRefusals": 27,
     "correctIntact": 10,
     "wrongHeals": 0,
     "misses": 0,
-    "levelMatches": 60
+    "levelMatches": 62
   }
 }

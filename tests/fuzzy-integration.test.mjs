@@ -189,3 +189,28 @@ test('a mid-word typo heals even when an earlier resolution failed confirmation'
   assert.equal(loc.status, 'healed');
   assert.equal(loc.new, 'page.locator("#inputField")');
 });
+
+// 0.3.2 whitespace canonicalization: collected identity values fold all
+// space-category codepoints (NBSP, thin space) to plain space and DELETE
+// zero-width characters — so an emitted heal never carries invisible
+// bytes into the user's source. Playwright's matcher tolerates the
+// normalized text at runtime (verified against NBSP and ZWSP DOM).
+test('a zero-width-spaced greeting heals with clean text, no invisible bytes emitted', async () => {
+  const html = '<html><head><meta charset="utf-8"></head><body>'
+    + '<p>Welcome​UserName!</p><p>Hello UserName!</p></body></html>';
+  const loc = await healOne(html, 'page.getByText("Welcome UserNam!").click()');
+  assert.equal(loc.status, 'healed');
+  assert.ok(!/[​-‍⁠﻿ ]/.test(loc.new), JSON.stringify(loc.new));
+  assert.equal(loc.new, 'page.getByText("WelcomeUserName!")');
+});
+
+// The value-attribute button gap: <input type="submit" value="Upload">
+// has no text content; its value is its accessible name and must be in
+// the candidate pool.
+test('a value-attribute submit button heals via its value identity', async () => {
+  const html = '<html><body><h2>File Upload</h2>'
+    + '<form><input type="file" /><input type="submit" value="Upload" /></form></body></html>';
+  const loc = await healOne(html, 'page.getByRole("button", { name: "Uploadd" }).click()');
+  assert.equal(loc.status, 'healed');
+  assert.equal(loc.new, 'page.getByRole("button", {"name":"Upload","exact":true})');
+});
