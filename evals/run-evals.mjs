@@ -62,6 +62,11 @@ const SUITES = [
   // role+text / bare-text XPath shapes feed the existing pipeline;
   // positional/axis/class-trick XPaths stay opaque and refuse as before.
   { name: 'xpath-identity', port: 4198 },
+  // Doc-style decoy pages (0.3.2): an exact-text decoy of the WRONG kind
+  // (heading/paragraph/list item) must not shadow the real same-kind
+  // control one edit away — kind vetoes stash instead of terminating, and
+  // the kind guard breaks fuzzy-band ties.
+  { name: 'decoy-pages', port: 4202 },
   // Run-first mode scenarios: the CLI's default behavior (run tests, heal
   // only real locator failures on their failure-time pages).
   { name: 'run-mode', port: 4188, mode: 'run' },

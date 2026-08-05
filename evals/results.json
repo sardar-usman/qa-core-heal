@@ -1148,6 +1148,84 @@
       "notes": []
     },
     {
+      "suite": "decoy-pages",
+      "locators": 10,
+      "broken": 5,
+      "healedExpected": 5,
+      "intactExpected": 0,
+      "correctHeals": 5,
+      "correctRefusals": 0,
+      "correctIntact": 0,
+      "wrongHeals": 0,
+      "misses": 0,
+      "levelMatches": 5,
+      "healedGot": 5,
+      "brokenRunFailedTests": 5,
+      "brokenRunTotalTests": 5,
+      "finalPassed": 5,
+      "finalFailed": 0,
+      "expectedFailures": 0,
+      "finalOk": true,
+      "perLocator": [
+        {
+          "file": "tests/alerts.spec.ts",
+          "old": "page.getByRole('button', { name: 'Alerts' })",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"button\", {\"name\":\"Alert\",\"exact\":true})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/stopp.spec.ts",
+          "old": "page.getByRole('button', { name: 'Stopp' })",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"button\", {\"name\":\"Stop\",\"exact\":true})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/login.spec.ts",
+          "old": "page.getByRole('button', { name: 'Login' })",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"button\", {\"name\":\"Log In\",\"exact\":true})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/clickmee.spec.ts",
+          "old": "page.getByRole('button', { name: 'Click mee' })",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"button\", {\"name\":\"Click me\",\"exact\":true})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/dynamicids.spec.ts",
+          "old": "page.getByRole('button', { name: 'Dynamic IDs' })",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"button\", {\"name\":\"Dynamic ID\",\"exact\":true})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
+        }
+      ],
+      "notes": []
+    },
+    {
       "suite": "run-mode",
       "locators": 17,
       "broken": 17,
@@ -1396,15 +1474,15 @@
     }
   ],
   "totals": {
-    "locators": 144,
-    "broken": 89,
-    "healedExpected": 62,
+    "locators": 154,
+    "broken": 94,
+    "healedExpected": 67,
     "intactExpected": 10,
-    "correctHeals": 62,
+    "correctHeals": 67,
     "correctRefusals": 27,
     "correctIntact": 10,
     "wrongHeals": 0,
     "misses": 0,
-    "levelMatches": 62
+    "levelMatches": 67
   }
 }

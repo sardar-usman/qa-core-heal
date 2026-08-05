@@ -181,7 +181,22 @@ export type FuzzyVerdict =
  * token containment; render-random values (React useId ids, hashes) score
  * ZERO and are excluded from near-miss naming unless nothing else exists.
  */
-export function matchFuzzy(source: string, candidates: FuzzyCandidate[]): FuzzyVerdict {
+export function matchFuzzy(
+  source: string,
+  candidates: FuzzyCandidate[],
+  opts?: {
+    /**
+     * Kind-guard tiebreak (0.3.2): true for a candidate whose kind
+     * DEFINITELY conflicts with the broken locator's declared kind — the
+     * gate would refuse it anyway. Consulted ONLY to break a multi-
+     * candidate band (mirroring the exact-equality tiebreak), never to
+     * filter the pool: single-candidate verdicts and near-miss evidence
+     * are untouched, so an exact-text decoy of the wrong kind (a page
+     * heading echoing a button name) cannot hold the band hostage.
+     */
+    kindVeto?: (c: FuzzyCandidate) => boolean;
+  },
+): FuzzyVerdict {
   const shortToken = normalizeIdentifier(source).length < MIN_FUZZY_LENGTH;
   const sourceTokens = shortToken
     ? []
@@ -248,6 +263,16 @@ export function matchFuzzy(source: string, candidates: FuzzyCandidate[]): FuzzyV
       return { kind: 'match', candidate: m.candidate, value: m.value, score: m.score };
     }
     const pool = exact.length > 1 ? exact : band;
+    // Kind tiebreak, after the exact-equality tiebreak: drop candidates
+    // the kind guard would definitely refuse; a single survivor is the
+    // match. Two same-kind survivors remain a genuine tie.
+    if (opts?.kindVeto) {
+      const kindOk = pool.filter((s) => !opts.kindVeto!(s.candidate));
+      if (kindOk.length === 1) {
+        const m = kindOk[0]!;
+        return { kind: 'match', candidate: m.candidate, value: m.value, score: m.score };
+      }
+    }
     return { kind: 'ambiguous', displays: pool.map((m) => m.candidate.display) };
   }
   if (!shortToken) {

@@ -67,6 +67,28 @@ test('headings have a definite kind and conflict with interactive expectations',
   assert.deepEqual(kindsFromTokens('#section-heading'), []);
 });
 
+// 0.3.2 doc-page decoys: common content tags are DEFINITE content kinds,
+// so a paragraph/list-item decoy vetoes decisively and refusals name what
+// was found ("candidate is paragraph") instead of "cannot be verified".
+test('content tags have definite kinds; <a> is a link only WITH href', () => {
+  assert.equal(kindOfElement({ tag: 'p', type: null, role: null, href: false }), 'paragraph');
+  assert.equal(kindOfElement({ tag: 'li', type: null, role: null, href: false }), 'list item');
+  assert.equal(kindOfElement({ tag: 'span', type: null, role: null, href: false }), 'inline text');
+  assert.equal(kindOfElement({ tag: 'div', type: null, role: 'paragraph', href: false }), 'paragraph');
+  assert.equal(kindOfElement({ tag: 'div', type: null, role: 'listitem', href: false }), 'list item');
+  // A role attribute still wins over the content tag.
+  assert.equal(kindOfElement({ tag: 'span', type: null, role: 'button', href: false }), 'button');
+  // <a> WITH href is definitely a link; without href it stays unverifiable
+  // (ARIA-correct), never a definite anything.
+  assert.equal(kindOfElement({ tag: 'a', type: null, role: null, href: true }), 'link');
+  assert.equal(kindOfElement({ tag: 'a', type: null, role: null, href: false }), null);
+  assert.equal(kindConflict(['button'], 'paragraph'), true);
+  assert.equal(kindConflict(['button'], 'list item'), true);
+  assert.equal(kindConflict(['textbox'], 'inline text'), true);
+  // No token/trailing-API expectation can declare a content kind.
+  assert.deepEqual(kindsFromTokens('#news-paragraph-list-item-span'), []);
+});
+
 test('kindConflict fires only on a definite mismatch', () => {
   assert.equal(kindConflict(['button'], 'link'), true);
   assert.equal(kindConflict(['textbox'], 'link'), true);

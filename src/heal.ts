@@ -1276,6 +1276,10 @@ interface ScannedElement extends FuzzyCandidate {
   name: string | null;
   /** value -> which attribute carried it, for rebuilding a locator. */
   attrOf: Record<string, string>;
+  /** Kind evidence (0.3.2): lets the kind guard break fuzzy-band ties. */
+  role: string | null;
+  type: string | null;
+  href: boolean;
 }
 
 /** "quantity-field" → "quantity field", "NewsletterEmail" → "Newsletter Email". */
@@ -1328,6 +1332,7 @@ async function scanIdentifiers(
     const out: Array<{
       display: string; values: string[]; tag: string;
       id: string | null; name: string | null; attrOf: Record<string, string>;
+      role: string | null; type: string | null; href: boolean;
     }> = [];
     const entryOf = new Map<Element, { values: string[]; attrOf: Record<string, string> }>();
     // Whitespace canonicalization for EVERY collected identity value —
@@ -1435,6 +1440,8 @@ async function scanIdentifiers(
       out.push({
         display, values: entry.values, tag: el.tagName.toLowerCase(),
         id, name, attrOf: entry.attrOf,
+        role: el.getAttribute('role'), type: el.getAttribute('type'),
+        href: el.hasAttribute('href'),
       });
     }
     return { settled, elements: out };
@@ -2076,7 +2083,18 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           console.error(`candidate collection may be incomplete: the page was still mutating after ${opts.settleMs ?? 2000}ms`);
         }
       } catch { return null; }
-      const verdict = matchFuzzy(source, scanned);
+      // The kind guard as a band tiebreaker: a candidate whose kind
+      // DEFINITELY conflicts with the declared expectation would be
+      // refused at the gate anyway — it must not ambiguate the band
+      // against the real same-kind control (doc-page decoy shape).
+      const fuzzyExpected = expectedKindsOf(call);
+      const verdict = matchFuzzy(source, scanned, fuzzyExpected.length > 0 ? {
+        kindVeto: (c) => {
+          const sc = c as ScannedElement;
+          const k = kindOfElement({ tag: sc.tag, type: sc.type, role: sc.role, href: sc.href });
+          return k !== null && kindConflict(fuzzyExpected, k);
+        },
+      } : undefined);
       if (opts.verbose) {
         const detail = verdict.kind === 'match'
           ? `${verdict.value} (${verdict.score.toFixed(2)})`
@@ -2371,6 +2389,18 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       // If fuzzy produces no CONFIRMED heal, the stashed mismatch returns
       // byte-identically to the old behavior.
       let stashedMismatch: RouteOutcome | null = null;
+      // Kind-vetoed like unconfirmed (0.3.2, same structure as the
+      // confirmation stash): a doc page's exact-text decoy (a HEADING
+      // matching a broken button name verbatim) resolves and confirms,
+      // then dies at the gate's kind guard — and that verdict was
+      // terminal, so the real same-kind control one edit away was never
+      // proposed. A kind-vetoed resolution is stashed instead; if fuzzy
+      // yields no kind-clean confirmed heal, the stash returns and the
+      // gate refuses with its exact current wording.
+      const expectedKinds = expectedKindsOf(call);
+      const kindVetoed = (oc: RouteOutcome): boolean =>
+        oc.kind === 'resolved' && !oc.roleCorrected && expectedKinds.length > 0
+        && (oc.candidateKind === null || kindConflict(expectedKinds, oc.candidateKind));
       for (const tk of tokens) {
         const resolved = await healResolve(page, { intent: tk });
         if (!resolved) continue;
@@ -2394,7 +2424,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           if (!stashedMismatch) stashedMismatch = o;
           continue;
         }
-        if (o.kind === 'resolved' && !o.confirmed) {
+        if (o.kind === 'resolved' && (!o.confirmed || kindVetoed(o))) {
           if (!stashedMismatch) stashedMismatch = o;
           continue;
         }
@@ -2408,12 +2438,12 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       if (source && call.frameChain.length === 0) {
         const fz = await fuzzyProbe(call, source);
         if (fz) {
-          // A CONFIRMED fuzzy heal outranks the stashed mismatch; any
-          // other fuzzy outcome yields to it — the stash is what the run
-          // reported before this fix, so refusal messages stay stable
-          // (including the churn mismatch diagnostics and the hostile
-          // unstable-evidence refusals, which arise on stash-free paths).
-          if (fz.kind === 'resolved' && fz.confirmed) return fz;
+          // A CONFIRMED, kind-clean fuzzy heal outranks the stashed
+          // mismatch; any other fuzzy outcome yields to it — the stash is
+          // what the run reported before this fix, so refusal messages
+          // stay stable (including the churn mismatch diagnostics and the
+          // hostile unstable-evidence refusals, on stash-free paths).
+          if (fz.kind === 'resolved' && fz.confirmed && !kindVetoed(fz)) return fz;
           if (stashedMismatch) return stashedMismatch;
           if (fz.kind === 'unresolved' && !fz.closest && parkedNamelessRole) {
             return { ...fz, namelessRole: parkedNamelessRole };

@@ -1,0 +1,40 @@
+{
+  "suite": "decoy-pages",
+  "locators": [
+    {
+      "file": "tests/alerts.spec.ts",
+      "old": "page.getByRole('button', { name: 'Alerts' })",
+      "expect": "healed",
+      "level": "role",
+      "test": "opens the alert"
+    },
+    {
+      "file": "tests/stopp.spec.ts",
+      "old": "page.getByRole('button', { name: 'Stopp' })",
+      "expect": "healed",
+      "level": "role",
+      "test": "stops the animation"
+    },
+    {
+      "file": "tests/login.spec.ts",
+      "old": "page.getByRole('button', { name: 'Login' })",
+      "expect": "healed",
+      "level": "role",
+      "test": "logs in"
+    },
+    {
+      "file": "tests/clickmee.spec.ts",
+      "old": "page.getByRole('button', { name: 'Click mee' })",
+      "expect": "healed",
+      "level": "role",
+      "test": "clicks me"
+    },
+    {
+      "file": "tests/dynamicids.spec.ts",
+      "old": "page.getByRole('button', { name: 'Dynamic IDs' })",
+      "expect": "healed",
+      "level": "role",
+      "test": "presses the dynamic id button"
+    }
+  ]
+}

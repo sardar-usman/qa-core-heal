@@ -10,7 +10,15 @@
  * The guard turns that into a refusal; refusing is correct, guessing is not.
  */
 
-export type ElementKind = 'button' | 'link' | 'textbox' | 'checkbox' | 'radio' | 'combobox' | 'heading';
+export type ElementKind =
+  | 'button' | 'link' | 'textbox' | 'checkbox' | 'radio' | 'combobox'
+  // Definite NON-interactive content kinds (0.3.2): doc-style pages carry
+  // exact-text decoys for broken control names in headings, paragraphs,
+  // and list items. Definite content kinds let the guard veto them
+  // decisively — and let refusals say "candidate is paragraph" instead of
+  // "cannot be verified (<p>)". None of these ever appear in TOKEN_KINDS,
+  // so no expectation can newly declare one.
+  | 'heading' | 'paragraph' | 'list item' | 'inline text';
 
 /** Keyword -> kind, matched against whole word tokens only ("selector" is not "select"). */
 const TOKEN_KINDS: Record<string, ElementKind> = {
@@ -37,6 +45,8 @@ const ROLE_KINDS: Record<string, ElementKind> = {
   // TOKEN_KINDS: no selector token or trailing API ever EXPECTS a heading,
   // so nothing that healed before can newly declare one.
   heading: 'heading',
+  paragraph: 'paragraph',
+  listitem: 'list item',
 };
 
 /**
@@ -84,6 +94,11 @@ export function kindOfElement(info: ElementInfo): ElementKind | null {
   }
   const tag = info.tag.toLowerCase();
   if (/^h[1-6]$/.test(tag)) return 'heading';
+  if (tag === 'p') return 'paragraph';
+  if (tag === 'li') return 'list item';
+  if (tag === 'span') return 'inline text';
+  // An <a> WITH href is definitely a link; without href it is not a link
+  // per ARIA and stays unverifiable.
   if (tag === 'a') return info.href ? 'link' : null;
   if (tag === 'button') return 'button';
   if (tag === 'select') return 'combobox';
