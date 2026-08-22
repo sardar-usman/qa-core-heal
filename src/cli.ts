@@ -314,6 +314,9 @@ interface Verdict {
   verified: boolean | null;
   /** The heal was applied but undone: its verify re-run still failed. */
   reverted: boolean;
+  /** Set when reverted: why the re-run still failed. 'non-locator' means
+   *  the healed locator resolves and the heal may well be correct. */
+  revertReason: 'locator' | 'non-locator' | null;
 }
 
 function locatorVerdict(
@@ -332,6 +335,7 @@ function locatorVerdict(
     after: l.status === 'healed' ? l.new : null,
     verified: l.status === 'healed' ? verified : null,
     reverted: false,
+    revertReason: null,
   };
 }
 
@@ -498,6 +502,7 @@ async function main(): Promise<void> {
     heals: HealResult['healed'],
     verifiedFor: (h: HealResult['healed'][number]) => boolean,
     revertedFor: (h: HealResult['healed'][number]) => boolean = () => false,
+    revertReasonFor: (h: HealResult['healed'][number]) => 'locator' | 'non-locator' | undefined = () => undefined,
   ): void => {
     const auditEntries: AuditEntry[] = heals.map((h) => ({
       timestamp: new Date().toISOString(),
@@ -511,6 +516,7 @@ async function main(): Promise<void> {
       applied: true,
       verified: verifiedFor(h),
       reverted: revertedFor(h),
+      ...(revertedFor(h) ? { revertReason: revertReasonFor(h) ?? 'locator' } : {}),
     }));
     if (auditEntries.length > 0) {
       appendAuditLog(auditPath, auditEntries);
@@ -587,6 +593,7 @@ async function main(): Promise<void> {
   // Heals reverted after a failed per-spec verify, keyed "file|line" (the
   // report-relative file), for the JSON verdicts.
   const scanRevertedKeys = new Set<string>();
+  const scanRevertReasonByKey = new Map<string, 'locator' | 'non-locator'>();
 
   // Audit log entries are written only when heals were actually applied.
   if (applied && result.healed.length > 0) {
@@ -595,6 +602,10 @@ async function main(): Promise<void> {
     // received a heal. A heal in a shared page object counts as verified
     // only when EVERY spec that uses it passes its re-run.
     const verifiedBySpec = new Map<string, boolean>();
+    // Why a failing verify re-run failed: 'non-locator' only when EVERY
+    // failing test in the spec classifies non-locator (assertion/app/
+    // navigation) — any locator-classified failure keeps 'locator'.
+    const revertReasonBySpec = new Map<string, { reason: 'locator' | 'non-locator'; line?: string }>();
     if (verify) {
       for (const spec of specs) {
         const gathered = result.specFiles[spec] ?? [];
@@ -602,9 +613,23 @@ async function main(): Promise<void> {
         const root = projectRootFor(spec);
         const rel = path.relative(root, spec);
         say(`▸ Verifying ${rel} with a re-run`);
-        const run = runPlaywrightCli(root, ['test', toCliFileFilter(rel)], 32 * 1024 * 1024);
+        const run = runPlaywrightCli(root, ['test', toCliFileFilter(rel), '--reporter=json'], 32 * 1024 * 1024);
         logChildRun(cli, run);
         verifiedBySpec.set(spec, run.status === 0);
+        if (run.status !== 0) {
+          let reason: 'locator' | 'non-locator' = 'locator';
+          let line: string | undefined;
+          const rep = parseJsonReport(run.stdout ?? '');
+          if (rep) {
+            const failing = collectTests(rep as Parameters<typeof collectTests>[0]).filter((x) => !x.ok);
+            const classes = failing.map((x) => classifyFailure(x.message));
+            if (classes.length > 0 && classes.every((c) => c.kind === 'other')) {
+              reason = 'non-locator';
+              line = classes.find((c) => c.kind === 'other' && c.summary)?.summary;
+            }
+          }
+          revertReasonBySpec.set(spec, { reason, line });
+        }
         say(run.status === 0 ? '  ✓ re-run passed' : '  ✗ re-run FAILED (audit entries record verified=false)');
       }
     }
@@ -623,8 +648,19 @@ async function main(): Promise<void> {
           [...revertedHeals].some((h) => h.file === file && h.line === edit.line && h.new === edit.newRaw));
         for (const h of revertedHeals) {
           const rel = path.relative(process.cwd(), h.file).split(path.sep).join('/');
+          const owners = specs.filter((sp) => (result.specFiles[sp] ?? []).includes(h.file));
+          const infos = owners.map((sp) => revertReasonBySpec.get(sp)).filter((x) => x != null);
+          const info = infos.length > 0 && infos.every((x) => x!.reason === 'non-locator')
+            ? { reason: 'non-locator' as const, line: infos.find((x) => x!.line)?.line }
+            : { reason: 'locator' as const };
           scanRevertedKeys.add(`${rel}|${h.line}`);
-          say(`✗ heal reverted: re-run still failing after heal — ${rel}:${h.line} ${h.old}`);
+          scanRevertReasonByKey.set(`${rel}|${h.line}`, info.reason);
+          if (info.reason === 'non-locator') {
+            say(`✗ heal reverted: the re-run still fails, but no longer for a locator reason${info.line ? ` (${info.line})` : ''}. `
+              + `The heal may be correct; the remaining failure looks like a test or app problem. — ${rel}:${h.line} ${h.old}`);
+          } else {
+            say(`✗ heal reverted: re-run still failing after heal — ${rel}:${h.line} ${h.old}`);
+          }
         }
         say(`${revertedHeals.size} heal(s) reverted: re-run still failing after heal`);
         process.exitCode = 1;
@@ -633,7 +669,8 @@ async function main(): Promise<void> {
     writeAudit(result.healed, (h) => {
       const owners = specs.filter((sp) => (result.specFiles[sp] ?? []).includes(h.file));
       return verify && owners.length > 0 && owners.every((sp) => verifiedBySpec.get(sp) === true);
-    }, (h) => revertedHeals.has(h));
+    }, (h) => revertedHeals.has(h),
+    (h) => scanRevertReasonByKey.get(`${path.relative(process.cwd(), h.file).split(path.sep).join('/')}|${h.line}`));
   }
 
   if (cli.json) {
@@ -652,7 +689,11 @@ async function main(): Promise<void> {
       locators,
       verdicts: locators.map((l) => {
         const reverted = scanRevertedKeys.has(`${l.file}|${l.line}`);
-        return { ...locatorVerdict(l, applied, null, reverted ? false : null), reverted };
+        return {
+          ...locatorVerdict(l, applied, null, reverted ? false : null),
+          reverted,
+          revertReason: reverted ? (scanRevertReasonByKey.get(`${l.file}|${l.line}`) ?? 'locator') : null,
+        };
       }),
       summary: { heals: count('healed'), refusals: count('refused'), nonLocator: 0, errors: result.fileErrors.length },
       fileErrors: result.fileErrors,
@@ -679,6 +720,7 @@ interface RunFirstCtx {
     heals: HealResult['healed'],
     verifiedFor: (h: HealResult['healed'][number]) => boolean,
     revertedFor?: (h: HealResult['healed'][number]) => boolean,
+    revertReasonFor?: (h: HealResult['healed'][number]) => 'locator' | 'non-locator' | undefined,
   ) => void;
   /** The spec target exactly as the user typed it, for the run echo. */
   displayTarget?: string;
@@ -726,6 +768,12 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   // Heals reverted because their test still failed after applying,
   // keyed "file|line" — feeds the verdicts and the audit.
   const revertedKeys = new Set<string>();
+  // Why each reverting re-run failed: 'locator' (the heal did not fix the
+  // lookup) or 'non-locator' (the healed locator resolves; the remaining
+  // failure is an assertion/app/navigation problem). Keyed both by test
+  // title (classification time) and by "file|line" (verdict/audit time).
+  const revertReasonByTitle = new Map<string, { reason: 'locator' | 'non-locator'; line?: string }>();
+  const revertReasonByKey = new Map<string, 'locator' | 'non-locator'>();
   // Test titles for locator verdicts and per-test verification, matched
   // structurally (the same signature the healer uses).
   const titleFor = (old: string): string | null => {
@@ -754,7 +802,11 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
             l, applied, titleFor(l.old),
             reverted ? false : (applied && verify ? rerunPassed : null),
           );
-          return { ...v, reverted };
+          return {
+            ...v,
+            reverted,
+            revertReason: reverted ? (revertReasonByKey.get(`${l.file}|${l.line}`) ?? 'locator') : null,
+          };
         }),
         ...nonLocator.map((n) => ({
           spec: n.file ?? '',
@@ -766,6 +818,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
           after: null,
           verified: null,
           reverted: false,
+          revertReason: null,
         })),
       ];
       console.log(JSON.stringify({
@@ -918,9 +971,33 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     } else {
       say('  ✗ re-run FAILED — verifying per test to isolate the failing heal(s)');
       for (const t of locatorTests) {
-        const one = runPlaywrightCli(root, ['test', fileArgOf(t), '--grep', escapeRegex(t.title)], 32 * 1024 * 1024);
+        const one = runPlaywrightCli(root, ['test', fileArgOf(t), '--grep', escapeRegex(t.title), '--reporter=json'], 32 * 1024 * 1024);
         logChildRun(cli, one);
         verifiedByTitle.set(t.title, one.status === 0);
+        // Why is it STILL failing? A locator-classified failure means the
+        // heal did not fix (or wrongly fixed) the lookup; a non-locator
+        // failure (assertion value mismatch, app error, navigation) means
+        // the healed locator now RESOLVES and the remaining problem is
+        // likely the test or the app, not the heal (0.3.3 field case:
+        // a CORRECT heal was reverted with wording implying it was wrong).
+        // The revert itself is unconditional either way.
+        if (one.status !== 0) {
+          let reason: 'locator' | 'non-locator' = 'locator';
+          let line: string | undefined;
+          const oneReport = parseJsonReport(one.stdout ?? '');
+          if (oneReport) {
+            const failed = collectTests(oneReport as Parameters<typeof collectTests>[0])
+              .find((x) => !x.ok && x.title === t.title);
+            if (failed?.message) {
+              const c = classifyFailure(failed.message);
+              if (c.kind === 'other') {
+                reason = 'non-locator';
+                line = c.summary;
+              }
+            }
+          }
+          revertReasonByTitle.set(t.title, { reason, line });
+        }
       }
       const revertedHeals = new Set<HealResult['healed'][number]>();
       for (const h of result.healed) {
@@ -934,8 +1011,16 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
           [...revertedHeals].some((h) => h.file === file && h.line === edit.line && h.new === edit.newRaw));
         for (const h of revertedHeals) {
           const rel = path.relative(process.cwd(), h.file).split(path.sep).join('/');
+          const title = titleFor(h.old);
+          const info = title ? revertReasonByTitle.get(title) : undefined;
           revertedKeys.add(`${rel}|${h.line}`);
-          say(`  ✗ heal reverted: re-run still failing after heal — ${rel}:${h.line} ${h.old}`);
+          revertReasonByKey.set(`${rel}|${h.line}`, info?.reason ?? 'locator');
+          if (info?.reason === 'non-locator') {
+            say(`  ✗ heal reverted: the re-run still fails, but no longer for a locator reason${info.line ? ` (${info.line})` : ''}. `
+              + `The heal may be correct; the remaining failure looks like a test or app problem. — ${rel}:${h.line} ${h.old}`);
+          } else {
+            say(`  ✗ heal reverted: re-run still failing after heal — ${rel}:${h.line} ${h.old}`);
+          }
         }
         say(`${revertedHeals.size} heal(s) reverted: re-run still failing after heal`);
         process.exitCode = 1;
@@ -954,6 +1039,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
         return title != null && verifiedByTitle.get(title) === true;
       },
       (h) => revertedKeys.has(`${relOf(h)}|${h.line}`),
+      (h) => revertReasonByKey.get(`${relOf(h)}|${h.line}`),
     );
   }
   emit(result, applied, nonLocator, unmatched, rerunPassed);

@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Wrong assertion</title>
+</head>
+<body>
+  <!-- H-CSS-05: the heal (#inputFeld -> #inputField) is CORRECT — the
+       input exists and the fill succeeds — but the test's assertion is
+       independently wrong (it expects a value nothing ever sets). The
+       revert contract still reverts, but the message must say the re-run
+       no longer fails for a locator reason. -->
+  <h1>Payment</h1>
+  <label for="inputField">Amount</label>
+  <input id="inputField" type="text" />
+</body>
+</html>

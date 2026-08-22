@@ -22,7 +22,7 @@ Expected refusals (no identity left to heal from) count as correct behavior.
 | kind-guard | 6 | 4 | 1/1 | 3/3 | 1/1 | 0 | 2/5 passed (3 expected failures) |
 | xpath-identity | 8 | 6 | 3/3 | 3/3 | — | 0 | 3/6 passed (3 expected failures) |
 | decoy-pages | 10 | 5 | 5/5 | 0/0 | — | 0 | 5/5 passed |
-| run-mode | 17 | 17 | 17/17 | 0/0 | — | 0 | 29/29 passed |
+| run-mode | 17 | 17 | 17/17 | 0/0 | — | 0 | 30/30 passed |
 | demowebshop-pom | 11 | 4 | 3/3 | 1/1 | 1/1 | 0 | 7/8 passed (1 expected failure) |
 | **Total** | **154** | **94** | **67/67** | **27/27** | **10/10** | **0** | |
 

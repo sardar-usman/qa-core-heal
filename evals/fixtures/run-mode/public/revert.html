@@ -6,11 +6,12 @@
 </head>
 <body>
   <!-- The heal target LOOKS right (id one edit away, kind matches) but is
-       the WRONG element for the test: clicking it does nothing, so the
-       assertion still fails after the heal. The verify re-run must catch
-       that and REVERT the edit, leaving the file byte-identical. -->
+       the WRONG element for the test: clicking it never creates the
+       #submit-note element, so the assertion still fails after the heal —
+       for a LOCATOR reason (the note is absent, not merely empty), which
+       keeps this scenario on the revert contract's locator branch. The
+       verify re-run must catch it and REVERT the edit byte-identically. -->
   <h1>Orders</h1>
   <button id="submit-order" type="button">Submit</button>
-  <p id="submit-note"></p>
 </body>
 </html>

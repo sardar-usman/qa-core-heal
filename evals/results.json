@@ -1238,13 +1238,13 @@
       "misses": 0,
       "levelMatches": 17,
       "healedGot": 17,
-      "brokenRunTotalTests": 29,
-      "finalPassed": 29,
+      "brokenRunTotalTests": 30,
+      "finalPassed": 30,
       "finalFailed": 0,
       "expectedFailures": 0,
       "finalOk": true,
-      "scenariosPassed": 29,
-      "scenariosTotal": 29,
+      "scenariosPassed": 30,
+      "scenariosTotal": 30,
       "perLocator": [
         {
           "scenario": "passing spec exits 0 with no probing",
@@ -1385,6 +1385,11 @@
           "scenario": "literal shapes: const-assigned + duplicated literals match and probe normally",
           "verdict": "pass",
           "detail": "exit 0, probed true, unchanged true"
+        },
+        {
+          "scenario": "correct heal, wrong assertion: revert with non-locator classification in message, json, audit",
+          "verdict": "pass",
+          "detail": "exit 1/1, msgOk true, unchanged true/true, auditOk true, jsonOk true"
         },
         {
           "scenario": "state-gated element: scan refuses, run mode heals on the failure URL",

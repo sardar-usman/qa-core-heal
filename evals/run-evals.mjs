@@ -248,7 +248,9 @@ async function runScenarioSuite(suite) {
       if (l.status === 'healed') {
         // A heal the real run applied and then REVERTED (verify re-run
         // still failing) is a legitimate divergence from the preview.
-        const wasReverted = real.stdout.includes('heal reverted: re-run still failing after heal')
+        // Both revert messages share the prefix: the locator-reason one
+        // and the 0.3.3 non-locator classification.
+        const wasReverted = real.stdout.includes('heal reverted:')
           || real.stdout.includes('"reverted": true');
         const src = fs.readFileSync(path.join(dir, l.file), 'utf8');
         if (!src.includes(l.new) && !wasReverted) {
@@ -732,12 +734,14 @@ async function runScenarioSuite(suite) {
       const r = runCli(suiteDir, ['tests/revert.spec.ts', '-y']);
       const unchanged = sourcesUnchanged();
       const msgOk = r.stdout.includes('heal reverted: re-run still failing after heal')
-        && r.stdout.includes('1 heal(s) reverted: re-run still failing after heal');
+        && r.stdout.includes('1 heal(s) reverted: re-run still failing after heal')
+        && !r.stdout.includes('no longer for a locator reason');
       let auditOk = false;
       try {
         const lines = fs.readFileSync(path.join(suiteDir, '.qa-core/heal-log.jsonl'), 'utf8').trim().split('\n');
         const entry = JSON.parse(lines[lines.length - 1]);
-        auditOk = entry.applied === true && entry.verified === false && entry.reverted === true;
+        auditOk = entry.applied === true && entry.verified === false && entry.reverted === true
+          && entry.revertReason === 'locator';
       } catch { /* auditOk stays false */ }
       restoreSources(snap);
       cleanArtifacts(suiteDir);
@@ -746,7 +750,8 @@ async function runScenarioSuite(suite) {
       try {
         const payload = JSON.parse(j.stdout);
         const v = payload.verdicts.find((x) => x.healApplied);
-        jsonOk = v != null && v.reverted === true && v.verified === false;
+        jsonOk = v != null && v.reverted === true && v.verified === false
+          && v.revertReason === 'locator';
       } catch { /* jsonOk stays false */ }
       const jUnchanged = sourcesUnchanged();
       scenario('wrong-element heal: verify fails, edit reverted, audit triple, json reverted',
@@ -843,6 +848,41 @@ async function runScenarioSuite(suite) {
         `exit ${r.status}, probed ${probed}, unchanged ${unchanged}`);
     }
 
+    // 30. 0.3.3 (H-CSS-05): the heal is CORRECT but the test's assertion
+    //     is independently wrong. The revert contract still reverts and
+    //     exits 1 — but the message classifies the re-run failure: it no
+    //     longer fails for a locator reason, so the heal may be correct.
+    //     --json and the audit carry revertReason: "non-locator".
+    {
+      const r = runCli(suiteDir, ['tests/wrongassert.spec.ts', '-y']);
+      const unchanged = sourcesUnchanged();
+      const msgOk = r.stdout.includes('heal reverted: the re-run still fails, but no longer for a locator reason')
+        && r.stdout.includes('The heal may be correct; the remaining failure looks like a test or app problem.');
+      let auditOk = false;
+      try {
+        const lines = fs.readFileSync(path.join(suiteDir, '.qa-core/heal-log.jsonl'), 'utf8').trim().split('\n');
+        const entry = JSON.parse(lines[lines.length - 1]);
+        auditOk = entry.applied === true && entry.verified === false && entry.reverted === true
+          && entry.revertReason === 'non-locator';
+      } catch { /* auditOk stays false */ }
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+      const j = runCli(suiteDir, ['tests/wrongassert.spec.ts', '-y', '--json']);
+      let jsonOk = false;
+      try {
+        const payload = JSON.parse(j.stdout);
+        const v = payload.verdicts.find((x) => x.healApplied);
+        jsonOk = v != null && v.reverted === true && v.revertReason === 'non-locator';
+      } catch { /* jsonOk stays false */ }
+      const jUnchanged = sourcesUnchanged();
+      scenario('correct heal, wrong assertion: revert with non-locator classification in message, json, audit',
+        r.status === 1 && msgOk && unchanged && auditOk
+          && j.status === 1 && jsonOk && jUnchanged,
+        `exit ${r.status}/${j.status}, msgOk ${msgOk}, unchanged ${unchanged}/${jUnchanged}, auditOk ${auditOk}, jsonOk ${jsonOk}`);
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+    }
+
     // 4. State-gated element (reached by clicking, no goto names its page):
     //    --scan must refuse; the default run mode heals on the REAL failure
     //    URL taken from the trace.
@@ -872,7 +912,7 @@ async function runScenarioSuite(suite) {
     cleanArtifacts(suiteDir);
   }
 
-  const SCENARIOS = 29;
+  const SCENARIOS = 30;
   return {
     suite: suite.name,
     locators: 17,
