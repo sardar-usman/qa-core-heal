@@ -122,6 +122,13 @@
       "expect": "healed",
       "level": "text",
       "test": "greets the user"
+    },
+    {
+      "file": "tests/uploadframe.spec.ts",
+      "old": "page.getByRole(\"button\", { name: \"Uploadd\" })",
+      "expect": "refused",
+      "reason": "not found on route /uploadframe.html: closest candidates below the confidence threshold: \"File Upload\" (0.50); note: this page embeds 1 iframe(s) (upload-frame.html) the probe does not scan; the element may live inside one. Frame-scoped locators cannot be healed — verify the locator inside its frame manually.",
+      "test": "starts the framed upload"
     }
   ]
 }

@@ -449,22 +449,22 @@
     },
     {
       "suite": "fuzzy-typos",
-      "locators": 26,
-      "broken": 15,
+      "locators": 27,
+      "broken": 16,
       "healedExpected": 9,
       "intactExpected": 3,
       "correctHeals": 9,
-      "correctRefusals": 6,
+      "correctRefusals": 7,
       "correctIntact": 3,
       "wrongHeals": 0,
       "misses": 0,
       "levelMatches": 9,
       "healedGot": 9,
-      "brokenRunFailedTests": 15,
-      "brokenRunTotalTests": 16,
+      "brokenRunFailedTests": 16,
+      "brokenRunTotalTests": 17,
       "finalPassed": 10,
-      "finalFailed": 6,
-      "expectedFailures": 6,
+      "finalFailed": 7,
+      "expectedFailures": 7,
       "finalOk": true,
       "perLocator": [
         {
@@ -664,6 +664,17 @@
           "gotLevel": "text",
           "testPassed": true,
           "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/uploadframe.spec.ts",
+          "old": "page.getByRole(\"button\", { name: \"Uploadd\" })",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "role",
+          "testPassed": false,
+          "verdict": "correct-refusal"
         }
       ],
       "notes": []
@@ -1479,12 +1490,12 @@
     }
   ],
   "totals": {
-    "locators": 154,
-    "broken": 94,
+    "locators": 155,
+    "broken": 95,
     "healedExpected": 67,
     "intactExpected": 10,
     "correctHeals": 67,
-    "correctRefusals": 27,
+    "correctRefusals": 28,
     "correctIntact": 10,
     "wrongHeals": 0,
     "misses": 0,

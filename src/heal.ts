@@ -2473,6 +2473,12 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
     // Routes whose page created at least one CLOSED shadow root: content
     // the probe (and Playwright) cannot inspect exists there.
     const closedRootRoutes = new Set<string>();
+    // Routes whose page embeds iframes: candidate collection is top-
+    // document only, so an element inside a frame is invisible to the
+    // probe. A not-found/below-threshold refusal on such a page must say
+    // so (the same move as the closed-shadow-roots note). Values are the
+    // frame src attributes as authored, deduped.
+    const iframesByRoute = new Map<string, string[]>();
     // Origin + path of a URL, trailing slashes and query ignored: the shape
     // that changes when an app redirects (to /login, to an error page).
     const pageSpot = (u: string): string => {
@@ -2532,6 +2538,10 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         () => (window as unknown as { __qaCoreClosedShadowRoots?: number }).__qaCoreClosedShadowRoots ?? 0,
       ).catch(() => 0);
       if (closedRoots > 0) closedRootRoutes.add(route);
+      const frameSrcs = await page.evaluate(
+        () => Array.from(document.querySelectorAll('iframe')).map((f) => f.getAttribute('src') || '(no src)'),
+      ).catch(() => [] as string[]);
+      if (frameSrcs.length > 0) iframesByRoute.set(route, [...new Set(frameSrcs)]);
       for (const t of tasks) {
         if (!t.routes.includes(route)) continue;
         t.outcomes.set(route, await probeCall(t.call, t.strict));
@@ -2629,6 +2639,20 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           t.routes.some((r) => closedRootRoutes.has(r))
             ? `${reason.replace(/\.$/, '')}; this page contains closed shadow roots the probe cannot inspect`
             : reason;
+        // The iframe note (0.3.3): collection is top-document only, so on
+        // a page embedding iframes a not-found/below-threshold refusal
+        // would otherwise read like blindness for no reason. Healing
+        // inside frames stays out of scope (it would require emitting
+        // chained frameLocator calls, against the emit doctrine) — the
+        // note is the honest message. Srcs capped at 3.
+        const withIframeNote = (reason: string): string => {
+          const srcs = [...new Set(t.routes.flatMap((r) => iframesByRoute.get(r) ?? []))];
+          if (srcs.length === 0) return reason;
+          const shown = srcs.slice(0, 3).join(', ') + (srcs.length > 3 ? ', …' : '');
+          return `${reason.replace(/\.$/, '')}; note: this page embeds ${srcs.length} iframe(s) (${shown}) `
+            + 'the probe does not scan; the element may live inside one. '
+            + 'Frame-scoped locators cannot be healed — verify the locator inside its frame manually.';
+        };
         // A dashed leading tag REPLACES the generic hedge: it may be a
         // spec-legal custom element or a typo, and only the user can say
         // which — but the closest valid tag makes the typo case one edit
@@ -2649,7 +2673,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           .map((e) => (e.o.kind === 'unresolved' ? e.o.namelessRole : undefined))
           .find((r) => r != null);
         const gated = stateGatedRole(call);
-        refuse(call, withClosedNote(gated
+        refuse(call, withIframeNote(withClosedNote(gated
           ? `not found on ${where}: role '${gated.role}' elements exist only while ${gated.widget} is open; a fresh page load cannot show them. Static probing cannot verify this locator - check the ${gated.role} name manually or re-record it.${closest ? ` Closest candidates below the confidence threshold: ${closest}` : ''}`
           : closest
           ? `not found on ${where}: closest candidates below the confidence threshold: ${closest}`
@@ -2659,7 +2683,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
             ? withCompoundHint(call, `not found on ${where}: element may be state-dependent (selector token "${hint}" suggests it appears only after user actions); static healing cannot verify it`)
             : dashHint
               ? `not found on ${where}: ${dashHint}`
-              : withCompoundHint(call, `not found on ${where}: no matching or similar element on the probed page. The element may have been removed, renamed beyond recognition, or may only appear after user actions.`)), false);
+              : withCompoundHint(call, `not found on ${where}: no matching or similar element on the probed page. The element may have been removed, renamed beyond recognition, or may only appear after user actions.`))), false);
         continue;
       }
       // A shared page object probed on several routes must resolve to the
