@@ -915,20 +915,20 @@
     },
     {
       "suite": "shadow-dom",
-      "locators": 5,
-      "broken": 3,
-      "healedExpected": 2,
+      "locators": 7,
+      "broken": 4,
+      "healedExpected": 3,
       "intactExpected": 2,
-      "correctHeals": 2,
+      "correctHeals": 3,
       "correctRefusals": 1,
       "correctIntact": 2,
       "wrongHeals": 0,
       "misses": 0,
-      "levelMatches": 2,
-      "healedGot": 2,
-      "brokenRunFailedTests": 3,
-      "brokenRunTotalTests": 3,
-      "finalPassed": 2,
+      "levelMatches": 3,
+      "healedGot": 3,
+      "brokenRunFailedTests": 4,
+      "brokenRunTotalTests": 4,
+      "finalPassed": 3,
       "finalFailed": 1,
       "expectedFailures": 1,
       "finalOk": true,
@@ -987,6 +987,17 @@
           "gotLevel": "css",
           "testPassed": false,
           "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/open-role.spec.ts",
+          "old": "page.getByRole('button', { name: 'Generate GUIDD' })",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByRole(\"button\", {\"name\":\"Generate GUID\",\"exact\":true})",
+          "expectLevel": "role",
+          "gotLevel": "role",
+          "testPassed": true,
+          "verdict": "correct-heal"
         }
       ],
       "notes": []
@@ -1490,15 +1501,15 @@
     }
   ],
   "totals": {
-    "locators": 155,
-    "broken": 95,
-    "healedExpected": 67,
+    "locators": 157,
+    "broken": 96,
+    "healedExpected": 68,
     "intactExpected": 10,
-    "correctHeals": 67,
+    "correctHeals": 68,
     "correctRefusals": 28,
     "correctIntact": 10,
     "wrongHeals": 0,
     "misses": 0,
-    "levelMatches": 67
+    "levelMatches": 68
   }
 }

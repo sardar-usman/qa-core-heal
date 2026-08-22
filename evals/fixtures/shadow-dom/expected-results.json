@@ -33,6 +33,13 @@
       "expect": "refused",
       "reason": "not found on route /closed.html: no matching or similar element on the probed page. The element may have been removed, renamed beyond recognition, or may only appear after user actions; this page contains closed shadow roots the probe cannot inspect",
       "test": "reveals the secret"
+    },
+    {
+      "file": "tests/open-role.spec.ts",
+      "old": "page.getByRole('button', { name: 'Generate GUIDD' })",
+      "expect": "healed",
+      "level": "role",
+      "test": "generates the guid by role name"
     }
   ]
 }
