@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Verify Text (verbatim)</title>
+</head>
+<body>
+  <!-- The uitestingplayground /verifytext playground section, copied
+       VERBATIM (whitespace and all): the greeting is COMPOSED — the outer
+       span carries text fragments around a child <span> — so leaf-only
+       collection can never see "Welcome UserName!" as one candidate. The
+       code samples carry the exact selector strings and must stay
+       excluded from collection (contamination rule). -->
+  <p>Take this fact into account when searching for an element using it's text value. </p><div class="container"><div class="row"><div class="col-sm">Does not work</div><div class="col-sm">Works</div></div><div class="row"><div class="col-sm"><code>//span[.='Welcome UserName!']</code></div><div class="col-sm"><code>//span[normalize-space(.)='Welcome UserName!']</code></div></div></div><br><h4>Scenario</h4><ul><li>Create a test that finds an element with <span class="badge-secondary">Welcome...</span> text.</li></ul><h4>Playground</h4><div class="bg-primary">
+<span class="badge-secondary">
+                
+    Welcome <span>UserName</span>!
+        
+</span>
+</div>
+</body>
+</html>

@@ -129,6 +129,13 @@
       "expect": "refused",
       "reason": "not found on route /uploadframe.html: closest candidates below the confidence threshold: \"File Upload\" (0.50); note: this page embeds 1 iframe(s) (upload-frame.html) the probe does not scan; the element may live inside one. Frame-scoped locators cannot be healed — verify the locator inside its frame manually.",
       "test": "starts the framed upload"
+    },
+    {
+      "file": "tests/verifytext-real.spec.ts",
+      "old": "page.getByText(\"Welcome UserNam!\")",
+      "expect": "healed",
+      "level": "text",
+      "test": "verifies the composed greeting"
     }
   ]
 }

@@ -1404,6 +1404,13 @@ async function scanIdentifiers(
       const textEls = Array.from(
         root.querySelectorAll(root === document ? 'body *' : '*'),
       ).slice(0, 4000);
+      // Inline text-level tags whose parent's text may be COMPOSED across
+      // them (uitestingplayground /verifytext: "Welcome <span>UserName<
+      // /span>!" — the full greeting exists on no leaf). Composition is
+      // allowed ONLY when every child is one of these AND itself
+      // childless: block containers, long prose (the 80-char cap below),
+      // and excluded tags (code/pre/...) can never aggregate in.
+      const INLINE_TAGS = ['span', 'b', 'i', 'em', 'strong', 'u', 'small', 'sub', 'sup', 'mark', 'abbr', 'time', 'wbr', 'br'];
       for (const el of textEls) {
         if (textCount >= 2000) break;
         const tag = el.tagName.toLowerCase();
@@ -1411,7 +1418,12 @@ async function scanIdentifiers(
         // (documentation pages display SELECTOR STRINGS in them).
         if (tag === 'label' || tag === 'option' || tag === 'script' || tag === 'style' || tag === 'noscript'
           || tag === 'code' || tag === 'pre' || tag === 'kbd' || tag === 'samp') continue;
-        if (el.children.length > 0 || el.closest('label')) continue;
+        if (el.closest('label')) continue;
+        if (el.children.length > 0) {
+          const composable = Array.from(el.children).every((c) =>
+            INLINE_TAGS.indexOf(c.tagName.toLowerCase()) >= 0 && c.children.length === 0);
+          if (!composable) continue;
+        }
         const t = (el.textContent ?? '').replace(/\s+/g, ' ').trim();
         if (!t || t.length > 80) continue;
         add(el, t, 'text');

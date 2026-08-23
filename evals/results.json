@@ -449,20 +449,20 @@
     },
     {
       "suite": "fuzzy-typos",
-      "locators": 27,
-      "broken": 16,
-      "healedExpected": 9,
+      "locators": 28,
+      "broken": 17,
+      "healedExpected": 10,
       "intactExpected": 3,
-      "correctHeals": 9,
+      "correctHeals": 10,
       "correctRefusals": 7,
       "correctIntact": 3,
       "wrongHeals": 0,
       "misses": 0,
-      "levelMatches": 9,
-      "healedGot": 9,
-      "brokenRunFailedTests": 16,
-      "brokenRunTotalTests": 17,
-      "finalPassed": 10,
+      "levelMatches": 10,
+      "healedGot": 10,
+      "brokenRunFailedTests": 17,
+      "brokenRunTotalTests": 18,
+      "finalPassed": 11,
       "finalFailed": 7,
       "expectedFailures": 7,
       "finalOk": true,
@@ -675,6 +675,17 @@
           "gotLevel": "role",
           "testPassed": false,
           "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/verifytext-real.spec.ts",
+          "old": "page.getByText(\"Welcome UserNam!\")",
+          "expect": "healed",
+          "got": "healed",
+          "gotNew": "page.getByText(\"Welcome UserName!\", { exact: true })",
+          "expectLevel": "text",
+          "gotLevel": "text",
+          "testPassed": true,
+          "verdict": "correct-heal"
         }
       ],
       "notes": []
@@ -1501,15 +1512,15 @@
     }
   ],
   "totals": {
-    "locators": 157,
-    "broken": 96,
-    "healedExpected": 68,
+    "locators": 158,
+    "broken": 97,
+    "healedExpected": 69,
     "intactExpected": 10,
-    "correctHeals": 68,
+    "correctHeals": 69,
     "correctRefusals": 28,
     "correctIntact": 10,
     "wrongHeals": 0,
     "misses": 0,
-    "levelMatches": 68
+    "levelMatches": 69
   }
 }
