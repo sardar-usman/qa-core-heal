@@ -319,6 +319,11 @@ export interface TestOutcome {
   /** Spec file path relative to the Playwright rootDir. */
   file: string;
   title: string;
+  /** 1-indexed line of the test() declaration; 0 when the report omits it.
+   *  With every test's start line, a failing test's BODY span is bounded
+   *  by the next declaration in the same file (repeated-literal healing
+   *  scopes its occurrence expansion to that span). */
+  line: number;
   ok: boolean;
   /** Stripped error message of the last result; '' when passing. */
   message: string;
@@ -340,7 +345,7 @@ interface ReportError {
 }
 
 interface ReportSpec {
-  title: string; ok: boolean; file: string;
+  title: string; ok: boolean; file: string; line?: number;
   tests?: Array<{ results?: Array<{
     status?: string;
     error?: ReportError;
@@ -388,6 +393,7 @@ export function collectTests(report: { suites?: ReportSuite[] }): TestOutcome[] 
       out.push({
         file: spec.file,
         title: spec.title,
+        line: spec.line ?? 0,
         ok: !!spec.ok,
         message: [...seenMessages].join('\n'),
         tracePath: trace?.path ?? null,

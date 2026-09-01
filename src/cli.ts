@@ -317,6 +317,8 @@ interface Verdict {
   /** Set when reverted: why the re-run still failed. 'non-locator' means
    *  the healed locator resolves and the heal may well be correct. */
   revertReason: 'locator' | 'non-locator' | null;
+  /** Healed: identical occurrences this heal rewrote (>= 1); else null. */
+  occurrences: number | null;
 }
 
 function locatorVerdict(
@@ -336,6 +338,7 @@ function locatorVerdict(
     verified: l.status === 'healed' ? verified : null,
     reverted: false,
     revertReason: null,
+    occurrences: l.status === 'healed' ? (l.occurrences ?? 1) : null,
   };
 }
 
@@ -462,7 +465,12 @@ async function main(): Promise<void> {
         case 'scanned': say(`  · scanned ${e.total} locator(s) across ${e.files} file(s)`); break;
         case 'opened_page': say(`  · opened ${e.url}`); break;
         case 'healing': fileHeader(e.file); say(`    → broken: ${e.selector}`); break;
-        case 'healed': fileHeader(e.file); say(`    ✓ healed to ${e.new}  (level=${e.level})`); break;
+        case 'healed': {
+          fileHeader(e.file);
+          const occ = (e.occurrences ?? 1) > 1 ? `, ${e.occurrences} occurrences in this test` : '';
+          say(`    ✓ healed to ${e.new}  (level=${e.level}${occ})`);
+          break;
+        }
         case 'unhealed': fileHeader(e.file); say(`    ✗ unhealable: ${e.selector}\n        ${e.reason}`); break;
         case 'done': say(`\n  ${e.intact} intact · ${e.healed} healed · ${e.unhealed} unhealable (of ${e.total} scanned)\n`); break;
         default: break;
@@ -492,10 +500,14 @@ async function main(): Promise<void> {
     if (cli.json) return;
     say(`\nProposed heals (${proposed.length}):\n`);
     for (const p of proposed) {
-      say(`  ${p.file}:${p.line}`);
-      say(`    - ${p.old}`);
-      say(`    + ${p.new}`);
-      say('');
+      // Every occurrence the heal rewrites is shown — the previewed plan
+      // IS what --yes applies, line for line.
+      for (const line of p.occurrenceLines ?? [p.line]) {
+        say(`  ${p.file}:${line}`);
+        say(`    - ${p.old}`);
+        say(`    + ${p.new}`);
+        say('');
+      }
     }
   };
   const writeAudit = (
@@ -645,7 +657,8 @@ async function main(): Promise<void> {
       }
       if (revertedHeals.size > 0) {
         applyHealPlanExcluding(result.plan, (file, edit) =>
-          [...revertedHeals].some((h) => h.file === file && h.line === edit.line && h.new === edit.newRaw));
+          [...revertedHeals].some((h) => h.file === file
+            && (h.occurrenceLines ?? [h.line]).includes(edit.line) && h.new === edit.newRaw));
         for (const h of revertedHeals) {
           const rel = path.relative(process.cwd(), h.file).split(path.sep).join('/');
           const owners = specs.filter((sp) => (result.specFiles[sp] ?? []).includes(h.file));
@@ -755,6 +768,25 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     fail(`Could not run the Playwright tests (no JSON report). ${describeFailedRun(run)}`);
   }
   const tests = collectTests(report as Parameters<typeof collectTests>[0]);
+  // Every test's declaration line, per file: a failing test's BODY span is
+  // bounded by the next declaration in the same file. A heal applies to
+  // every identical occurrence within that span (and never beyond it — an
+  // identical literal in another test heals via that test's own failure).
+  const reportRootDir = (report as { config?: { rootDir?: string } }).config?.rootDir ?? root;
+  const startsByFile = new Map<string, number[]>();
+  for (const t of tests) {
+    if (t.line > 0) {
+      const a = startsByFile.get(t.file) ?? [];
+      a.push(t.line);
+      startsByFile.set(t.file, a);
+    }
+  }
+  for (const a of startsByFile.values()) a.sort((x, y) => x - y);
+  const spanOf = (t: TestOutcome): { file: string; startLine: number; endLine: number } | undefined => {
+    if (t.line <= 0) return undefined;
+    const next = (startsByFile.get(t.file) ?? []).find((l) => l > t.line);
+    return { file: path.resolve(reportRootDir, t.file), startLine: t.line, endLine: next ?? Number.MAX_SAFE_INTEGER };
+  };
   if (tests.length === 0) {
     fail(`Playwright reported no tests for ${rels.join(', ')} — check the spec path and playwright config.`);
   }
@@ -819,6 +851,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
           verified: null,
           reverted: false,
           revertReason: null,
+          occurrences: null,
         })),
       ];
       console.log(JSON.stringify({
@@ -869,6 +902,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
         locations: t.locations,
         strict: c.strict,
         chained: c.chained,
+        testSpan: spanOf(t),
       });
       locatorTests.push(t);
       say(`  → ${t.title} — locator failure: ${c.selector}${url ? `  (page: ${url})` : ''}`);
@@ -1007,8 +1041,10 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
         if (!title || verifiedByTitle.get(title) !== true) revertedHeals.add(h);
       }
       if (revertedHeals.size > 0) {
+        // A reverted heal is undone at EVERY occurrence it rewrote.
         applyHealPlanExcluding(result.plan, (file, edit) =>
-          [...revertedHeals].some((h) => h.file === file && h.line === edit.line && h.new === edit.newRaw));
+          [...revertedHeals].some((h) => h.file === file
+            && (h.occurrenceLines ?? [h.line]).includes(edit.line) && h.new === edit.newRaw));
         for (const h of revertedHeals) {
           const rel = path.relative(process.cwd(), h.file).split(path.sep).join('/');
           const title = titleFor(h.old);

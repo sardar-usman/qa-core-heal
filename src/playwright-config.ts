@@ -86,6 +86,26 @@ import { stripTypeScriptTypes } from 'node:module';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+// The hooks THREAD emits its own warnings (Node 25: stripTypeScriptTypes
+// carries an ExperimentalWarning on first use here), and its stderr relay
+// can bypass or race the main thread's line filter. Only OUR hook and
+// Node's module machinery run on this thread — user code never does — so
+// filtering the loader-noise families at this thread's source is safe and
+// keeps the conservative guarantee (user warnings live on other threads).
+{
+  const orig = process.emitWarning.bind(process);
+  process.emitWarning = (warning, ...args) => {
+    const msg = typeof warning === 'string' ? warning : (warning && warning.message) || '';
+    const name = typeof args[0] === 'string' ? args[0]
+      : (args[0] && args[0].type) || (warning && warning.name) || '';
+    if ((name === 'ExperimentalWarning' || name === '' )
+      && /type stripping|striptypescripttypes|\\bmodules?\\b|\\bloaders?\\b|\\btypescript\\b/i.test(msg)) {
+      return;
+    }
+    return orig(warning, ...args);
+  };
+}
+
 const rewriteNamedImports = (src) => {
   let n = 0;
   return src.replace(

@@ -883,6 +883,56 @@ async function runScenarioSuite(suite) {
       cleanArtifacts(suiteDir);
     }
 
+    // 31. 0.3.4 field shape: the SAME broken literal twice inline in one
+    //     test. The heal rewrites BOTH occurrences (one heal, two edits,
+    //     both shown in the diff), verify passes, exit 0 — and the
+    //     near-identical-but-different valid literal beside them (Twin B)
+    //     is untouched.
+    {
+      const r = runCli(suiteDir, ['tests/dup-inline.spec.ts', '-y']);
+      const src = fs.readFileSync(path.join(suiteDir, 'tests/dup-inline.spec.ts'), 'utf8');
+      const zeroBroken = !src.includes('Link Buton');
+      const bothHealed = src.split('getByRole("link", {"name":"Link Button","exact":true})').length - 1 === 2;
+      const twinB = src.includes("page.getByRole('link', { name: 'Link Button Two' })");
+      const diffBoth = r.stdout.split('- page.getByText("Link Buton")').length - 1 === 2;
+      const occMsg = r.stdout.includes('2 occurrences in this test');
+      const green = playwrightFilePasses(suiteDir, 'tests/dup-inline.spec.ts');
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+      const j = runCli(suiteDir, ['tests/dup-inline.spec.ts', '-y', '--json']);
+      let jsonOk = false;
+      try {
+        const payload = JSON.parse(j.stdout);
+        const v = payload.verdicts.find((x) => x.healApplied);
+        jsonOk = v != null && v.occurrences === 2 && v.verified === true;
+      } catch { /* jsonOk stays false */ }
+      scenario('repeated literal inline: one heal rewrites both occurrences, verify green, twin untouched',
+        r.status === 0 && r.stdout.includes('✓ re-run passed')
+          && zeroBroken && bothHealed && twinB && diffBoth && occMsg && green
+          && j.status === 0 && jsonOk,
+        `exit ${r.status}/${j.status}, zeroBroken ${zeroBroken}, bothHealed ${bothHealed}, twinB ${twinB}, diffBoth ${diffBoth}, occMsg ${occMsg}, green ${green}, jsonOk ${jsonOk}`);
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+    }
+
+    // 32. Twin A: the same broken literal in TWO failing tests of one
+    //     file — each heals via its OWN failure, scoped to its own body
+    //     (occurrence expansion never crosses test boundaries).
+    {
+      const r = runCli(suiteDir, ['tests/dup-two-tests.spec.ts', '-y']);
+      const src = fs.readFileSync(path.join(suiteDir, 'tests/dup-two-tests.spec.ts'), 'utf8');
+      const zeroBroken = !src.includes('Link Buton');
+      const bothHealed = src.split('getByRole("link", {"name":"Link Button","exact":true})').length - 1 === 2;
+      const green = playwrightFilePasses(suiteDir, 'tests/dup-two-tests.spec.ts');
+      scenario('repeated literal across two failing tests: each heals via its own failure, no cross-test expansion',
+        r.status === 0 && r.stdout.includes('✓ re-run passed')
+          && zeroBroken && bothHealed && green
+          && !r.stdout.includes('occurrences in this test'),
+        `exit ${r.status}, zeroBroken ${zeroBroken}, bothHealed ${bothHealed}, green ${green}`);
+      restoreSources(snap);
+      cleanArtifacts(suiteDir);
+    }
+
     // 4. State-gated element (reached by clicking, no goto names its page):
     //    --scan must refuse; the default run mode heals on the REAL failure
     //    URL taken from the trace.
@@ -912,7 +962,7 @@ async function runScenarioSuite(suite) {
     cleanArtifacts(suiteDir);
   }
 
-  const SCENARIOS = 30;
+  const SCENARIOS = 32;
   return {
     suite: suite.name,
     locators: 17,

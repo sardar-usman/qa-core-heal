@@ -100,7 +100,7 @@ export type HealEvent =
   | { type: 'opened_page'; url: string }
   | { type: 'intact'; selector: string }
   | { type: 'healing'; selector: string; file: string }
-  | { type: 'healed'; old: string; new: string; level: CascadeLevel; file: string }
+  | { type: 'healed'; old: string; new: string; level: CascadeLevel; file: string; occurrences?: number }
   | { type: 'unhealed'; selector: string; reason: string; file: string }
   | { type: 'done'; healed: number; unhealed: number; intact: number; total: number; files: string[] };
 
@@ -113,6 +113,15 @@ export interface HealTarget {
   test?: string;
   /** Failure stack frames (most specific first), the PRIMARY match signal. */
   locations?: Array<{ file: string; line: number }>;
+  /**
+   * The failing TEST's body span (its declaration line to the next test's
+   * declaration in the same file). A heal for a matched call applies to
+   * every structurally identical occurrence inside this span — a repeated
+   * literal healed only at the stack-matched line leaves the copy broken,
+   * fails verify, and gets a RIGHT answer reverted. Never wider than the
+   * failing test's own body: other tests heal via their own failures.
+   */
+  testSpan?: { file: string; startLine: number; endLine: number };
   /**
    * The failure was a strict mode violation: the locator matched SEVERAL
    * elements. A probe finding a multi-match must treat that as the failure
@@ -131,7 +140,13 @@ export interface HealTarget {
 export type UnmatchedShape = 'chained' | 'dynamic' | 'unknown';
 export type UnmatchedTarget = HealTarget & { shape: UnmatchedShape };
 
-export interface HealDetail { file: string; line: number; old: string; new: string; level: CascadeLevel }
+export interface HealDetail {
+  file: string; line: number; old: string; new: string; level: CascadeLevel;
+  /** How many structurally identical occurrences this heal rewrote (>= 1). */
+  occurrences?: number;
+  /** Every edited line, primary first — the revert must undo ALL of them. */
+  occurrenceLines?: number[];
+}
 export interface UnhealDetail { file: string; selector: string; reason: string }
 
 /** One entry per scanned locator, in scan order. Powers the machine-readable report. */
@@ -149,6 +164,10 @@ export interface LocatorReport {
   status: 'healed' | 'intact' | 'refused';
   /** Present only when status is refused. */
   reason?: string;
+  /** Healed only: identical occurrences rewritten by this heal (>= 1). */
+  occurrences?: number;
+  /** Healed only: every edited line, primary first. */
+  occurrenceLines?: number[];
 }
 
 export interface HealResult {
@@ -1813,6 +1832,9 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
     return buildsDynamically ? 'dynamic' : 'unknown';
   };
   const selected: Array<{ call: LocatorCall; routes: string[]; noRoute?: boolean; strict?: boolean }> = [];
+  // Failing-test body span per matched call, for occurrence expansion at
+  // heal-emission time (only run-first targets carry spans).
+  const scopeByCall = new Map<LocatorCall, { file: string; startLine: number; endLine: number }>();
   if (opts.targets) {
     const sigOfCall = new Map<LocatorCall, string>();
     for (const c of calls) sigOfCall.set(c, argsSignature(c.method, c.args));
@@ -1893,6 +1915,10 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         if (targetUrl) set.add(targetUrl);
         urlsByCall.set(call, set);
         if (target.strict) strictCalls.add(call);
+        if (target.testSpan && !scopeByCall.has(call)
+          && path.resolve(call.file) === path.resolve(target.testSpan.file)) {
+          scopeByCall.set(call, target.testSpan);
+        }
       }
     }
     for (const call of calls) {
@@ -2775,15 +2801,38 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         markIntact(call, false);
         continue;
       }
+      // Occurrence expansion (0.3.4): the heal applies to EVERY
+      // structurally identical call inside the failing test's own body —
+      // a repeated literal healed only at the stack-matched line leaves
+      // its copy broken and gets the correct heal reverted by verify.
+      // Same file, same root, same canonical signature, inside the span,
+      // and not itself a selected probe target (its own failure owns it).
+      const scope = scopeByCall.get(call);
+      const selectedCalls = new Set(tasks.map((x) => x.call));
+      const sig = argsSignature(call.method, call.args);
+      const siblings = scope
+        ? calls.filter((c) => c !== call && !selectedCalls.has(c)
+            && c.file === call.file && c.root === call.root
+            && c.line >= scope.startLine && c.line < scope.endLine
+            && argsSignature(c.method, c.args) === sig)
+        : [];
       const list = editsByFile.get(call.file) ?? [];
       list.push({ line: call.line, startCol: call.startCol, endLine: call.endLine, endCol: call.endCol, newRaw });
+      for (const s of siblings) {
+        list.push({ line: s.line, startCol: s.startCol, endLine: s.endLine, endCol: s.endCol, newRaw });
+      }
       editsByFile.set(call.file, list);
-      healed.push({ file: call.file, line: call.line, old: call.raw, new: newRaw, level });
+      const occurrenceLines = [call.line, ...siblings.map((s) => s.line)];
+      healed.push({
+        file: call.file, line: call.line, old: call.raw, new: newRaw, level,
+        occurrences: occurrenceLines.length, occurrenceLines,
+      });
       locators.push({
         file: relFile(call.file), line: call.line, old: call.raw, new: newRaw,
         level, ambiguous: false, status: 'healed',
+        occurrences: occurrenceLines.length, occurrenceLines,
       });
-      opts.onEvent?.({ type: 'healed', old: call.raw, new: newRaw, level, file: relFile(call.file) });
+      opts.onEvent?.({ type: 'healed', old: call.raw, new: newRaw, level, file: relFile(call.file), occurrences: occurrenceLines.length });
     }
   } finally {
     await browser?.close();

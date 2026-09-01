@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Duplicate literals</title>
+</head>
+<body>
+  <!-- 0.3.4 field shape: a test clicks the SAME broken literal twice.
+       The heal must rewrite every identical occurrence within the failing
+       test's body — healing only the stack-matched line leaves the copy
+       broken and gets the correct heal reverted by verify. -->
+  <h1>Links</h1>
+  <a href="#one" title="Link Button"
+     onclick="document.getElementById('note').textContent += 'x'">Link Button</a>
+  <a href="#two"
+     onclick="document.getElementById('note').textContent += 'y'">Link Button Two</a>
+  <p id="note"></p>
+</body>
+</html>

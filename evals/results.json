@@ -1271,13 +1271,13 @@
       "misses": 0,
       "levelMatches": 17,
       "healedGot": 17,
-      "brokenRunTotalTests": 30,
-      "finalPassed": 30,
+      "brokenRunTotalTests": 32,
+      "finalPassed": 32,
       "finalFailed": 0,
       "expectedFailures": 0,
       "finalOk": true,
-      "scenariosPassed": 30,
-      "scenariosTotal": 30,
+      "scenariosPassed": 32,
+      "scenariosTotal": 32,
       "perLocator": [
         {
           "scenario": "passing spec exits 0 with no probing",
@@ -1423,6 +1423,16 @@
           "scenario": "correct heal, wrong assertion: revert with non-locator classification in message, json, audit",
           "verdict": "pass",
           "detail": "exit 1/1, msgOk true, unchanged true/true, auditOk true, jsonOk true"
+        },
+        {
+          "scenario": "repeated literal inline: one heal rewrites both occurrences, verify green, twin untouched",
+          "verdict": "pass",
+          "detail": "exit 0/0, zeroBroken true, bothHealed true, twinB true, diffBoth true, occMsg true, green true, jsonOk true"
+        },
+        {
+          "scenario": "repeated literal across two failing tests: each heals via its own failure, no cross-test expansion",
+          "verdict": "pass",
+          "detail": "exit 0, zeroBroken true, bothHealed true, green true"
         },
         {
           "scenario": "state-gated element: scan refuses, run mode heals on the failure URL",
