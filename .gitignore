@@ -7,3 +7,4 @@ test-results/
 .tmp-test-*
 .auth/
 .env
+.tmp-emitid/
