@@ -8,8 +8,11 @@
   <h1>Archive console</h1>
   <!-- v1 of the rot scenario: ONE element carries this aria-label. The
        harness mutates this file mid-scenario to add a duplicate, modeling
-       a page that gains a second identical identity AFTER a heal. -->
-  <button id="archive-order" type="button" aria-label="Archive order"
+       a page that gains a second identical identity AFTER a heal. The id
+       carries a generated segment ON PURPOSE (0.3.4): a stable id would
+       now win the emit and the aria-label heal this scenario exists to
+       rot-test would never be produced. -->
+  <button id="archive-order-7f3a21" type="button" aria-label="Archive order"
     onclick="document.getElementById('rot-note').textContent = 'archived'">Archive</button>
   <p id="rot-note"></p>
 </body>

@@ -148,7 +148,7 @@ test('a working auth setup (RELATIVE navigation) logs in and the locator heals, 
     }));
     const loc = result.locators[0];
     assert.equal(loc.status, 'healed');
-    assert.match(loc.new, /getByRole\("textbox"/);
+    assert.equal(loc.new, 'page.locator("#quantity")');
     assert.match(stderr, /auth setup .*login\.ts#login succeeded/);
     // Security: no cookie values or credentials in output.
     assert.doesNotMatch(stderr, /valid-token|secret/);

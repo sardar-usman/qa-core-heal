@@ -69,7 +69,7 @@ test('x', async ({ page }) => {
 test('an in-word typo heals to the real element through the fuzzy band', async () => {
   const loc = await healOne(PAGE, "page.locator('#quantiy-field').fill('3')");
   assert.equal(loc.status, 'healed');
-  assert.equal(loc.new, 'page.getByRole("textbox", {"name":"quantity"})');
+  assert.equal(loc.new, 'page.locator("#quantity-field")');
 });
 
 test('a fuzzy candidate with a conflicting kind still refuses', async () => {
@@ -124,7 +124,7 @@ test('a hasText filter identity heals through fuzzy when the css part is compoun
   ].join('');
   const loc = await healOne(html, "page.locator('section.plan-grid .tier-x', { hasText: 'Proo plan' }).click()");
   assert.equal(loc.status, 'healed');
-  assert.equal(loc.new, 'page.getByText("Pro plan")');
+  assert.equal(loc.new, 'page.getByText("Pro plan", { exact: true })');
 });
 
 test('a never-found selector with state evidence names its token', async () => {
@@ -171,11 +171,14 @@ test('a text match ambiguous even in exact form refuses naming the candidate', a
   assert.match(loc.reason, /Dynamic ID/);
 });
 
-test('a substring-unique text match keeps the plain getByText emit (the Scenarios control)', async () => {
+// 0.3.4 emit contract: text emits carry the element's own text with
+// exact:true even when the substring form would be unique — the emitted
+// identity is read from the confirmed element, never left substring-loose.
+test('a substring-unique text match emits the element text with exact:true (the Scenarios control)', async () => {
   const html = '<html><body><h2>Overview</h2><p>Scenario</p></body></html>';
   const loc = await healOne(html, 'page.getByText("Scenarios").click()');
   assert.equal(loc.status, 'healed');
-  assert.equal(loc.new, 'page.getByText("Scenario")');
+  assert.equal(loc.new, 'page.getByText("Scenario", { exact: true })');
 });
 
 // 0.3.2 structural fix: an intent-pass resolution that fails confirmation
@@ -201,7 +204,7 @@ test('a zero-width-spaced greeting heals with clean text, no invisible bytes emi
   const loc = await healOne(html, 'page.getByText("Welcome UserNam!").click()');
   assert.equal(loc.status, 'healed');
   assert.ok(!/[​-‍⁠﻿ ]/.test(loc.new), JSON.stringify(loc.new));
-  assert.equal(loc.new, 'page.getByText("WelcomeUserName!")');
+  assert.equal(loc.new, 'page.getByText("WelcomeUserName!", { exact: true })');
 });
 
 // The value-attribute button gap: <input type="submit" value="Upload">

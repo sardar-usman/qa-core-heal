@@ -44,7 +44,12 @@ export interface ResolvedLocator {
   locator: Locator;
   level: CascadeLevel;
   /** The argument used to construct the winning locator, emitted into the spec. */
-  arg: string | { role: string; name?: string; exact?: boolean } | { text: string; exact: true };
+  arg: string
+    | { role: string; name?: string; exact?: boolean }
+    | { text: string; exact: true }
+    | { label: string; exact: true }
+    | { placeholder: string; exact: true }
+    | { title: string; exact: true };
   /** True when the cascade had to take `.first()` of multiple matches. */
   ambiguous: boolean;
   /** Ambiguous only: the un-first()ed locator, so callers can NAME the candidates. */
@@ -568,10 +573,18 @@ export function emitLocatorCall(
       if (a.exact) opts.exact = true;
       return `${root}.getByRole(${JSON.stringify(a.role)}, ${JSON.stringify(opts)})${tail}`;
     }
-    case 'label':
+    case 'label': {
+      if (typeof arg === 'object' && 'label' in arg) {
+        return `${root}.getByLabel(${JSON.stringify(arg.label)}, { exact: true })${tail}`;
+      }
       return `${root}.getByLabel(${JSON.stringify(arg as string)})${tail}`;
-    case 'placeholder':
+    }
+    case 'placeholder': {
+      if (typeof arg === 'object' && 'placeholder' in arg) {
+        return `${root}.getByPlaceholder(${JSON.stringify(arg.placeholder)}, { exact: true })${tail}`;
+      }
       return `${root}.getByPlaceholder(${JSON.stringify(arg as string)})${tail}`;
+    }
     case 'text': {
       // The exact form exists for pages where the text is unique as a
       // whole string but a SUBSTRING of some longer caption: the plain
@@ -583,8 +596,12 @@ export function emitLocatorCall(
     }
     case 'alt':
       return `${root}.getByAltText(${JSON.stringify(arg as string)})${tail}`;
-    case 'title':
+    case 'title': {
+      if (typeof arg === 'object' && 'title' in arg) {
+        return `${root}.getByTitle(${JSON.stringify(arg.title)}, { exact: true })${tail}`;
+      }
       return `${root}.getByTitle(${JSON.stringify(arg as string)})${tail}`;
+    }
     case 'testid':
       return `${root}.getByTestId(${JSON.stringify(arg as string)})${tail}`;
     case 'css':

@@ -5,7 +5,7 @@
       "file": "tests/inventory.spec.ts",
       "old": "page.locator('#quantiy-field')",
       "expect": "healed",
-      "level": "role",
+      "level": "css",
       "test": "sets the quantity"
     },
     {
@@ -136,6 +136,34 @@
       "expect": "healed",
       "level": "text",
       "test": "verifies the composed greeting"
+    },
+    {
+      "file": "tests/removed-css.spec.ts",
+      "old": "page.locator(\"#removed\")",
+      "expect": "healed",
+      "level": "css",
+      "test": "removes via truncated id"
+    },
+    {
+      "file": "tests/removed-role.spec.ts",
+      "old": "page.getByRole(\"button\", { name: \"Removd\" })",
+      "expect": "healed",
+      "level": "role",
+      "test": "removes via typoed role name"
+    },
+    {
+      "file": "tests/nameless.spec.ts",
+      "old": "page.locator('#wipeAllButton')",
+      "expect": "refused",
+      "reason": "nameless heal refused: getByRole(\"button\") has no accessible name and carries less identity than the broken selector it would replace; any sole button on the page would match. Give the element an accessible name or a data-testid, or re-record the locator",
+      "test": "wipes everything"
+    },
+    {
+      "file": "tests/textinput.spec.ts",
+      "old": "page.locator('#newButtonNam')",
+      "expect": "healed",
+      "level": "css",
+      "test": "names the button"
     }
   ]
 }

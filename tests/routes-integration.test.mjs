@@ -140,7 +140,7 @@ test('a shared POM heals when both importing routes agree on the replacement', a
     });
     const banner = result.locators.find((l) => l.old.includes('#promo-banner'));
     assert.equal(banner.status, 'healed');
-    assert.equal(banner.new, 'this.page.getByLabel("promo banner")');
+    assert.equal(banner.new, 'this.page.getByLabel("promo banner", { exact: true })');
     // Deduped: the shared POM is scanned once, not once per importing spec.
     assert.equal(result.locators.filter((l) => l.old.includes('#promo-banner')).length, 1);
   } finally {

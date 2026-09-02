@@ -53,7 +53,7 @@ test('x', async ({ page }) => {
     });
     const loc = result.locators[0];
     assert.equal(loc.status, 'healed');
-    assert.match(loc.new, /getByRole\("textbox"/);
+    assert.equal(loc.new, 'page.locator("#quantity")');
   } finally {
     appServer.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -91,7 +91,7 @@ test('x', async ({ page }) => {
     // Probed on the inferred route (the real app), NOT the decoy: healed,
     // not "intact".
     assert.equal(loc.status, 'healed');
-    assert.match(loc.new, /getByRole\("textbox"/);
+    assert.equal(loc.new, 'page.locator("#quantity")');
   } finally {
     appServer.close();
     thirdParty.close();

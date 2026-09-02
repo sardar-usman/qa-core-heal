@@ -5,14 +5,14 @@
       "file": "pages/login-page.ts",
       "old": "this.page.locator('#Email_1')",
       "expect": "healed",
-      "level": "role",
+      "level": "css",
       "test": "fills the login email"
     },
     {
       "file": "pages/login-page.ts",
       "old": "this.page.locator('#Emai_l')",
       "expect": "healed",
-      "level": "role",
+      "level": "css",
       "test": "fills the login email via legacy id"
     },
     {

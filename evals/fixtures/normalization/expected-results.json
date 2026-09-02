@@ -5,7 +5,7 @@
       "file": "tests/ajax.spec.ts",
       "old": "page.locator('.ajaxButton')",
       "expect": "healed",
-      "level": "role",
+      "level": "css",
       "test": "triggers the ajax request"
     },
     {

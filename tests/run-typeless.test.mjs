@@ -65,7 +65,7 @@ test('sets the quantity', async ({ page }) => {
     });
     assert.equal(status, 0, `stdout:\n${stdout}\nstderr:\n${stderr}`);
     assert.doesNotMatch(stderr, /failed to load/);
-    assert.match(fs.readFileSync(path.join(dir, 'tests/a.spec.ts'), 'utf8'), /getByRole\("textbox"/);
+    assert.ok(fs.readFileSync(path.join(dir, 'tests/a.spec.ts'), 'utf8').includes('page.locator("#quantity")'));
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });

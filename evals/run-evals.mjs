@@ -296,7 +296,7 @@ async function runScenarioSuite(suite) {
     {
       const r = runCli(suiteDir, ['tests/locator-fail.spec.ts', '-y']);
       const src = fs.readFileSync(path.join(suiteDir, 'tests/locator-fail.spec.ts'), 'utf8');
-      const healed = src.includes('getByRole("textbox"');
+      const healed = src.includes('page.locator("#quantity")');
       const green = healed && playwrightFilePasses(suiteDir, 'tests/locator-fail.spec.ts');
       const mainPageUrl = r.stdout.includes('(page: http://127.0.0.1:4188/)')
         && !r.stdout.includes('4189');
@@ -341,7 +341,7 @@ async function runScenarioSuite(suite) {
     {
       const r = runCli(suiteDir, ['tests/timeout-shape.spec.ts', '-y']);
       const src = fs.readFileSync(path.join(suiteDir, 'tests/timeout-shape.spec.ts'), 'utf8');
-      const healed = src.includes('getByRole("textbox"');
+      const healed = src.includes('page.locator("#quantity")');
       const green = healed && playwrightFilePasses(suiteDir, 'tests/timeout-shape.spec.ts');
       if (healed && green) correctHeals++;
       else if (healed) wrongHeals++;
@@ -377,7 +377,7 @@ async function runScenarioSuite(suite) {
     {
       const r = runCli(suiteDir, ['tests/deep-pom.spec.ts', '-y']);
       const widgetSrc = fs.readFileSync(path.join(suiteDir, 'pages/widgets/search-widget.ts'), 'utf8');
-      const healed = widgetSrc.includes('getByRole("textbox"') && !widgetSrc.includes('quantity_field_1');
+      const healed = widgetSrc.includes('this.page.locator("#quantity")') && !widgetSrc.includes('quantity_field_1');
       const green = healed && playwrightFilePasses(suiteDir, 'tests/deep-pom.spec.ts');
       if (healed && green) correctHeals++;
       else if (healed) wrongHeals++;
@@ -401,7 +401,7 @@ async function runScenarioSuite(suite) {
         cwd: appDir, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
       });
       const src = fs.readFileSync(specPath, 'utf8');
-      const healed = src.includes('getByRole("textbox"');
+      const healed = src.includes('page.locator("#quantity")');
       const green = healed && playwrightFilePasses(appDir, 'tests/app.spec.ts');
       const trusted = (r.stderr ?? '').includes('using failure page from trace: http://127.0.0.1:4188/');
       const warned = (r.stderr ?? '').includes('failed to load');
@@ -438,7 +438,7 @@ async function runScenarioSuite(suite) {
       // (b) valid state: heals and re-runs green
       const b = runCli(suiteDir, ['tests/auth-app.spec.ts', '--storage-state', 'auth-states/valid.json', '-y']);
       const src = fs.readFileSync(path.join(suiteDir, 'tests/auth-app.spec.ts'), 'utf8');
-      const healed = src.includes('getByRole("textbox"');
+      const healed = src.includes('page.locator("#quantity")');
       const green = healed && playwrightFilePasses(suiteDir, 'tests/auth-app.spec.ts');
       if (healed && green) correctHeals++;
       else if (healed) wrongHeals++;
@@ -470,7 +470,7 @@ async function runScenarioSuite(suite) {
       // (a) working setup: authenticated probe, heal, green re-run.
       const a = runCli(suiteDir, ['tests/auth-app.spec.ts', '--auth-setup', 'utils/login.ts#login', '-y']);
       const src = fs.readFileSync(path.join(suiteDir, 'tests/auth-app.spec.ts'), 'utf8');
-      const healed = src.includes('getByRole("textbox"');
+      const healed = src.includes('page.locator("#quantity")');
       const green = healed && playwrightFilePasses(suiteDir, 'tests/auth-app.spec.ts');
       if (healed && green) correctHeals++;
       else if (healed) wrongHeals++;
@@ -493,7 +493,7 @@ async function runScenarioSuite(suite) {
     {
       const r = runCli(suiteDir, ['tests/count-zero.spec.ts', '-y']);
       const src = fs.readFileSync(path.join(suiteDir, 'tests/count-zero.spec.ts'), 'utf8');
-      const healed = src.includes('getByRole("textbox"') && !src.includes('#quantiy');
+      const healed = src.includes('page.locator("#quantity")') && !src.includes('#quantiy');
       const green = healed && playwrightFilePasses(suiteDir, 'tests/count-zero.spec.ts');
       if (healed && green) correctHeals++;
       else if (healed) wrongHeals++;
@@ -591,7 +591,7 @@ async function runScenarioSuite(suite) {
       ]);
       const stdio = (r.stdout ?? '') + (r.stderr ?? '');
       const src = fs.readFileSync(path.join(suiteDir, 'tests/auth-app.spec.ts'), 'utf8');
-      const healed = src.includes('getByRole("textbox"');
+      const healed = src.includes('page.locator("#quantity")');
       const green = healed && playwrightFilePasses(suiteDir, 'tests/auth-app.spec.ts');
       if (healed && green) correctHeals++;
       else if (healed) wrongHeals++;
@@ -628,7 +628,7 @@ async function runScenarioSuite(suite) {
       const after = fs.readFileSync(path.join(suiteDir, 'tests/rot.spec.ts'), 'utf8');
       const untouched = after === healedSrc;
       const refusedBoth = r2.stdout.includes('locator matches 2 elements identical by accessible name')
-        && r2.stdout.includes('(candidates: #archive-order / #archive-copy)');
+        && r2.stdout.includes('(candidates: #archive-order-7f3a21 / #archive-copy)');
       fs.writeFileSync(rotHtml, rotBackup);
       scenario('duplicate-identity rot: pass 2 refuses with both candidates named, no re-heal',
         r1.status === 0 && healed && green
@@ -945,7 +945,7 @@ async function runScenarioSuite(suite) {
       } catch { /* fails the scenario below */ }
       const r = runCli(suiteDir, ['tests/state-gated.spec.ts', '-y']);
       const src = fs.readFileSync(path.join(suiteDir, 'tests/state-gated.spec.ts'), 'utf8');
-      const healed = src.includes('getByRole("button"');
+      const healed = src.includes('page.locator("#confirm-order")');
       const green = healed && playwrightFilePasses(suiteDir, 'tests/state-gated.spec.ts');
       if (healed && green) correctHeals++;
       else if (healed) wrongHeals++;

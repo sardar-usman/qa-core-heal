@@ -73,7 +73,7 @@ test('the same locator heals when the candidate really is a button', async () =>
     });
     const loc = result.locators[0];
     assert.equal(loc.status, 'healed');
-    assert.match(loc.new, /getByRole\("button"/);
+    assert.equal(loc.new, 'page.locator("#do-register")');
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });

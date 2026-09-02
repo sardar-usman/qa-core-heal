@@ -107,7 +107,7 @@ test('a valid storage state authenticates the probe and the locator heals', asyn
     }));
     const loc = result.locators[0];
     assert.equal(loc.status, 'healed');
-    assert.match(loc.new, /getByRole\("textbox"/);
+    assert.equal(loc.new, 'page.locator("#quantity")');
     assert.doesNotMatch(stderr, /redirected/);
   } finally {
     server.close();

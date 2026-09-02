@@ -2083,6 +2083,103 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         })).catch(() => null);
       }
       const same = await confirmSameElement(locator, confirmToken);
+      // EMIT REBUILD (0.3.4): a heal's emitted identity is read from the
+      // CONFIRMED ELEMENT, never copied from the broken locator's text.
+      // The ladder often matches through Playwright's SUBSTRING name
+      // matching (name "removed" finding the button "Removed") and used
+      // to emit that token — green re-run, fragile locator. For every
+      // name-carrying ladder level:
+      //   1. broken css original + stable non-generated element id →
+      //      the id heal (same locator family, strongest identity);
+      //   2. else the element's own full attribute value, exact:true;
+      //   3. neither readable → a bare role emit, which the nameless
+      //      gate refuses with its teaching message (a token-only heal
+      //      is the less-identity violation in disguise).
+      // Every rebuilt candidate is count-checked to exactly 1 before it
+      // replaces the emit (an exact value always matches a subset of the
+      // substring matches, but the read can still diverge from ARIA
+      // name computation — a failed check falls through, never emits a
+      // token). Kind guard, confirmation, ambiguity rules unchanged.
+      if (same.confirmed
+        && (level === 'role' || level === 'label' || level === 'placeholder' || level === 'text' || level === 'title')) {
+        const ev = await locator.first().evaluate((el) => {
+          const clean = (s: string | null | undefined): string =>
+            s ? s.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim() : '';
+          let labelledby = '';
+          const lb = el.getAttribute('aria-labelledby');
+          if (lb) {
+            labelledby = clean(lb.split(/\s+/)
+              .map((id) => el.ownerDocument.getElementById(id)?.textContent ?? '').join(' '));
+          }
+          const labels = (el as HTMLInputElement).labels;
+          const inp = el as HTMLInputElement;
+          return {
+            id: (el as HTMLElement).id || null,
+            ariaLabel: clean(el.getAttribute('aria-label')),
+            labelledby,
+            labelText: labels && labels.length > 0 ? clean(labels[0]!.textContent) : '',
+            ownText: clean(el.textContent),
+            title: clean(el.getAttribute('title')),
+            placeholder: clean(el.getAttribute('placeholder')),
+            buttonValue: el.tagName === 'INPUT' && /^(submit|button|reset)$/i.test(inp.type || '')
+              ? clean(inp.value) : '',
+          };
+        }).catch(() => null);
+        if (ev) {
+          // Count-checks run in the RESOLUTION's frame scope: the ladder
+          // resolves into iframes (frameChain), and a frame-resolved
+          // element counts 0 against the top document.
+          const scope = scopeFor(page, frameChain && frameChain.length > 0 ? frameChain : call.frameChain);
+          const unique = async (loc: Locator): Promise<boolean> => {
+            try { return (await loc.count()) === 1; } catch { return false; }
+          };
+          // A stable id has NO generated segment: '#digest-checkbox-1f8a2e'
+          // rotates per load even though 'digest-checkbox' is human — the
+          // dynamic-id doctrine (a random id is never proposed) applies to
+          // every segment, not just all-generated values.
+          const hasGeneratedSegment = (v: string): boolean =>
+            v.split(/[^A-Za-z0-9]+/).filter(Boolean)
+              .some((w) => /^\d+$/.test(w) || (/^[0-9a-f]{4,}$/i.test(w) && /\d/.test(w)));
+          const idArg = ev.id && !hasGeneratedSegment(ev.id)
+            ? (/^[A-Za-z_][\w-]*$/.test(ev.id) ? `#${ev.id}` : `[id="${ev.id.replace(/"/g, '\\"')}"]`)
+            : null;
+          const fullValue = level === 'role'
+            ? (ev.ariaLabel || ev.labelledby || ev.labelText || ev.ownText || ev.title || ev.buttonValue)
+            : level === 'label' ? (ev.ariaLabel || ev.labelledby || ev.labelText)
+            : level === 'placeholder' ? ev.placeholder
+            : level === 'title' ? ev.title
+            : ev.ownText;
+          let rebuilt: { level: CascadeLevel; arg: Parameters<typeof emitLocatorCall>[1] } | null = null;
+          if (call.level === 'css' && idArg && await unique(scope.locator(idArg))) {
+            rebuilt = { level: 'css', arg: idArg };
+          } else if (fullValue) {
+            const exactArg = level === 'role'
+              ? { role: (arg as { role: string }).role, name: fullValue, exact: true }
+              : level === 'label' ? { label: fullValue, exact: true as const }
+              : level === 'placeholder' ? { placeholder: fullValue, exact: true as const }
+              : level === 'title' ? { title: fullValue, exact: true as const }
+              : { text: fullValue, exact: true as const };
+            const exactLoc = level === 'role'
+              ? scope.getByRole((arg as { role: string }).role as Parameters<Page['getByRole']>[0], { name: fullValue, exact: true })
+              : level === 'label' ? scope.getByLabel(fullValue, { exact: true })
+              : level === 'placeholder' ? scope.getByPlaceholder(fullValue, { exact: true })
+              : level === 'title' ? scope.getByTitle(fullValue, { exact: true })
+              : scope.getByText(fullValue, { exact: true });
+            if (await unique(exactLoc)) rebuilt = { level, arg: exactArg };
+            else if (idArg && await unique(scope.locator(idArg))) rebuilt = { level: 'css', arg: idArg };
+          } else if (idArg && await unique(scope.locator(idArg))) {
+            rebuilt = { level: 'css', arg: idArg };
+          }
+          if (rebuilt) {
+            level = rebuilt.level;
+            arg = rebuilt.arg;
+          } else if (level === 'role') {
+            // Rule 3: no id, no readable full name — the bare role emit
+            // is refused downstream by the nameless gate.
+            arg = { role: (arg as { role: string }).role };
+          }
+        }
+      }
       let newRaw = emitLocatorCall(level, arg, false, frameChain);
       if (call.root === 'this.page') newRaw = 'this.' + newRaw;
       // Role correction: the original getByRole named its target EXACTLY
