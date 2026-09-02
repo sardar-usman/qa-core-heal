@@ -14,7 +14,7 @@ Expected refusals (no identity left to heal from) count as correct behavior.
 | account-settings | 10 | 5 | 5/5 | 0/0 | — | 0 | 7/7 passed |
 | pricing-hostile | 10 | 6 | 3/3 | 3/3 | — | 0 | 3/6 passed (3 expected failures) |
 | hostile-mutation | 3 | 1 | 0/0 | 1/1 | — | 0 | 1/2 passed (1 expected failure) |
-| fuzzy-typos | 35 | 21 | 13/13 | 8/8 | 3/3 | 0 | 14/22 passed (8 expected failures) |
+| fuzzy-typos | 38 | 24 | 13/13 | 11/11 | 3/3 | 0 | 14/25 passed (11 expected failures) |
 | react-churn | 3 | 2 | 1/1 | 1/1 | — | 0 | 1/2 passed (1 expected failure) |
 | tag-typos | 9 | 7 | 2/2 | 5/5 | 2/2 | 0 | 2/7 passed (5 expected failures) |
 | normalization | 4 | 3 | 2/2 | 1/1 | 1/1 | 0 | 2/3 passed (1 expected failure) |
@@ -24,7 +24,7 @@ Expected refusals (no identity left to heal from) count as correct behavior.
 | decoy-pages | 10 | 5 | 5/5 | 0/0 | — | 0 | 5/5 passed |
 | run-mode | 17 | 17 | 17/17 | 0/0 | — | 0 | 32/32 passed |
 | demowebshop-pom | 11 | 4 | 3/3 | 1/1 | 1/1 | 0 | 7/8 passed (1 expected failure) |
-| **Total** | **165** | **101** | **72/72** | **29/29** | **10/10** | **0** | |
+| **Total** | **168** | **104** | **72/72** | **32/32** | **10/10** | **0** | |
 
 Misses (expected heal, got refusal): 0
 Cascade level agreement (informational): 72/72 correct heals landed on the predicted level.

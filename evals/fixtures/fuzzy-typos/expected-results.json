@@ -164,6 +164,27 @@
       "expect": "healed",
       "level": "css",
       "test": "names the button"
+    },
+    {
+      "file": "tests/icononly.spec.ts",
+      "old": "page.locator('#btnGenerate')",
+      "expect": "refused",
+      "reason": "not found on route /icononly.html: closest candidates below the confidence threshold: #buttonGenerate (0.79); closest candidate #buttonGenerate is an icon-only button with no accessible name; a role-and-name locator cannot target it (add an aria-label, or target it by id)",
+      "test": "opens the gear menu"
+    },
+    {
+      "file": "tests/mouseover.spec.ts",
+      "old": "page.getByRole('link', { name: 'Click me' })",
+      "expect": "refused",
+      "reason": "kind mismatch: expected link, but the candidate's kind cannot be verified (<a>); refusing to guess; closest match is an anchor without href, which is not exposed as a link; target it by title or id, or give it an href",
+      "test": "clicks the hover link"
+    },
+    {
+      "file": "tests/mixedframes.spec.ts",
+      "old": "page.getByRole(\"button\", { name: \"Uploadd\" })",
+      "expect": "refused",
+      "reason": "not found on route /mixedframes.html: closest candidates below the confidence threshold: \"File Upload\" (0.50); note: this page embeds 1 iframe(s) (upload-frame.html) the probe does not scan; the element may live inside one. Frame-scoped locators cannot be healed — verify the locator inside its frame manually.",
+      "test": "starts the mixed upload"
     }
   ]
 }

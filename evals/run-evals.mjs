@@ -857,7 +857,8 @@ async function runScenarioSuite(suite) {
       const r = runCli(suiteDir, ['tests/wrongassert.spec.ts', '-y']);
       const unchanged = sourcesUnchanged();
       const msgOk = r.stdout.includes('heal reverted: the re-run still fails, but no longer for a locator reason')
-        && r.stdout.includes('The heal may be correct; the remaining failure looks like a test or app problem.');
+        && r.stdout.includes('The heal may be correct; the remaining failure looks like a test or app problem.')
+        && r.stdout.includes('1 heal(s) reverted: the re-run still fails for a non-locator reason');
       let auditOk = false;
       try {
         const lines = fs.readFileSync(path.join(suiteDir, '.qa-core/heal-log.jsonl'), 'utf8').trim().split('\n');

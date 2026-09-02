@@ -449,22 +449,22 @@
     },
     {
       "suite": "fuzzy-typos",
-      "locators": 35,
-      "broken": 21,
+      "locators": 38,
+      "broken": 24,
       "healedExpected": 13,
       "intactExpected": 3,
       "correctHeals": 13,
-      "correctRefusals": 8,
+      "correctRefusals": 11,
       "correctIntact": 3,
       "wrongHeals": 0,
       "misses": 0,
       "levelMatches": 13,
       "healedGot": 13,
-      "brokenRunFailedTests": 21,
-      "brokenRunTotalTests": 22,
+      "brokenRunFailedTests": 24,
+      "brokenRunTotalTests": 25,
       "finalPassed": 14,
-      "finalFailed": 8,
-      "expectedFailures": 8,
+      "finalFailed": 11,
+      "expectedFailures": 11,
       "finalOk": true,
       "perLocator": [
         {
@@ -730,6 +730,39 @@
           "gotLevel": "css",
           "testPassed": true,
           "verdict": "correct-heal"
+        },
+        {
+          "file": "tests/icononly.spec.ts",
+          "old": "page.locator('#btnGenerate')",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "css",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/mouseover.spec.ts",
+          "old": "page.getByRole('link', { name: 'Click me' })",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "role",
+          "testPassed": false,
+          "verdict": "correct-refusal"
+        },
+        {
+          "file": "tests/mixedframes.spec.ts",
+          "old": "page.getByRole(\"button\", { name: \"Uploadd\" })",
+          "expect": "refused",
+          "got": "refused",
+          "gotNew": null,
+          "expectLevel": null,
+          "gotLevel": "role",
+          "testPassed": false,
+          "verdict": "correct-refusal"
         }
       ],
       "notes": []
@@ -1566,12 +1599,12 @@
     }
   ],
   "totals": {
-    "locators": 165,
-    "broken": 101,
+    "locators": 168,
+    "broken": 104,
     "healedExpected": 72,
     "intactExpected": 10,
     "correctHeals": 72,
-    "correctRefusals": 29,
+    "correctRefusals": 32,
     "correctIntact": 10,
     "wrongHeals": 0,
     "misses": 0,

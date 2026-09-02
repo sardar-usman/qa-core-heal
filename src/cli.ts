@@ -342,6 +342,19 @@ function locatorVerdict(
   };
 }
 
+/**
+ * The revert count line, consistent with the per-heal classification
+ * (0.3.4: "still failing after heal" beside a non-locator per-heal line
+ * contradicted it). All-locator keeps the original wording.
+ */
+function revertSummary(n: number, reasons: Array<'locator' | 'non-locator'>): string {
+  const nonLoc = reasons.filter((r) => r === 'non-locator').length;
+  const loc = reasons.length - nonLoc;
+  if (nonLoc === 0) return `${n} heal(s) reverted: re-run still failing after heal`;
+  if (loc === 0) return `${n} heal(s) reverted: the re-run still fails for a non-locator reason`;
+  return `${n} heal(s) reverted: ${loc} still failing for a locator reason, ${nonLoc} for a non-locator reason`;
+}
+
 /** --verbose/--debug reporting around child Playwright runs. Extra lines
  *  only, on stderr — verdicts and messages stay untouched. */
 function logChildRun(cli: CliArgs, run: ReturnType<typeof runPlaywrightCli>): void {
@@ -675,7 +688,8 @@ async function main(): Promise<void> {
             say(`✗ heal reverted: re-run still failing after heal — ${rel}:${h.line} ${h.old}`);
           }
         }
-        say(`${revertedHeals.size} heal(s) reverted: re-run still failing after heal`);
+        say(revertSummary(revertedHeals.size,
+          [...revertedHeals].map((h) => scanRevertReasonByKey.get(`${path.relative(process.cwd(), h.file).split(path.sep).join('/')}|${h.line}`) ?? 'locator')));
         process.exitCode = 1;
       }
     }
@@ -1058,7 +1072,8 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
             say(`  ✗ heal reverted: re-run still failing after heal — ${rel}:${h.line} ${h.old}`);
           }
         }
-        say(`${revertedHeals.size} heal(s) reverted: re-run still failing after heal`);
+        say(revertSummary(revertedHeals.size,
+          [...revertedHeals].map((h) => revertReasonByKey.get(`${path.relative(process.cwd(), h.file).split(path.sep).join('/')}|${h.line}`) ?? 'locator')));
         process.exitCode = 1;
       }
     }

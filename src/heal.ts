@@ -1299,6 +1299,10 @@ interface ScannedElement extends FuzzyCandidate {
   role: string | null;
   type: string | null;
   href: boolean;
+  /** Definitely an icon-only interactive control with NO accessible name
+   *  (no text/aria-label/labelledby/title/label/value) — refusals naming
+   *  it as a candidate teach instead of just scoring. */
+  namelessControl: boolean;
 }
 
 /** "quantity-field" → "quantity field", "NewsletterEmail" → "Newsletter Email". */
@@ -1352,6 +1356,7 @@ async function scanIdentifiers(
       display: string; values: string[]; tag: string;
       id: string | null; name: string | null; attrOf: Record<string, string>;
       role: string | null; type: string | null; href: boolean;
+      namelessControl: boolean;
     }> = [];
     const entryOf = new Map<Element, { values: string[]; attrOf: Record<string, string> }>();
     // Whitespace canonicalization for EVERY collected identity value —
@@ -1458,6 +1463,25 @@ async function scanIdentifiers(
     for (const [el, entry] of entryOf) {
       const id = (el as HTMLElement).id || null;
       const name = el.getAttribute('name');
+      // DEFINITE namelessness for interactive controls: an icon-only
+      // button/link with no text, no aria-label/labelledby, no title, no
+      // associated label, no value — a role-and-name locator can never
+      // target it, and refusals that name it as a candidate should teach
+      // that instead of just scoring it.
+      const tagL = el.tagName.toLowerCase();
+      const roleAttr = el.getAttribute('role');
+      const isControl = tagL === 'button' || roleAttr === 'button' || roleAttr === 'link'
+        || (tagL === 'a' && el.hasAttribute('href'));
+      const inpEl = el as HTMLInputElement;
+      const buttonValue = tagL === 'input' && /^(submit|button|reset)$/i.test(inpEl.type || '')
+        ? (inpEl.value || '') : '';
+      const namelessControl = isControl
+        && !el.getAttribute('aria-label')
+        && !el.getAttribute('aria-labelledby')
+        && !el.getAttribute('title')
+        && (el.textContent ?? '').replace(/\s+/g, ' ').trim() === ''
+        && !(inpEl.labels && inpEl.labels.length > 0)
+        && buttonValue === '';
       const human = entry.values.find((v) => entry.attrOf[v] !== 'id' && entry.attrOf[v] !== 'name' && !generatedId(v));
       const display = id && !generatedId(id)
         ? `#${id}`
@@ -1473,6 +1497,7 @@ async function scanIdentifiers(
         id, name, attrOf: entry.attrOf,
         role: el.getAttribute('role'), type: el.getAttribute('type'),
         href: el.hasAttribute('href'),
+        namelessControl,
       });
     }
     return { settled, elements: out };
@@ -1650,6 +1675,9 @@ type RouteOutcome =
   | {
       kind: 'unresolved';
       closest?: string;
+      /** Teaching appendix when the top near-miss is a definitely
+       *  nameless icon-only control (no name a locator could use). */
+      teach?: string;
       /**
        * The ladder's ONLY resolution was a nameless getByRole(role) that
        * CONFIRMED as the intended element. It is never proposed (a heal
@@ -1669,6 +1697,8 @@ type RouteOutcome =
       candidateKind: ElementKind | null;
       /** The candidate's tag, so an indefinite-kind refusal can name it. */
       candidateTag: string | null;
+      /** Whether the candidate carries an href (anchor-teaching evidence). */
+      candidateHref?: boolean;
       /** The token confirmation ran against, for mismatch diagnostics. */
       confirmToken: string;
       /** On a genuine mismatch: what WAS found (tag/attrs/geometry). */
@@ -2199,6 +2229,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         confirmed: same.confirmed, unstableMatch: same.unstableMatch,
         candidateKind: info ? kindOfElement(info) : null,
         candidateTag: info?.tag ?? null,
+        candidateHref: info?.href,
         confirmToken,
         mismatch: same.got,
         roleCorrected,
@@ -2240,9 +2271,20 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       }
       if (verdict.kind === 'none') return null;
       if (verdict.kind === 'near-miss') {
+        // Nameless-candidate teaching (0.3.4): when the top near-miss is
+        // DEFINITELY an icon-only control with no accessible name, say so
+        // — a role-and-name locator can never target it, and a bare score
+        // reads like the tool was inexplicably short.
+        const top = verdict.closest[0];
+        const topEl = top ? scanned.find((c) => c.display === top.display) : undefined;
+        const teach = topEl?.namelessControl
+          ? `closest candidate ${topEl.display} is an icon-only ${topEl.role === 'link' || topEl.tag === 'a' ? 'link' : 'button'} `
+            + 'with no accessible name; a role-and-name locator cannot target it (add an aria-label, or target it by id)'
+          : undefined;
         return {
           kind: 'unresolved',
           closest: verdict.closest.map((c) => `${c.display} (${c.score.toFixed(2)})`).join(', '),
+          ...(teach ? { teach } : {}),
         };
       }
       if (verdict.kind === 'ambiguous') return { kind: 'ambiguous', closeMatches: verdict.displays };
@@ -2611,9 +2653,12 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
     // Routes whose page embeds iframes: candidate collection is top-
     // document only, so an element inside a frame is invisible to the
     // probe. A not-found/below-threshold refusal on such a page must say
-    // so (the same move as the closed-shadow-roots note). Values are the
-    // frame src attributes as authored, deduped.
-    const iframesByRoute = new Map<string, string[]>();
+    // so (the same move as the closed-shadow-roots note). Same-origin
+    // frames are the plausible homes of the app's element and are named
+    // (srcs as authored, deduped); cross-origin widget frames (GitHub
+    // Star buttons, feedback widgets) can never hold it and are omitted
+    // when same-origin frames exist, or reported count-only otherwise.
+    const iframesByRoute = new Map<string, { same: string[]; cross: number }>();
     // Origin + path of a URL, trailing slashes and query ignored: the shape
     // that changes when an app redirects (to /login, to an error page).
     const pageSpot = (u: string): string => {
@@ -2673,10 +2718,20 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         () => (window as unknown as { __qaCoreClosedShadowRoots?: number }).__qaCoreClosedShadowRoots ?? 0,
       ).catch(() => 0);
       if (closedRoots > 0) closedRootRoutes.add(route);
-      const frameSrcs = await page.evaluate(
-        () => Array.from(document.querySelectorAll('iframe')).map((f) => f.getAttribute('src') || '(no src)'),
-      ).catch(() => [] as string[]);
-      if (frameSrcs.length > 0) iframesByRoute.set(route, [...new Set(frameSrcs)]);
+      const frameInfo = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('iframe')).map((f) => {
+          const src = f.getAttribute('src') || '(no src)';
+          let sameOrigin = true;
+          try { sameOrigin = new URL(src, location.href).origin === location.origin; } catch { /* keep true */ }
+          return { src, sameOrigin };
+        }),
+      ).catch(() => [] as Array<{ src: string; sameOrigin: boolean }>);
+      if (frameInfo.length > 0) {
+        iframesByRoute.set(route, {
+          same: [...new Set(frameInfo.filter((f) => f.sameOrigin).map((f) => f.src))],
+          cross: frameInfo.filter((f) => !f.sameOrigin).length,
+        });
+      }
       for (const t of tasks) {
         if (!t.routes.includes(route)) continue;
         t.outcomes.set(route, await probeCall(t.call, t.strict));
@@ -2766,6 +2821,9 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         const closest = entries
           .map((e) => (e.o.kind === 'unresolved' ? e.o.closest : undefined))
           .find((c) => c != null);
+        const closestTeach = entries
+          .map((e) => (e.o.kind === 'unresolved' ? e.o.teach : undefined))
+          .find((c) => c != null);
         const hint = stateDependencyHint(call);
         // Nothing matched AND the page holds content the probe cannot see:
         // say so, or the absence reads as "the element is gone" when it may
@@ -2781,8 +2839,15 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         // chained frameLocator calls, against the emit doctrine) — the
         // note is the honest message. Srcs capped at 3.
         const withIframeNote = (reason: string): string => {
-          const srcs = [...new Set(t.routes.flatMap((r) => iframesByRoute.get(r) ?? []))];
-          if (srcs.length === 0) return reason;
+          const infos = t.routes.map((r) => iframesByRoute.get(r)).filter((x) => x != null);
+          const srcs = [...new Set(infos.flatMap((x) => x!.same))];
+          const cross = infos.reduce((n, x) => n + x!.cross, 0);
+          if (srcs.length === 0 && cross === 0) return reason;
+          if (srcs.length === 0) {
+            return `${reason.replace(/\.$/, '')}; note: this page embeds ${cross} cross-origin widget iframe(s) `
+              + 'the probe does not scan; the element may live inside one. '
+              + 'Frame-scoped locators cannot be healed — verify the locator inside its frame manually.';
+          }
           const shown = srcs.slice(0, 3).join(', ') + (srcs.length > 3 ? ', …' : '');
           return `${reason.replace(/\.$/, '')}; note: this page embeds ${srcs.length} iframe(s) (${shown}) `
             + 'the probe does not scan; the element may live inside one. '
@@ -2811,7 +2876,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         refuse(call, withIframeNote(withClosedNote(gated
           ? `not found on ${where}: role '${gated.role}' elements exist only while ${gated.widget} is open; a fresh page load cannot show them. Static probing cannot verify this locator - check the ${gated.role} name manually or re-record it.${closest ? ` Closest candidates below the confidence threshold: ${closest}` : ''}`
           : closest
-          ? `not found on ${where}: closest candidates below the confidence threshold: ${closest}`
+          ? `not found on ${where}: closest candidates below the confidence threshold: ${closest}${closestTeach ? `; ${closestTeach}` : ''}`
           : namelessRole
           ? `nameless heal refused: getByRole("${namelessRole}") has no accessible name and carries less identity than the broken selector it would replace; any sole ${namelessRole} on the page would match. Give the element an accessible name or a data-testid, or re-record the locator`
           : hint
@@ -2852,7 +2917,13 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
         !e.o.roleCorrected && expectedKinds.length > 0 && e.o.candidateKind === null);
       if (indefinite) {
         const tag = indefinite.o.candidateTag;
-        refuse(call, `kind mismatch: expected ${expectedKinds.join(' or ')}, but the candidate's kind cannot be verified${tag ? ` (<${tag}>)` : ''}; refusing to guess`, false);
+        // Anchor teaching (0.3.4): an <a> without href is DEFINITELY not
+        // exposed as a link (ARIA) — say why the kind is unverifiable
+        // instead of leaving a bare tag name.
+        const anchorTeach = tag === 'a' && indefinite.o.candidateHref === false
+          ? '; closest match is an anchor without href, which is not exposed as a link; target it by title or id, or give it an href'
+          : '';
+        refuse(call, `kind mismatch: expected ${expectedKinds.join(' or ')}, but the candidate's kind cannot be verified${tag ? ` (<${tag}>)` : ''}; refusing to guess${anchorTeach}`, false);
         continue;
       }
       // The less-identity rule (0.3.2): a replacement must never carry LESS
