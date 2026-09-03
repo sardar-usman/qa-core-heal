@@ -1,6 +1,6 @@
 {
   "name": "qa-core-heal",
-  "version": "0.3.4-dev",
+  "version": "0.3.4",
   "description": "Deterministic selector healing for Playwright specs. No LLM, no API key.",
   "type": "module",
   "license": "MIT",
