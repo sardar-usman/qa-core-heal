@@ -221,6 +221,14 @@ export function applyHealPlan(plan: HealPlanEntry[]): string[] {
 }
 
 /**
+ * The text each planned file would have after its edits, without writing
+ * anything. Used to build patches and to check a heal in a scratch copy.
+ */
+export function renderHealPlan(plan: HealPlanEntry[]): Array<{ file: string; before: string; after: string }> {
+  return plan.map((entry) => ({ file: entry.file, before: entry.src, after: applyEdits(entry.src, entry.edits) }));
+}
+
+/**
  * Re-write planned files KEEPING only the edits not excluded: the revert
  * path for heals whose verify re-run still failed. A file whose every
  * edit is excluded is restored byte-identical to the scanned source.
