@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { baseOf, cliJs, finding, makeProject, rm, startServer, writeFindings } from './helpers/contract.mjs';
-import { chromiumProfiles, removeNewChromiumProfiles, sweepTemps } from './helpers/temps.mjs';
+import { chromiumProfiles, installSuiteTmp, removeNewChromiumProfiles, sweepTemps } from './helpers/temps.mjs';
+
+installSuiteTmp();
 
 /**
  * SIGINT and SIGTERM must kill the Playwright process group, remove the
@@ -53,10 +55,11 @@ async function waitFor(fn, label, ms = 60000) {
   throw new Error(`timed out waiting for ${label}${last ? `: ${last}` : ''}`);
 }
 
-function outputRootFrom(dir, cliPid) {
+function outputRootFrom(dir, cliPid, marker) {
   for (const pid of pidsIn(dir)) {
     if (pid === cliPid) continue;
     const cmd = cmdline(pid);
+    if (marker && !cmd.includes(marker)) continue;
     const m = cmd.match(/--output (\S*qa-core-heal-out-[^/\s]+)/);
     if (m) return m[1];
   }
@@ -232,6 +235,60 @@ test('a spec run timeout kills Playwright and removes the output folder', { time
     rm(dir);
     removeNewChromiumProfiles(profiles);
   }
+});
+
+async function interruptFindingsApply(sig, expectStatus) {
+  const server = await startServer('<html><body><label>Mail <input id="mail-x9" name="email" type="email" /></label></body></html>');
+  const profiles = chromiumProfiles();
+  const dir = makeProject(baseOf(server), {
+    'tests/a.spec.ts': `import { test } from '@playwright/test';
+test('fills mail', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#email-7d21ac').fill('a@b.dev');
+  await page.waitForTimeout(15000);
+});
+`,
+  }, { timeout: 180000 });
+  const spec = path.join(dir, 'tests/a.spec.ts');
+  const original = fs.readFileSync(spec);
+  const audit = path.join(dir, 'audit.jsonl');
+  const findingsPath = writeFindings(dir, [finding()]);
+  const run = spawnCli([
+    '--findings', findingsPath, '--results', path.join(dir, 'heal-results.json'),
+    '--apply', '--yes', '--audit-log', audit, '--shadow-runs', '1',
+  ], dir);
+  try {
+    const outRoot = await waitFor(() => {
+      const src = fs.readFileSync(spec, 'utf8');
+      if (!src.includes('input[type="email"]')) return null;
+      return outputRootFrom(dir, run.child.pid, 'rerun');
+    }, 'the findings verify re-run', 90000);
+    const done = await stopAndJoin(run.child, run.closed, sig);
+    assert.equal(done.status, expectStatus, `${run.text().stdout}\n${run.text().stderr}`);
+    assert.deepEqual(fs.readFileSync(spec), original);
+    const lines = fs.readFileSync(audit, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].applied, true);
+    assert.equal(lines[0].verified, false);
+    assert.equal(lines[0].reverted, true);
+    assert.equal(lines[0].revertReason, 'interrupted');
+    assertStoppedClean(dir, outRoot);
+  } finally {
+    if (run.child.exitCode === null && !run.child.killed) {
+      try { process.kill(run.child.pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+    server.close();
+    rm(dir);
+    removeNewChromiumProfiles(profiles);
+  }
+}
+
+test('SIGINT during a findings --apply verification restores the spec and writes an interrupted audit entry', { timeout: 120000 }, async () => {
+  await interruptFindingsApply('SIGINT', 130);
+});
+
+test('SIGTERM during a findings --apply verification restores the spec and exits 143', { timeout: 120000 }, async () => {
+  await interruptFindingsApply('SIGTERM', 143);
 });
 
 test('a findings run timeout kills Playwright and removes the output folder', { timeout: 120000 }, async () => {

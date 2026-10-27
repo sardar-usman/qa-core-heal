@@ -9,7 +9,9 @@ import {
   assertValid, baseOf, finding, findingsDoc, makeProject, pkg, readJsonFile, rm, runCli, startServer,
   validateFindings, validateResults, writeFindings,
 } from './helpers/contract.mjs';
-import { chromiumProfiles, removeNewChromiumProfiles, sweepTemps } from './helpers/temps.mjs';
+import { chromiumProfiles, installSuiteTmp, removeNewChromiumProfiles, sweepTemps } from './helpers/temps.mjs';
+
+installSuiteTmp();
 
 const profilesAtStart = chromiumProfiles();
 after(() => {

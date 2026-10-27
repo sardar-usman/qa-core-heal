@@ -505,6 +505,11 @@ async function runFindingsMode(cli: CliArgs, loaded: ReturnType<typeof loadConfi
     say,
     observe: cli.verbose ? (run) => logChildRun(cli, run) : undefined,
     confirm: () => confirmApply(cli, 1),
+    auditPath: cli.auditLog
+      ? path.resolve(cli.auditLog)
+      : cfg.audit?.logPath
+        ? fromCfg(cfg.audit.logPath)
+        : path.resolve('.qa-core/heal-log.jsonl'),
   });
 
   fs.mkdirSync(path.dirname(resultsPath), { recursive: true });

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { appendAuditLog, type AuditEntry } from './audit.js';
 
@@ -9,22 +10,103 @@ import { appendAuditLog, type AuditEntry } from './audit.js';
  * run timeout delivered to heal does not reach those groups, and a killed
  * process does not run its finally blocks, so the temporary output folder
  * would stay behind. The CLI traps both signals, kills every group in the
- * child tree, and removes the folders it still owns. A normal process.exit
- * (the run-timeout failure path) runs the same cleanup.
+ * child tree, and removes the folders it still owns. Without /proc the
+ * same tree is read from ps. A normal process.exit (the run-timeout
+ * failure path) runs the same cleanup.
  */
 
-interface ProcIds { ppid: number; pgrp: number }
+export interface ProcessRow { pid: number; ppid: number; pgrp: number }
 
-function readProc(pid: number): ProcIds | null {
+/**
+ * How long to wait after SIGTERM before SIGKILL.
+ * Chromium deletes its temporary profile on SIGTERM. SIGKILL skips that.
+ */
+const STOP_GRACE_MS = 500;
+
+/** A test injects this to hide /proc. Null means that source has no table. */
+let tableReader: (() => ProcessRow[] | null) | null = null;
+
+export function setProcessTableReader(reader: (() => ProcessRow[] | null) | null): void {
+  tableReader = reader;
+}
+
+function readProcFile(pid: number): ProcessRow | null {
   try {
     const text = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
     const rest = text.slice(text.lastIndexOf(')') + 2).split(' ');
     const ppid = Number(rest[1]);
     const pgrp = Number(rest[2]);
     if (!Number.isInteger(ppid) || !Number.isInteger(pgrp)) return null;
-    return { ppid, pgrp };
+    return { pid, ppid, pgrp };
   } catch {
     return null;
+  }
+}
+
+function readProcTable(): ProcessRow[] | null {
+  if (!fs.existsSync('/proc')) return null;
+  const rows: ProcessRow[] = [];
+  let names: string[] = [];
+  try { names = fs.readdirSync('/proc'); } catch { return null; }
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue;
+    const row = readProcFile(Number(name));
+    if (row) rows.push(row);
+  }
+  return rows.length > 0 ? rows : null;
+}
+
+/** macOS and any host without /proc. `ps` columns are pid, ppid, pgid. */
+function readPsTable(): ProcessRow[] | null {
+  try {
+    const run = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,pgid='], { encoding: 'utf8' });
+    if (run.status !== 0 || !run.stdout) return null;
+    const rows: ProcessRow[] = [];
+    for (const line of run.stdout.split('\n')) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 3) continue;
+      const pid = Number(parts[0]);
+      const ppid = Number(parts[1]);
+      const pgrp = Number(parts[2]);
+      if (!Number.isInteger(pid) || !Number.isInteger(ppid) || !Number.isInteger(pgrp)) continue;
+      rows.push({ pid, ppid, pgrp });
+    }
+    return rows.length > 0 ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadProcessTable(): ProcessRow[] | null {
+  if (tableReader) {
+    const rows = tableReader();
+    if (rows && rows.length > 0) return rows;
+    if (rows && rows.length === 0) return rows;
+  } else {
+    const fromProc = readProcTable();
+    if (fromProc) return fromProc;
+  }
+  return readPsTable();
+}
+
+function selfGroup(rows: ProcessRow[] | null): number | undefined {
+  return rows?.find((r) => r.pid === process.pid)?.pgrp;
+}
+
+function nap(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function alive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+function signalIds(groups: Set<number>, direct: number[], sig: NodeJS.Signals): void {
+  for (const g of groups) {
+    try { process.kill(-g, sig); } catch { /* already gone */ }
+  }
+  for (const p of direct) {
+    try { process.kill(p, sig); } catch { /* already gone */ }
   }
 }
 
@@ -32,48 +114,52 @@ function readProc(pid: number): ProcIds | null {
  * Stop a child and every process group under it.
  * The direct child is a group leader. Browsers it spawned are leaders of
  * their own groups, so killing only the child group leaves them behind.
+ * SIGTERM goes out first so Chromium can delete its temp folders.
  */
 export function killProcessTree(pid: number): void {
   if (!Number.isInteger(pid) || pid <= 1) return;
-  if (process.platform === 'win32' || !fs.existsSync('/proc')) {
+  if (process.platform === 'win32') {
     try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
     return;
   }
-  const selfGroup = readProc(process.pid)?.pgrp;
+  const rows = loadProcessTable();
+  if (!rows) {
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ }
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    return;
+  }
+  const mine = selfGroup(rows);
   const byParent = new Map<number, number[]>();
   const pgrpOf = new Map<number, number>();
-  let names: string[] = [];
-  try { names = fs.readdirSync('/proc'); } catch { names = []; }
-  for (const name of names) {
-    if (!/^\d+$/.test(name)) continue;
-    const p = Number(name);
-    const st = readProc(p);
-    if (!st) continue;
-    pgrpOf.set(p, st.pgrp);
-    const kids = byParent.get(st.ppid);
-    if (kids) kids.push(p);
-    else byParent.set(st.ppid, [p]);
+  for (const row of rows) {
+    pgrpOf.set(row.pid, row.pgrp);
+    const kids = byParent.get(row.ppid);
+    if (kids) kids.push(row.pid);
+    else byParent.set(row.ppid, [row.pid]);
   }
   const groups = new Set<number>();
   const direct: number[] = [];
+  const watched: number[] = [];
   const stack = [pid];
   const seen = new Set<number>();
   while (stack.length > 0) {
     const cur = stack.pop();
     if (cur === undefined || seen.has(cur) || cur === process.pid) continue;
     seen.add(cur);
+    watched.push(cur);
     const g = pgrpOf.get(cur) ?? (cur === pid ? pid : 0);
-    if (g > 1 && g !== selfGroup) groups.add(g);
+    if (g > 1 && g !== mine) groups.add(g);
     else direct.push(cur);
     for (const kid of byParent.get(cur) ?? []) stack.push(kid);
   }
-  if (pid > 1 && pid !== selfGroup) groups.add(pid);
-  for (const g of groups) {
-    try { process.kill(-g, 'SIGKILL'); } catch { /* already gone */ }
+  if (pid > 1 && pid !== mine) groups.add(pid);
+  signalIds(groups, direct, 'SIGTERM');
+  const deadline = Date.now() + STOP_GRACE_MS;
+  while (Date.now() < deadline) {
+    if (watched.every((p) => !alive(p))) break;
+    nap(50);
   }
-  for (const p of direct) {
-    try { process.kill(p, 'SIGKILL'); } catch { /* already gone */ }
-  }
+  signalIds(groups, direct, 'SIGKILL');
 }
 
 const outputDirs = new Set<string>();

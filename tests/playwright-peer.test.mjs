@@ -7,12 +7,13 @@ import path from 'node:path';
 import { baseOf, finding, repoRoot, startServer, writeFindings } from './helpers/contract.mjs';
 
 /**
- * Playwright is a peer dependency. Smoke the lowest and highest versions
- * in the declared range. The suite itself stays on the devDependency,
- * Playwright 1.60.0. The browser cache is kept between runs.
+ * Playwright is a peer dependency with no upper bound. Smoke 1.49.0 and
+ * 1.64.1, the versions this package was tested with. The suite itself
+ * stays on the devDependency, Playwright 1.60.0. The browser cache is
+ * kept between runs.
  */
 
-const RANGE = '>=1.49.0 <=1.64.1';
+const RANGE = '>=1.49.0';
 const LOW = '1.49.0';
 const HIGH = '1.64.1';
 

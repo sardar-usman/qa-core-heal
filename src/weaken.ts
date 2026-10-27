@@ -4,13 +4,39 @@
  * A proposal is refused when its diff removes an assertion or replaces one
  * with a looser check. A locator-only rewrite is not a weakening: the
  * subject of expect() is ignored, and the matcher and its arguments must
- * stay as strict as they were.
+ * stay as strict as they were. An expect hidden in a comment or a string,
+ * a removed expect.soft or expect.poll, and an added test.skip count too.
  */
 
 interface ExpectAssertion {
   neg: boolean;
   matcher: string;
   args: string;
+  /** '' for expect(), '.soft' or '.poll' for the other forms. */
+  form: '' | '.soft' | '.poll';
+}
+
+/** Move past a comment or a string. Returns i when src[i] is real code. */
+function skipNoise(src: string, i: number): number {
+  if (src.startsWith('//', i)) {
+    const nl = src.indexOf('\n', i + 2);
+    return nl < 0 ? src.length : nl + 1;
+  }
+  if (src.startsWith('/*', i)) {
+    const end = src.indexOf('*/', i + 2);
+    return end < 0 ? src.length : end + 2;
+  }
+  const c = src[i];
+  if (c === '"' || c === "'" || c === '`') {
+    let j = i + 1;
+    while (j < src.length) {
+      if (src[j] === '\\') { j += 2; continue; }
+      if (src[j] === c) return j + 1;
+      j++;
+    }
+    return j;
+  }
+  return i;
 }
 
 const RANK: Record<string, number> = {
@@ -80,43 +106,60 @@ function quotedStrings(args: string): string[] {
   return out;
 }
 
+function atWord(src: string, i: number, word: string): boolean {
+  if (!src.startsWith(word, i)) return false;
+  if (i > 0 && /[A-Za-z0-9_]/.test(src[i - 1]!)) return false;
+  const after = src[i + word.length];
+  return after === undefined || !/[A-Za-z0-9_]/.test(after);
+}
+
 function parseExpects(src: string): ExpectAssertion[] {
   const out: ExpectAssertion[] = [];
-  const re = /\bexpect\s*\(/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(src)) !== null) {
-    const open = m.index + m[0].length - 1;
-    const subjectEnd = skipBalanced(src, open);
-    if (subjectEnd < 0) continue;
-    let i = skipWs(src, subjectEnd + 1);
-    let neg = false;
-    if (src.startsWith('.not', i) && !/[A-Za-z0-9_]/.test(src[i + 4] ?? '')) {
-      neg = true;
-      i = skipWs(src, i + 4);
-    }
+  let i = 0;
+  while (i < src.length) {
+    const skipped = skipNoise(src, i);
+    if (skipped > i) { i = skipped; continue; }
+    if (!atWord(src, i, 'expect')) { i++; continue; }
     const head = src.slice(i);
-    const mm = head.match(/^\.\s*(to[A-Za-z]+)\s*\(/);
-    if (!mm) { re.lastIndex = subjectEnd + 1; continue; }
-    const matcher = mm[1]!;
-    const argOpen = i + mm[0].length - 1;
+    const mm = head.match(/^expect(?:\s*\.\s*(soft|poll))?\s*\(/);
+    if (!mm) { i++; continue; }
+    const form: ExpectAssertion['form'] = mm[1] === 'poll' ? '.poll' : mm[1] === 'soft' ? '.soft' : '';
+    const open = i + mm[0].length - 1;
+    const subjectEnd = skipBalanced(src, open);
+    if (subjectEnd < 0) { i++; continue; }
+    let j = skipWs(src, subjectEnd + 1);
+    let neg = false;
+    if (src.startsWith('.not', j) && !/[A-Za-z0-9_]/.test(src[j + 4] ?? '')) {
+      neg = true;
+      j = skipWs(src, j + 4);
+    }
+    const call = src.slice(j);
+    const matcher = call.match(/^\.\s*(to[A-Za-z]+)\s*\(/);
+    if (!matcher) { i = subjectEnd + 1; continue; }
+    const argOpen = j + matcher[0].length - 1;
     const argEnd = skipBalanced(src, argOpen);
-    if (argEnd < 0) { re.lastIndex = subjectEnd + 1; continue; }
-    out.push({ neg, matcher, args: src.slice(argOpen + 1, argEnd) });
-    re.lastIndex = argEnd + 1;
+    if (argEnd < 0) { i = subjectEnd + 1; continue; }
+    out.push({ neg, matcher: matcher[1]!, form, args: src.slice(argOpen + 1, argEnd) });
+    i = argEnd + 1;
   }
   return out;
 }
 
 function assertSigs(src: string): string[] {
   const out: string[] = [];
-  const re = /\bassert(?:\.[A-Za-z]+)?\s*\(/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(src)) !== null) {
-    const open = m.index + m[0].length - 1;
+  let i = 0;
+  while (i < src.length) {
+    const skipped = skipNoise(src, i);
+    if (skipped > i) { i = skipped; continue; }
+    if (!atWord(src, i, 'assert')) { i++; continue; }
+    const head = src.slice(i);
+    const mm = head.match(/^assert(?:\.[A-Za-z]+)?\s*\(/);
+    if (!mm) { i++; continue; }
+    const open = i + mm[0].length - 1;
     const end = skipBalanced(src, open);
-    if (end < 0) continue;
-    out.push(norm(src.slice(m.index, end + 1)));
-    re.lastIndex = end + 1;
+    if (end < 0) { i++; continue; }
+    out.push(norm(src.slice(i, end + 1)));
+    i = end + 1;
   }
   return out;
 }
@@ -128,7 +171,25 @@ function same(a: ExpectAssertion, b: ExpectAssertion): boolean {
 function fmt(a: ExpectAssertion): string {
   const not = a.neg ? '.not' : '';
   const args = a.args.trim();
-  return `expect(...)${not}.${a.matcher}(${args})`;
+  return `expect${a.form}(...)${not}.${a.matcher}(${args})`;
+}
+
+function skipCount(src: string): number {
+  let n = 0;
+  let i = 0;
+  while (i < src.length) {
+    const skipped = skipNoise(src, i);
+    if (skipped > i) { i = skipped; continue; }
+    const head = src.slice(i);
+    const mm = head.match(/^test(?:\s*\.\s*describe)?\s*\.\s*skip\b/);
+    if (mm && (i === 0 || !/[A-Za-z0-9_]/.test(src[i - 1]!))) {
+      n++;
+      i += mm[0].length;
+      continue;
+    }
+    i++;
+  }
+  return n;
 }
 
 /** True when `after` checks less than `before` did. */
@@ -181,5 +242,6 @@ export function weakeningReason(before: string, after: string): string | null {
     if (at >= 0) { left.splice(at, 1); continue; }
     return 'The proposed change removes an assertion.';
   }
+  if (skipCount(after) > skipCount(before)) return 'The proposed change skips a test.';
   return null;
 }

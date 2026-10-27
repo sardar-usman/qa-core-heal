@@ -50,6 +50,38 @@ test('a locator-only rewrite is not a weakening, and a looser or missing asserti
     weakeningReason("assert.equal(1, 1);\n", 'const x = 1;\n'),
     /removes an assertion/,
   );
+  assert.equal(
+    weakeningReason(
+      "await expect(page.locator('#a')).toBeVisible();\n// expect(page.locator('#b')).toBeVisible();\n",
+      "await expect(page.locator('#mail')).toBeVisible();\n// expect(page.locator('#b')).toBeVisible();\n",
+    ),
+    null,
+  );
+});
+
+test('a hidden or skipped assertion is a weakening', () => {
+  const expectLine = "await expect(page.locator('#a')).toBeVisible();\n";
+  assert.match(weakeningReason(expectLine, `// ${expectLine}`), /removes an assertion/);
+  assert.match(weakeningReason(expectLine, `/* ${expectLine.trim()} */\n`), /removes an assertion/);
+  assert.match(
+    weakeningReason(expectLine, `const s = "await expect(page.locator('#a')).toBeVisible();";\n`),
+    /removes an assertion/,
+  );
+  assert.match(
+    weakeningReason("await expect.soft(page.locator('#a')).toBeVisible();\n", "await page.locator('#a').click();\n"),
+    /removes an assertion: expect\.soft/,
+  );
+  assert.match(
+    weakeningReason("await expect.poll(() => 1).toBe(1);\n", "const x = 1;\n"),
+    /removes an assertion: expect\.poll/,
+  );
+  assert.match(
+    weakeningReason(
+      "test('t', async ({ page }) => {\n  await expect(page.locator('#a')).toBeVisible();\n});\n",
+      "test.skip('t', async ({ page }) => {\n  await expect(page.locator('#a')).toBeVisible();\n});\n",
+    ),
+    /skips a test/,
+  );
 });
 
 test('scratchVerify refuses a weakened diff before it copies the project', async () => {

@@ -20,7 +20,7 @@ test('the README documents the 0.4.1 behavior in plain places', () => {
   assert.match(readme, /shadowRuns/);
   assert.match(readme, /A SauceDemo session lasts only a short time/);
   assert.match(readme, /\.auth\/state\.json/);
-  assert.match(readme, /qa-core-flaky --heal-findings heal-findings\.json/);
+  assert.match(readme, /qa-core-flaky triage <report\.json> --heal-findings heal-findings\.json/);
   assert.match(readme, /broken\.spec\.ts/);
   assert.match(readme, /weakens-test/);
   assert.match(readme, /login page at \//);

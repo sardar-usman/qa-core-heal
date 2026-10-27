@@ -204,7 +204,7 @@ re-resolved element differs: expected an element matching "search panel 42"
 Since 0.4.0, qa-core-heal can read a findings file written by another tool (qa-core-flaky) and write a results file back. The two files follow contract version 1. Their JSON Schemas are in the `schemas/` folder of the package: `heal-findings.v1.schema.json` (owned by qa-core-flaky) and `heal-results.v1.schema.json` (owned by qa-core-heal). Version 1 is frozen. See `schemas/README.md`.
 
 ```bash
-npx qa-core-flaky --heal-findings heal-findings.json
+npx qa-core-flaky triage <report.json> --heal-findings heal-findings.json
 npx qa-core-heal --findings heal-findings.json --results heal-results.json --dry-run
 ```
 
@@ -314,7 +314,7 @@ npm run evals                                   # the full eval harness
 
 Use `node dist/cli.js` in place of `npx qa-core-heal` from a checkout (run `npm run build` once). Optional `qa-core.config.json` in your repo root sets baseUrl, test dir, allowed locator levels, page objects, authSetup, and storage state; full schema in `skill/references/config.md`.
 
-Playwright is a peer dependency (`@playwright/test` and `playwright`, `>=1.49.0 <=1.64.1`). This package was tested at 1.49.0 and at 1.64.1. The evals in this repo run on Playwright 1.60.0.
+Playwright is a peer dependency (`@playwright/test` and `playwright`, `>=1.49.0`). This package was tested at 1.49.0 and at 1.64.1. The evals in this repo run on Playwright 1.60.0.
 
 ## Use It as a Claude Code Skill
 

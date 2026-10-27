@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { AuditEntry } from './audit.js';
 import {
   applyHealPlan, applyHealPlanExcluding, heal, renderHealPlan,
-  type HealOptions, type HealPlanEntry, type HealResult, type HealTarget,
+  type HealOptions, type HealPlanEntry, type HealResult, type HealTarget, type LocatorReport,
 } from './heal.js';
 import {
   baseEntry, clip, ineligibleReason, playwrightVersion, plainEntry, refusedEntry, RESULTS_SCHEMA, RESULTS_SCHEMA_VERSION,
@@ -12,7 +13,7 @@ import {
 } from './contract.js';
 import { projectRootFor } from './project-root.js';
 import { resolvePlaywrightConfig } from './playwright-config.js';
-import { trackOutputDir, untrackOutputDir } from './process-guard.js';
+import { clearUnverifiedApplies, trackOutputDir, trackUnverifiedApply, untrackOutputDir } from './process-guard.js';
 import { scratchVerify } from './scratch.js';
 import {
   matchFinding, outputArgs, realPathOf, resolveTarget, runSelected, type RunObserver,
@@ -59,6 +60,8 @@ export interface FindingsFlowOptions {
   observe?: RunObserver;
   /** Ask for consent to write one change. */
   confirm: () => Promise<boolean>;
+  /** Where a signal during verification writes the interrupted audit line. */
+  auditPath: string;
 }
 
 export interface FindingsFlowOutcome {
@@ -322,6 +325,37 @@ function changesOf(plan: HealPlanEntry[], root: string): Change[] {
   return out;
 }
 
+/** Remember files --apply wrote, so a signal during the findings verify re-run can put them back. */
+function trackAppliedForSignal(plan: HealPlanEntry[], locators: LocatorReport[], auditPath: string, cwd: string): void {
+  for (const entry of plan) {
+    const rel = posix(path.relative(cwd, entry.file));
+    const lines = entry.src.split('\n');
+    const audit: AuditEntry[] = [];
+    for (const e of entry.edits) {
+      const loc = locators.find((l) => l.status === 'healed' && (l.occurrenceLines ?? [l.line]).includes(e.line));
+      const first = lines[e.line - 1] ?? '';
+      const before = e.endLine === e.line
+        ? first.slice(e.startCol, e.endCol)
+        : [first.slice(e.startCol), ...lines.slice(e.line, e.endLine - 1), (lines[e.endLine - 1] ?? '').slice(0, e.endCol)].join('\n');
+      audit.push({
+        timestamp: new Date().toISOString(),
+        file: rel,
+        line: e.line,
+        old: before,
+        new: loc?.new ?? e.newRaw,
+        level: loc?.level ?? 'css',
+        ambiguous: false,
+        applied: true,
+        verified: false,
+        reverted: true,
+        revertReason: 'interrupted',
+      });
+    }
+    if (audit.length === 0) continue;
+    trackUnverifiedApply({ file: entry.file, original: entry.src, auditPath, entries: audit });
+  }
+}
+
 /** Lines removed above a line by multi-line edits, so a declaration line can be tracked. */
 export function lineShift(plan: HealPlanEntry[], file: string, declLine: number): number {
   let shift = 0;
@@ -557,7 +591,10 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     }
     applyHealPlan(healed.plan);
     if (o.verify) {
+      trackAppliedForSignal(healed.plan, healed.locators, o.auditPath, o.cwd);
       const again = await runSelected(root, withLine(res.selectArgs, test.line, test.line - declShift), outputArgs(path.join(outRoot, 'rerun')), o.runTimeoutMs, o.observe);
+      // The rerun finished, so a later signal must not restore the file again.
+      clearUnverifiedApplies();
       if (again.kind !== 'ran' || again.status !== 'expected') {
         applyHealPlanExcluding(healed.plan, () => true);
         reverted = true;
