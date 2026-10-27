@@ -13,7 +13,8 @@ import addFormats from 'ajv-formats';
  */
 
 export const repoRoot = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
-export const cliJs = path.join(repoRoot, 'dist', 'cli.js');
+// HEAL_CLI_JS points the tests at another build, to show that a test fails on the old code.
+export const cliJs = process.env.HEAL_CLI_JS || path.join(repoRoot, 'dist', 'cli.js');
 export const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
 
 export function startServer(html) {
@@ -65,13 +66,13 @@ export default defineConfig({
 export const rm = (dir) => fs.rmSync(dir, { recursive: true, force: true });
 
 /** A findings document with the given findings, valid against contract v1. */
-export function findingsDoc(findings, baseUrl = null) {
+export function findingsDoc(findings, baseUrl = null, configPath = 'playwright.config.ts') {
   return {
     schema: 'qa-core.heal-findings',
     schemaVersion: 1,
     tool: { name: 'qa-core-flaky', version: '0.4.0' },
     project: {
-      configPath: 'playwright.config.ts',
+      configPath,
       baseUrl,
       testIdAttribute: 'data-test',
       playwrightVersion: '1.60.0',
@@ -139,8 +140,54 @@ export function assertValid(validate, doc, label = 'document') {
 
 export const readJsonFile = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 
-export const writeFindings = (dir, findings, baseUrl = null, name = 'heal-findings.json') => {
+export const writeFindings = (dir, findings, baseUrl = null, name = 'heal-findings.json', configPath = 'playwright.config.ts') => {
   const p = path.join(dir, name);
-  fs.writeFileSync(p, JSON.stringify(findingsDoc(findings, baseUrl), null, 2));
+  fs.writeFileSync(p, JSON.stringify(findingsDoc(findings, baseUrl, configPath), null, 2));
   return p;
 };
+
+/**
+ * A project like the SauceDemo kit of qa-core-flaky: package.json at the
+ * root, the Playwright config in a folder below it (no config at the root),
+ * the specs under that folder's tests/, and a login helper that opens the
+ * page through a template literal origin.
+ */
+export function makeNestedProject(base, { configDir = 'demo/saucedemo', timeout = 8000 } = {}) {
+  const dir = fs.mkdtempSync(path.join(repoRoot, '.tmp-test-'));
+  fs.writeFileSync(path.join(dir, 'package.json'), '{ "name": "t", "private": true, "type": "module" }');
+  const put = (rel, text) => {
+    const abs = path.join(dir, configDir, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, text);
+  };
+  put('playwright.config.ts', `import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  testDir: './tests', workers: 1, retries: 0, timeout: ${timeout},
+  expect: { timeout: 1500 },
+  use: { baseURL: '${base}', testIdAttribute: 'data-test', actionTimeout: 1500 },
+  projects: [{ name: 'chromium' }],
+  reporter: [['line']],
+});
+`);
+  put('support/login.ts', `import type { Page } from '@playwright/test';
+export const DEMO_ORIGIN = '${base}';
+export async function login(page: Page): Promise<void> {
+  await page.goto(\`\${DEMO_ORIGIN}/inventory\`);
+}
+`);
+  put('tests/broken.spec.ts', `import { expect, test } from '@playwright/test';
+import { login } from '../support/login';
+
+test('typo locator never finds the backpack button', async ({ page }) => {
+  await login(page);
+  await expect(page.locator('#add-to-cart-sauce-labs-bakpack')).toBeVisible({ timeout: 1000 });
+});
+`);
+  const rel = (f) => path.posix.normalize(`${configDir}/${f}`);
+  return { dir, configPath: rel('playwright.config.ts'), specFile: rel('tests/broken.spec.ts') };
+}
+
+/** The page of the nested project: the inventory page has the button, every other path does not. */
+export const inventoryServer = () => startServer((req) => (req.url.startsWith('/inventory')
+  ? '<html><body><button id="add-to-cart-sauce-labs-backpack" data-test="add-to-cart-sauce-labs-backpack">Add to cart</button></body></html>'
+  : '<html><body><h1>Login</h1></body></html>'));
