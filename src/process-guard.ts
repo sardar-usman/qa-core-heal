@@ -4,12 +4,77 @@ import { appendAuditLog, type AuditEntry } from './audit.js';
 /**
  * Cleanup for a heal process that is stopped mid-run.
  *
- * Playwright children are started in their own process group. A SIGINT or
- * SIGTERM delivered to heal does not reach that group, and a killed process
- * does not run its finally blocks, so the temporary output folder would
- * stay behind. The CLI traps both signals, kills the group, and removes
- * the folders it still owns.
+ * Playwright children are started in their own process group, and the
+ * browsers they launch lead yet another group. A SIGINT, SIGTERM, or
+ * run timeout delivered to heal does not reach those groups, and a killed
+ * process does not run its finally blocks, so the temporary output folder
+ * would stay behind. The CLI traps both signals, kills every group in the
+ * child tree, and removes the folders it still owns. A normal process.exit
+ * (the run-timeout failure path) runs the same cleanup.
  */
+
+interface ProcIds { ppid: number; pgrp: number }
+
+function readProc(pid: number): ProcIds | null {
+  try {
+    const text = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const rest = text.slice(text.lastIndexOf(')') + 2).split(' ');
+    const ppid = Number(rest[1]);
+    const pgrp = Number(rest[2]);
+    if (!Number.isInteger(ppid) || !Number.isInteger(pgrp)) return null;
+    return { ppid, pgrp };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stop a child and every process group under it.
+ * The direct child is a group leader. Browsers it spawned are leaders of
+ * their own groups, so killing only the child group leaves them behind.
+ */
+export function killProcessTree(pid: number): void {
+  if (!Number.isInteger(pid) || pid <= 1) return;
+  if (process.platform === 'win32' || !fs.existsSync('/proc')) {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    return;
+  }
+  const selfGroup = readProc(process.pid)?.pgrp;
+  const byParent = new Map<number, number[]>();
+  const pgrpOf = new Map<number, number>();
+  let names: string[] = [];
+  try { names = fs.readdirSync('/proc'); } catch { names = []; }
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue;
+    const p = Number(name);
+    const st = readProc(p);
+    if (!st) continue;
+    pgrpOf.set(p, st.pgrp);
+    const kids = byParent.get(st.ppid);
+    if (kids) kids.push(p);
+    else byParent.set(st.ppid, [p]);
+  }
+  const groups = new Set<number>();
+  const direct: number[] = [];
+  const stack = [pid];
+  const seen = new Set<number>();
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (cur === undefined || seen.has(cur) || cur === process.pid) continue;
+    seen.add(cur);
+    const g = pgrpOf.get(cur) ?? (cur === pid ? pid : 0);
+    if (g > 1 && g !== selfGroup) groups.add(g);
+    else direct.push(cur);
+    for (const kid of byParent.get(cur) ?? []) stack.push(kid);
+  }
+  if (pid > 1 && pid !== selfGroup) groups.add(pid);
+  for (const g of groups) {
+    try { process.kill(-g, 'SIGKILL'); } catch { /* already gone */ }
+  }
+  for (const p of direct) {
+    try { process.kill(p, 'SIGKILL'); } catch { /* already gone */ }
+  }
+}
 
 const outputDirs = new Set<string>();
 const childGroups = new Set<number>();
@@ -64,11 +129,7 @@ export function untrackChildGroup(pid: number): void {
 /** Restore unverified edits, kill every tracked Playwright process group, and remove tracked output folders. */
 export function cleanupChildrenAndOutputs(): void {
   restoreUnverifiedApplies();
-  if (process.platform !== 'win32') {
-    for (const pid of childGroups) {
-      try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ }
-    }
-  }
+  for (const pid of childGroups) killProcessTree(pid);
   childGroups.clear();
   for (const dir of outputDirs) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* already gone */ }

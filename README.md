@@ -252,17 +252,17 @@ It prints one JSON object. `contracts.findings` and `contracts.results` are arra
   "tool": { "name": "qa-core-heal", "version": "0.4.1" },
   "contracts": { "findings": [1], "results": [1] },
   "playwrightVersion": "1.60.0",
-  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true }
+  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true }
 }
 ```
 
-`playwrightVersion` is the version found for the current folder, or `null` when none is found. Without `--json` the same facts print as plain text. The word `capabilities` is read as the subcommand only when it is the only argument (with or without `--json`). A spec file or folder with that name is still reachable as `./capabilities`.
+`playwrightVersion` is the version found for the current folder, or `null` when none is found. `features.runTimeout` is true when this build accepts `--run-timeout`. Without `--json` the same facts print as plain text. The word `capabilities` is read as the subcommand only when it is the only argument (with or without `--json`). A spec file or folder with that name is still reachable as `./capabilities`.
 
 **Paths in a findings file.** The `file` of each finding is relative to the folder where you run qa-core-heal, or to the folder of `project.configPath`. When `project.configPath` is set and the file is not found from either of those, heal also looks in that config's `testDir` (Playwright's own default is `tests` when the config does not set one). Absolute paths and paths that leave the project are refused with `spec-not-found`. The real location of the spec is checked against the project folder, so a `..` in `project.configPath` or a symbolic link cannot bring in a spec from outside it. A hard link inside the project that names a spec outside the project is not caught, because a hard link and a normal file look the same. Do not point a hard link at a spec outside the project. An explicit `--dry-run` is accepted with `--findings` and is the default anyway. `--findings` runs the test named in each finding, so it is never combined with `--test`.
 
 **The Playwright config.** `project.configPath` is passed to Playwright as `--config` for the test list, the first run, the scratch check and the re-run after an apply, so a config that lives in a folder below the project root (for example `demo/saucedemo/playwright.config.ts`) is used. A `configPath` that does not exist, or that points outside the project, is ignored and Playwright finds its own config as before. With `--verbose`, heal prints one line saying why: `[verbose] ignored configPath <path>: <why>`. In spec mode (no findings file), pass `--playwright-config <path>`. It uses the same path rules and is passed through as `--config`. `--config` itself still names the qa-core config file.
 
-**Separate output folders.** Every Playwright call in findings mode, and every Playwright call in spec mode, writes to its own temporary `--output` folder, which is removed when that run is done. Two runs of qa-core-heal in the same project at the same time do not delete each other's traces.
+**Separate output folders.** Every Playwright call in findings mode, and every Playwright call in spec mode, writes to its own temporary `--output` folder (`qa-core-heal-out-*` in the system temp directory). Heal removes that folder when the run finishes, when `--run-timeout` stops it, and when heal is stopped with SIGINT or SIGTERM. Those stops also kill the Playwright process group and the browser processes it started in their own group. Two runs of qa-core-heal in the same project at the same time do not delete each other's traces.
 
 **Run one test.** `--test` works without a findings file too:
 

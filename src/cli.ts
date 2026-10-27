@@ -602,6 +602,7 @@ async function main(): Promise<void> {
       console.log(`  results contract versions: ${caps.contracts.results.join(', ')}`);
       console.log(`  Playwright: ${caps.playwrightVersion ?? 'not found'}`);
       console.log('  spec mode Playwright config: --playwright-config');
+      console.log('  run timeout: --run-timeout');
     }
     return;
   }

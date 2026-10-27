@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { trackChildGroup, untrackChildGroup } from './process-guard.js';
+import { killProcessTree, trackChildGroup, untrackChildGroup } from './process-guard.js';
 import { escapeRegex } from './selectors.js';
 
 /**
@@ -91,7 +91,8 @@ function runChild(spec: ChildSpec): Promise<PlaywrightRunResult> {
         try { child.kill('SIGKILL'); } catch { /* already gone */ }
         return;
       }
-      try { process.kill(-pid, 'SIGKILL'); } catch { /* nothing left to stop */ }
+      // The child group, and browser groups it started, are stopped together.
+      killProcessTree(pid);
     };
     const take = (which: 'stdout' | 'stderr', chunk: Buffer): void => {
       const text = chunk.toString('utf8');

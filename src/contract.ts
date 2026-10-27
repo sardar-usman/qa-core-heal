@@ -46,7 +46,15 @@ export interface Capabilities {
   tool: { name: typeof TOOL_NAME; version: string };
   contracts: { findings: number[]; results: number[] };
   playwrightVersion: string | null;
-  features: { findings: boolean; targetedRun: boolean; ruleSuggestions: boolean; ai: boolean; playwrightConfig: boolean };
+  features: {
+    findings: boolean;
+    targetedRun: boolean;
+    ruleSuggestions: boolean;
+    ai: boolean;
+    playwrightConfig: boolean;
+    /** True when this build accepts --run-timeout and stops a run that exceeds it. */
+    runTimeout: boolean;
+  };
 }
 
 export function buildCapabilities(root: string): Capabilities {
@@ -56,7 +64,7 @@ export function buildCapabilities(root: string): Capabilities {
     tool: { name: TOOL_NAME, version: toolVersion() },
     contracts: { findings: [...SUPPORTED_FINDINGS_VERSIONS], results: [RESULTS_SCHEMA_VERSION] },
     playwrightVersion: playwrightVersion(root),
-    features: { findings: true, targetedRun: true, ruleSuggestions: false, ai: false, playwrightConfig: true },
+    features: { findings: true, targetedRun: true, ruleSuggestions: false, ai: false, playwrightConfig: true, runTimeout: true },
   };
 }
 

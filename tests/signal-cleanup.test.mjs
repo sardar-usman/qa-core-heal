@@ -63,6 +63,26 @@ function outputRootFrom(dir, cliPid) {
   return null;
 }
 
+/** Processes still using the project, or still naming the private output folder. */
+function leftovers(dir, outRoot) {
+  const real = fs.realpathSync(dir);
+  const name = outRoot ? path.basename(outRoot) : '';
+  return fs.readdirSync('/proc').filter((n) => /^\d+$/.test(n)).filter((n) => {
+    if (Number(n) === process.pid) return false;
+    const cmd = cmdline(n);
+    if (name && cmd.includes(name)) return true;
+    try {
+      const cwd = fs.readlinkSync(`/proc/${n}/cwd`);
+      return cwd.startsWith(real) || (name && cwd.includes(name));
+    } catch { return false; }
+  }).map(Number);
+}
+
+function assertStoppedClean(dir, outRoot) {
+  assert.equal(fs.existsSync(outRoot), false, `output folder still present: ${outRoot}`);
+  assert.deepEqual(leftovers(dir, outRoot), [], 'a Playwright or browser process is still running');
+}
+
 async function stopAndJoin(child, closed, sig) {
   process.kill(child.pid, sig);
   const result = await closed;
@@ -90,8 +110,7 @@ test('fills mail', async ({ page }) => {
     assert.equal(fs.existsSync(outRoot), true);
     const done = await stopAndJoin(run.child, run.closed, 'SIGTERM');
     assert.equal(done.status, 143, `${run.text().stderr}`);
-    assert.equal(fs.existsSync(outRoot), false);
-    assert.deepEqual(pidsIn(dir).filter((p) => p !== process.pid), []);
+    assertStoppedClean(dir, outRoot);
   } finally {
     if (run.child.exitCode === null && !run.child.killed) {
       try { process.kill(run.child.pid, 'SIGKILL'); } catch { /* already gone */ }
@@ -119,7 +138,7 @@ test('fills mail', async ({ page }) => {
     const outRoot = await waitFor(() => outputRootFrom(dir, run.child.pid), 'a Playwright child with a private output folder');
     const done = await stopAndJoin(run.child, run.closed, 'SIGINT');
     assert.equal(done.status, 130, `${run.text().stderr}`);
-    assert.equal(fs.existsSync(outRoot), false);
+    assertStoppedClean(dir, outRoot);
   } finally {
     if (run.child.exitCode === null && !run.child.killed) {
       try { process.kill(run.child.pid, 'SIGKILL'); } catch { /* already gone */ }
@@ -166,7 +185,7 @@ async function interruptApply(sig, expectStatus) {
     assert.equal(lines[0].verified, false);
     assert.equal(lines[0].reverted, true);
     assert.equal(lines[0].revertReason, 'interrupted');
-    assert.equal(fs.existsSync(outRoot), false);
+    assertStoppedClean(dir, outRoot);
   } finally {
     if (run.child.exitCode === null && !run.child.killed) {
       try { process.kill(run.child.pid, 'SIGKILL'); } catch { /* already gone */ }
@@ -183,4 +202,59 @@ test('SIGINT during --apply verification restores the spec and writes an interru
 
 test('SIGTERM during --apply verification restores the spec and exits 143', { timeout: 120000 }, async () => {
   await interruptApply('SIGTERM', 143);
+});
+
+const HANG = `import { test } from '@playwright/test';
+test('fills mail', async ({ page }) => {
+  await page.goto('/');
+  await new Promise((r) => setTimeout(r, 120000));
+});
+`;
+
+test('a spec run timeout kills Playwright and removes the output folder', { timeout: 120000 }, async () => {
+  assert.equal(fs.existsSync('/proc/self/cwd'), true, 'this check reads /proc');
+  const server = await startServer('<html><body><input id="mail-x9" /></body></html>');
+  const profiles = chromiumProfiles();
+  const dir = makeProject(baseOf(server), { 'tests/a.spec.ts': HANG }, { timeout: 180000 });
+  const run = spawnCli(['tests/a.spec.ts', '--test', 'fills mail', '--run-timeout', '6'], dir);
+  try {
+    const outRoot = await waitFor(() => outputRootFrom(dir, run.child.pid), 'a Playwright child with a private output folder');
+    const done = await run.closed;
+    await sleep(400);
+    assert.equal(done.status, 1, `${run.text().stdout}\n${run.text().stderr}`);
+    assert.match(run.text().stderr, /timed out after 6 seconds/);
+    assertStoppedClean(dir, outRoot);
+  } finally {
+    if (run.child.exitCode === null && !run.child.killed) {
+      try { process.kill(run.child.pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+    server.close();
+    rm(dir);
+    removeNewChromiumProfiles(profiles);
+  }
+});
+
+test('a findings run timeout kills Playwright and removes the output folder', { timeout: 120000 }, async () => {
+  const server = await startServer('<html><body><input id="mail-x9" /></body></html>');
+  const profiles = chromiumProfiles();
+  const dir = makeProject(baseOf(server), { 'tests/a.spec.ts': HANG }, { timeout: 180000 });
+  const findingsPath = writeFindings(dir, [finding()]);
+  const resultsPath = path.join(dir, 'heal-results.json');
+  const run = spawnCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--shadow-runs', '1', '--run-timeout', '6'], dir);
+  try {
+    const outRoot = await waitFor(() => outputRootFrom(dir, run.child.pid), 'a Playwright child with a private output folder');
+    const done = await run.closed;
+    await sleep(400);
+    assert.equal(done.status, 0, `${run.text().stderr}`);
+    const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+    assert.equal(results.results[0].refusal.code, 'timeout');
+    assertStoppedClean(dir, outRoot);
+  } finally {
+    if (run.child.exitCode === null && !run.child.killed) {
+      try { process.kill(run.child.pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+    server.close();
+    rm(dir);
+    removeNewChromiumProfiles(profiles);
+  }
 });

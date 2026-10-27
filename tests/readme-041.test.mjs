@@ -27,6 +27,8 @@ test('the README documents the 0.4.1 behavior in plain places', () => {
   assert.match(readme, /Not in 0\.4\.1/);
   assert.match(readme, /"version": "0\.4\.1"/);
   assert.match(readme, /playwrightConfig/);
+  assert.match(readme, /runTimeout/);
+  assert.match(readme, /qa-core-heal-out-/);
 });
 
 test('the changelog and the config notes have no long dashes', () => {

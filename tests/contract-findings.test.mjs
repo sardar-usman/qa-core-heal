@@ -497,12 +497,15 @@ test('refusal timeout: a run that goes past --run-timeout is stopped', async () 
   const s = await setup(`test('fills mail', async ({ page }) => { log('fills mail'); await new Promise((r) => setTimeout(r, 120000)); });`, { timeout: 200000 });
   try {
     const before = s.spec();
-    const { r, results } = await runFindings(s, [finding()], ['--dry-run', '--run-timeout', '6']);
+    const { r, results } = await runFindings(s, [finding()], ['--dry-run', '--run-timeout', '6', '--verbose']);
     assert.equal(r.status, 0, r.stderr);
     const e = only(results);
     assert.equal(e.status, 'refused');
     assert.equal(e.refusal.code, 'timeout');
     assert.equal(s.spec(), before);
+    const outs = [...r.stderr.matchAll(/--output (\S*qa-core-heal-out-[^/\s]+)/g)].map((m) => m[1]);
+    assert.ok(outs.length > 0, `expected a private output folder in verbose output:\n${r.stderr}`);
+    for (const out of outs) assert.equal(fs.existsSync(out), false, out);
     removeNewChromiumProfiles(profiles);
     assert.deepEqual(chromiumProfiles().filter((p) => !profiles.includes(p)), [], 'no Chromium profile left by the timed out run');
     // The workers of the stopped run are stopped too. A worker has the project folder as its
