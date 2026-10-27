@@ -323,8 +323,8 @@ async function runScenarioSuite(suite) {
       const r = runCli(suiteDir, ['tests/pom.spec.ts', '-y']);
       const pomSrc = fs.readFileSync(path.join(suiteDir, 'pages/home-page.ts'), 'utf8');
       const specSrc = fs.readFileSync(path.join(suiteDir, 'tests/pom.spec.ts'), 'utf8');
-      const healedPom = pomSrc.includes('{"name":"Quantity","exact":true}');
-      const healedRole = specSrc.includes('{"name":"Quantity","exact":true}') && !specSrc.includes('Quantity_9');
+      const healedPom = emitted(pomSrc, '{"name":"Quantity","exact":true}');
+      const healedRole = emitted(specSrc, '{"name":"Quantity","exact":true}') && !specSrc.includes('Quantity_9');
       const healedCss = emitted(specSrc, 'page.locator("#status")');
       const green = playwrightFilePasses(suiteDir, 'tests/pom.spec.ts');
       const healedCount = [healedPom, healedRole, healedCss].filter(Boolean).length;
