@@ -13,6 +13,10 @@ The first release of the findings and results contract (version 1) between qa-co
 - **Added:** An unknown findings `schemaVersion` exits with code 2 and a clear message. No results file is written.
 - **Added:** The findings and results JSON Schemas are vendored in `schemas/` and shipped with the package. They are byte for byte the contract v1 files. A test checks their hashes.
 - **Added:** Tests for the contract: schema validation of the results (ajv, as a dev dependency only), a fixture for each refusal code this build writes, a counted check that a targeted run executes exactly one test, and backward compatibility checks for the old flags.
+- **Added:** `project.configPath` is passed to Playwright as `--config` for the test list, the first run, the scratch check and the re-run after an apply. A config in a folder below the project root now works. A missing config path or one outside the project is ignored and Playwright finds its own config.
+- **Added:** The real location of each spec is checked against the project folder for every base folder, so a `..` in `project.configPath` or a symbolic link cannot bring in a spec from outside the project. Such a finding is refused with `spec-not-found`.
+- **Added:** Every Playwright call in findings mode has its own temporary `--output` folder, so two runs at the same time in one project do not delete each other's traces.
+- **Changed:** The README exit code table says that exit code 1 is also returned when an applied change was reverted. The README heading "License and Contributing" is in Title Case. The `--yes` text no longer calls `--accept-suggestions` a future flag. `skill/references/config.md` has no long dashes.
 - **Changed:** `--version` now reads the version from one shared helper. The output is the same.
 - **Not included:** Shadow verification with repeated runs (planned for 0.4.1) and the rule-based timing and selector fixes (planned for 0.4.2 and 0.4.3). The refusal codes `weakens-test`, `baseline-not-reproduced`, `ai-disabled` and `ai-invalid-output` are in the schema, but this build does not write them.
 

@@ -173,8 +173,8 @@ Flags:
       --dry-run                  classify and propose heals, print the exact diff, write nothing, skip the verify re-run
       --apply                    write approved heals to source files (always previews the diff first)
   -y, --yes                      auto-approve the apply prompt for EVIDENCE-BASED HEALS ONLY. This flag
-                                 will never cover suggestion-level changes; those will require a separate
-                                 --accept-suggestions (future).
+                                 never covers suggestion-level changes. No flag in this build, such as
+                                 --accept-suggestions, accepts them.
       --json                     machine-readable result on stdout (schemaVersion 1) instead of human text
       --output <path>            additionally write the human run report to the given file; stdout unchanged
       --verbose                  detailed progress: probe steps, candidate scoring, child commands executed

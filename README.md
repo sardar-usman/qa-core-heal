@@ -170,7 +170,7 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--scan` | static probe: every locator on its inferred route, no test execution |
 | `--apply` | write approved heals to source files (always previews the diff first) |
 | `--dry-run` | full classification and proposal, print the exact diff, never write, skip the verify re-run (`dry run: no files changed, heal not verified`) |
-| `-y, --yes` | auto-approve the apply prompt for **evidence-based heals only**. It will never cover suggestion-level changes (those will require a separate `--accept-suggestions`, future) |
+| `-y, --yes` | auto-approve the apply prompt for **evidence-based heals only**. It will never cover suggestion-level changes (no flag in this build accepts them) |
 | `--json` | one machine-readable JSON object on stdout, byte-stable (schemaVersion 1, below) |
 | `--output <path>` | additionally write the human report to a file; stdout unchanged |
 | `--verbose` | detailed progress on stderr: probe steps, candidate scoring, child commands executed |
@@ -227,7 +227,7 @@ npx qa-core-heal --findings heal-findings.json --results heal-results.json --dry
 | Code | Meaning |
 | --- | --- |
 | `0` | the results file was written, whatever the statuses are |
-| `1` | an error: the findings file cannot be read or is not valid, or the flags do not fit together |
+| `1` | an error: the findings file cannot be read or is not valid, or the flags do not fit together. It is also returned when a change was applied and then reverted because its verify run failed |
 | `2` | the findings file has a `schemaVersion` this build does not read. The message names the versions it supports. No results file is written |
 
 **Check what a build supports.**
@@ -251,7 +251,11 @@ It prints one JSON object. `contracts.findings` and `contracts.results` are arra
 
 `playwrightVersion` is the version found for the current folder, or `null` when none is found. Without `--json` the same facts print as plain text. The word `capabilities` is read as the subcommand only when it is the only argument (with or without `--json`). A spec file or folder with that name is still reachable as `./capabilities`.
 
-**Paths in a findings file.** The `file` of each finding is relative to the folder where you run qa-core-heal (or to the folder of `project.configPath`). Absolute paths and paths that leave the project are refused with `spec-not-found`. An explicit `--dry-run` is accepted with `--findings` and is the default anyway. `--findings` runs the test named in each finding, so it is never combined with `--test`.
+**Paths in a findings file.** The `file` of each finding is relative to the folder where you run qa-core-heal (or to the folder of `project.configPath`). Absolute paths and paths that leave the project are refused with `spec-not-found`. The real location of the spec is checked against the project folder, so a `..` in `project.configPath` or a symbolic link cannot bring in a spec from outside it.
+
+**The Playwright config.** `project.configPath` is passed to Playwright as `--config` for the test list, the first run, the scratch check and the re-run after an apply, so a config that lives in a folder below the project root (for example `demo/saucedemo/playwright.config.ts`) is used. A `configPath` that does not exist, or that points outside the project, is ignored and Playwright finds its own config as before.
+
+**Separate output folders.** Every Playwright call in findings mode writes to its own temporary `--output` folder, which is removed when the finding is done. Two runs of qa-core-heal in the same project at the same time do not delete each other's traces. An explicit `--dry-run` is accepted with `--findings` and is the default anyway. `--findings` runs the test named in each finding, so it is never combined with `--test`.
 
 **Run one test.** `--test` works without a findings file too:
 
@@ -307,7 +311,7 @@ Use `node dist/cli.js` in place of `npx qa-core-heal` from a checkout (run `npm 
 
 The `skill/` folder makes heal a Claude Code skill: Claude detects locator-class failures in your suite, runs heal in dry-run, presents the consolidated diff, applies only what you approve, and never commits. Copy `skill/` into your skills directory or install from the release.
 
-## License and contributing
+## License and Contributing
 
 MIT. Issues and eval-suite contributions welcome, especially broken-locator patterns from real projects that heal should handle or honestly refuse.
 
