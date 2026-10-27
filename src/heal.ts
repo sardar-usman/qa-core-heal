@@ -2873,7 +2873,15 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           .map((e) => (e.o.kind === 'unresolved' ? e.o.namelessRole : undefined))
           .find((r) => r != null);
         const gated = stateGatedRole(call);
-        refuse(call, withIframeNote(withClosedNote(gated
+        // A strict mode violation that a fresh page load cannot reproduce
+        // (the extra matches only exist after the test's own actions). Say
+        // so: otherwise the reason reads as "the element is gone", which
+        // hides the real cause. The refusal itself does not change.
+        const withStrictNote = (reason: string): string =>
+          t.strict
+            ? `${reason.replace(/\.$/, '')}; note: the test failed with a strict mode violation (the locator matched several elements while the test ran), but a fresh page load does not show them. Check the locator in the state the test reaches, and scope it to its row or container`
+            : reason;
+        refuse(call, withStrictNote(withIframeNote(withClosedNote(gated
           ? `not found on ${where}: role '${gated.role}' elements exist only while ${gated.widget} is open; a fresh page load cannot show them. Static probing cannot verify this locator - check the ${gated.role} name manually or re-record it.${closest ? ` Closest candidates below the confidence threshold: ${closest}` : ''}`
           : closest
           ? `not found on ${where}: closest candidates below the confidence threshold: ${closest}${closestTeach ? `; ${closestTeach}` : ''}`
@@ -2883,7 +2891,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
             ? withCompoundHint(call, `not found on ${where}: element may be state-dependent (selector token "${hint}" suggests it appears only after user actions); static healing cannot verify it`)
             : dashHint
               ? `not found on ${where}: ${dashHint}`
-              : withCompoundHint(call, `not found on ${where}: no matching or similar element on the probed page. The element may have been removed, renamed beyond recognition, or may only appear after user actions.`))), false);
+              : withCompoundHint(call, `not found on ${where}: no matching or similar element on the probed page. The element may have been removed, renamed beyond recognition, or may only appear after user actions.`)))), false);
         continue;
       }
       // A shared page object probed on several routes must resolve to the
