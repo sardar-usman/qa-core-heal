@@ -1,7 +1,36 @@
 {
   "name": "qa-core-heal",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Deterministic selector healing for Playwright specs. No LLM, no API key.",
+  "keywords": [
+    "playwright",
+    "playwright-test",
+    "self-healing",
+    "self-healing-tests",
+    "locator",
+    "selector",
+    "flaky-tests",
+    "test-automation",
+    "e2e",
+    "end-to-end-testing",
+    "testing",
+    "qa",
+    "deterministic",
+    "no-llm",
+    "cli"
+  ],
+  "homepage": "https://github.com/sardar-usman/qa-core-heal#readme",
+  "bugs": {
+    "url": "https://github.com/sardar-usman/qa-core-heal/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sardar-usman/qa-core-heal.git"
+  },
+  "author": {
+    "name": "Muhammad Usman",
+    "url": "https://sardarusmanjutt.com"
+  },
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -28,8 +57,7 @@
   },
   "dependencies": {
     "@playwright/test": "1.60.0",
-    "playwright": "1.60.0",
-    "qa-core-heal": "^0.1.0"
+    "playwright": "1.60.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
