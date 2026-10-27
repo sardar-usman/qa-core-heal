@@ -1,6 +1,7 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { trackChildGroup, untrackChildGroup } from './process-guard.js';
 import { escapeRegex } from './selectors.js';
 
 /**
@@ -53,6 +54,79 @@ export interface PlaywrightRunResult {
   timedOut?: boolean;
 }
 
+interface ChildSpec {
+  command: string;
+  args: string[];
+  cwd: string;
+  maxBuffer: number;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+  shell?: boolean;
+}
+
+/**
+ * Run one child and wait for it. The child leads its own process group on
+ * Unix so a timeout, or a SIGINT/SIGTERM delivered to heal, can stop the
+ * workers and browsers together with the child. The wait is asynchronous
+ * so those signals are delivered while the child is still running.
+ */
+function runChild(spec: ChildSpec): Promise<PlaywrightRunResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let stdout = '';
+    let stderr = '';
+    let overflow = false;
+    let timedOut = false;
+    const child = spawn(spec.command, spec.args, {
+      cwd: spec.cwd,
+      env: spec.env,
+      shell: spec.shell ?? false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    });
+    const pid = child.pid;
+    if (pid && process.platform !== 'win32') trackChildGroup(pid);
+    const stopGroup = (): void => {
+      if (!pid || process.platform === 'win32') {
+        try { child.kill('SIGKILL'); } catch { /* already gone */ }
+        return;
+      }
+      try { process.kill(-pid, 'SIGKILL'); } catch { /* nothing left to stop */ }
+    };
+    const take = (which: 'stdout' | 'stderr', chunk: Buffer): void => {
+      const text = chunk.toString('utf8');
+      if (which === 'stdout') stdout += text;
+      else stderr += text;
+      if (!overflow && (stdout.length > spec.maxBuffer || stderr.length > spec.maxBuffer)) {
+        overflow = true;
+        stopGroup();
+      }
+    };
+    child.stdout?.on('data', (chunk: Buffer) => take('stdout', chunk));
+    child.stderr?.on('data', (chunk: Buffer) => take('stderr', chunk));
+    const timer = spec.timeoutMs !== undefined
+      ? setTimeout(() => { timedOut = true; stopGroup(); }, spec.timeoutMs)
+      : undefined;
+    const finish = (status: number | null, error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (pid) untrackChildGroup(pid);
+      let err = error;
+      if (overflow && !err) err = Object.assign(new Error('stdout maxBuffer exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' });
+      if (timedOut && !err) err = Object.assign(new Error('spawn ETIMEDOUT'), { code: 'ETIMEDOUT' });
+      resolve({
+        status, stdout, stderr,
+        command: [spec.command, ...spec.args].join(' '),
+        ...(err ? { error: err } : {}),
+        ...(timedOut ? { timedOut: true } : {}),
+      });
+    };
+    child.on('error', (error) => finish(null, error));
+    child.on('close', (status) => finish(status));
+  });
+}
+
 export function runPlaywrightCli(
   root: string,
   args: string[],
@@ -60,55 +134,25 @@ export function runPlaywrightCli(
   env?: NodeJS.ProcessEnv,
   /** Optional wall-clock limit for the child. Unset means no limit, as before. */
   timeoutMs?: number,
-): PlaywrightRunResult {
-  const opts = {
-    cwd: root,
-    encoding: 'utf8' as const,
-    maxBuffer,
-    ...(env ? { env } : {}),
-    ...(timeoutMs !== undefined ? { timeout: timeoutMs } : {}),
-    // With a time limit the child leads its own process group, so a timed out
-    // run can be stopped together with its workers and browsers (below).
-    ...(timeoutMs !== undefined && process.platform !== 'win32' ? { detached: true } : {}),
-  };
-  const timedOutOf = (e: Error | undefined): boolean =>
-    timeoutMs !== undefined && (e as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
-  /** After a timeout only the direct child is gone. Stop the workers and browsers it left. */
-  const stopGroup = (pid: number | undefined, e: Error | undefined): void => {
-    if (!timedOutOf(e) || !pid || process.platform === 'win32') return;
-    try { process.kill(-pid, 'SIGKILL'); } catch { /* nothing left to stop */ }
-  };
+): Promise<PlaywrightRunResult> {
+  const base = { cwd: root, maxBuffer, env, timeoutMs };
   let cliJs: string | null = null;
   try {
     cliJs = createRequire(path.join(root, 'package.json')).resolve('@playwright/test/cli');
   } catch { /* not installed under this root; npx may still find it */ }
-  if (cliJs) {
-    const r = spawnSync(process.execPath, [cliJs, ...args], opts);
-    stopGroup(r.pid, r.error);
-    return {
-      status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '',
-      command: [process.execPath, cliJs, ...args].join(' '),
-      error: r.error,
-      ...(timedOutOf(r.error) ? { timedOut: true } : {}),
-    };
-  }
-  // The weaker, PATH-dependent path is in use — say so exactly once. The
+  if (cliJs) return runChild({ ...base, command: process.execPath, args: [cliJs, ...args] });
+  // The weaker, PATH-dependent path is in use. Say so exactly once. The
   // direct local-CLI path above must never print this.
   if (!npxFallbackNoted) {
     npxFallbackNoted = true;
     console.error('using npx fallback: local Playwright CLI not resolved');
   }
-  const r = spawnSync('npx', ['playwright', ...args], {
-    ...opts,
+  return runChild({
+    ...base,
+    command: 'npx',
+    args: ['playwright', ...args],
     shell: process.platform === 'win32',
   });
-  stopGroup(r.pid, r.error);
-  return {
-    status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '',
-    command: ['npx', 'playwright', ...args].join(' '),
-    error: r.error,
-    ...(timedOutOf(r.error) ? { timedOut: true } : {}),
-  };
 }
 
 /**

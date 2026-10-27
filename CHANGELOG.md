@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.1 (2026-10-27)
+
+Fixes from the 0.4.0 review and from a full run of 0.4.0 on SauceDemo. Contract version 1 is unchanged. The JSON Schemas in `schemas/` are the same bytes as 0.4.0.
+
+- **Fixed:** A `page.goto` whose URL is a template literal is not used as a route. Heal prints `skipped template route at <file>:<line>: <raw> contains ${, so it is not used as a route`. If that was the only route, the refusal says a template was skipped.
+- **Fixed:** A heal keeps the quote style of the line it changes. `page.locator('#a')` stays in single quotes. A change that only rewrites quotes is not a heal.
+- **Fixed:** `--playwright-config <path>` gives spec mode a Playwright config that is not in the project root. It is passed to Playwright as `--config` and uses the same path rules as a findings `configPath`. `--config` is still the qa-core config file. The flag is listed in `--help`, in this README's flag table, and in `capabilities` (`features.playwrightConfig`).
+- **Fixed:** Spec mode gives every Playwright run its own temporary `--output` folder, the same way findings mode already did, so two spec runs in one project do not delete each other's traces.
+- **Fixed:** SIGINT and SIGTERM kill the Playwright process group and remove the temporary output folder. Exit code 130 for SIGINT, 143 for SIGTERM. If the signal arrives during `--apply` verification, the spec is restored byte for byte and the audit log records `revertReason: "interrupted"`.
+- **Fixed:** A findings `file` that is relative to Playwright's `testDir` is found when `project.configPath` is set and the file is not at the project root. The path still has to stay inside the project.
+- **Fixed:** A redirect to `/` is treated as a login page, so SauceDemo prints the storage-state hint.
+- **Fixed:** A proposal that removes or loosens an assertion is refused with `weakens-test` before any scratch copy is made.
+- **Added:** Findings mode runs the changed test 3 times in the scratch copy by default. Every run must pass. `--shadow-runs <n>` overrides `heal.shadowRuns` in `qa-core.config.json`.
+- **Changed:** Playwright (`playwright` and `@playwright/test`) is a peer dependency, `>=1.49.0 <=1.64.1`. The evals in this repo still run on 1.60.0.
+- **Changed:** `--verbose` prints one line when a findings `configPath` is ignored, and why. A spec that is a symbolic link inside the project is still refused with `spec-not-found`, and the message says Playwright lists the real file.
+- **Changed:** `verification.baselineReproduced` stays true when the first run of the test already failed. This build does not run the unpatched test again inside the scratch copy. The schema text says the unpatched test failed in the shadow copy before the change. The field meaning in this build is the first run, which is the same value 0.4.0 wrote. The schema file is unchanged.
+- **Docs:** The README says a SauceDemo session lasts only a short time, so save a fresh login to `.auth/state.json` before the heal run. It also notes that a hard link to a spec outside the project is not detected. The two findings sentences about `--dry-run` and `--test` sit with the paths paragraph.
+
 ## 0.4.0 (2026-10-27)
 
 The first release of the findings and results contract (version 1) between qa-core-flaky and qa-core-heal. Everything in 0.3.x works as before. The new commands and flags are additions.

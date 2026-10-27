@@ -6,8 +6,10 @@ import { healResolve } from './heal-resolve.js';
 import { installEvalShim } from './eval-shim.js';
 import { resolvePlaywrightConfig } from './playwright-config.js';
 import {
-  buildRoutePlan, routesForLocator, routeLabel, resolveRoute, stripAutoSuffixes, hasExplicitRoute, type RouteOverride,
+  buildRoutePlan, routesForLocator, routeLabel, resolveRoute, stripAutoSuffixes, hasExplicitRoute,
+  templateGotos, templateRouteSkipLine, type RouteOverride,
 } from './routes.js';
+import { applyQuoteStyle } from './quotes.js';
 import { kindsFromTokens, kindsFromTrailingApi, kindOfElement, kindConflict, type ElementKind } from './kind.js';
 import { matchFuzzy, isGeneratedIdentifier, type FuzzyCandidate } from './fuzzy.js';
 import { loadAuthSetup, withTimeout } from './auth-setup.js';
@@ -59,6 +61,8 @@ export interface HealOptions {
   baseUrl?: string;
   /** Playwright project name, for configs whose projects disagree on baseURL. */
   project?: string;
+  /** Absolute path of a Playwright config to load instead of the one in the project root. */
+  playwrightConfig?: string;
   /** Write repaired files to disk. Default true; false previews without writing. */
   write?: boolean;
   /** Accepted for back-compat with older callers; unused (healing is model-free). */
@@ -622,21 +626,17 @@ async function resolveBaseUrl(
   roots: string[],
   baseUrl: string | undefined,
   project?: string,
+  playwrightConfig?: string,
 ): Promise<{ url: string | null; configStorageState: string | null }> {
   let configStorageState: string | null = null;
   let url: string | null = baseUrl ?? null;
-  for (const root of roots) {
-    if (url && configStorageState) break;
-    const res = await resolvePlaywrightConfig(root, project);
-    if (!res) continue; // no config in this root
+  const consider = async (dir: string, explicit?: string): Promise<void> => {
+    if (url && configStorageState) return;
+    const res = await resolvePlaywrightConfig(dir, project, explicit);
+    if (!res) return;
     if (!configStorageState && res.storageState) configStorageState = res.storageState;
-    if (url) continue;
-    if (res.baseUrl) {
-      url = res.baseUrl;
-      continue;
-    }
-    // A config that exists but could not deliver a baseURL is a FAILURE to
-    // report, never a silent absence.
+    if (url) return;
+    if (res.baseUrl) { url = res.baseUrl; return; }
     const name = path.basename(res.configPath);
     if (res.loadError) {
       console.error(`${name} failed to load (${res.loadError}); falling back to goto() scan / --base-url — probing quality is reduced without the config (routes, baseURL, and storage state may be missing)`);
@@ -644,6 +644,10 @@ async function resolveBaseUrl(
       const list = res.disagreement.map((p) => `${p.name}: ${p.baseURL}`).join(', ');
       console.error(`${name} defines projects with different baseURLs (${list}); pass --project <name> or --base-url`);
     }
+  };
+  if (playwrightConfig) await consider(path.dirname(playwrightConfig), playwrightConfig);
+  for (const root of roots) {
+    await consider(root);
   }
   if (!url) {
     for (const f of files) {
@@ -1785,7 +1789,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
   const roots = [process.cwd()];
   const specRoot = projectRootFor(specPaths[0]!);
   if (!roots.includes(specRoot)) roots.push(specRoot);
-  const resolved = await resolveBaseUrl(files, roots, opts.baseUrl, opts.project);
+  const resolved = await resolveBaseUrl(files, roots, opts.baseUrl, opts.project, opts.playwrightConfig);
   let url = resolved.url;
   // Nothing resolved, but run-mode targets carry failure-time trace URLs:
   // they already passed the main-frame and non-http filters, and with no
@@ -1810,6 +1814,16 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
   }
 
   const plan = buildRoutePlan({ files, specFiles, overrides: opts.routeOverrides, baseUrl: url });
+  // A template literal is not a route. Say so, and remember the file so a
+  // later "no route" refusal can name the skip instead of a missing trace.
+  const templateSkippedFiles = new Set<string>();
+  for (const f of files) {
+    const skipped = templateGotos(f.src);
+    if (skipped.length === 0) continue;
+    templateSkippedFiles.add(f.path);
+    const rel = path.relative(process.cwd(), f.path).split(path.sep).join('/') || f.path;
+    for (const g of skipped) console.error(templateRouteSkipLine(rel, g.line, g.raw));
+  }
 
   // Which calls to probe, on which routes. With targets (run-first mode)
   // only matching calls are kept, each on its failure-time URL when known.
@@ -2679,7 +2693,10 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
     };
     const looksLikeLogin = (u: string): boolean => {
       try {
-        return /(^|\/)(log-?in|sign-?in|auth|sso)([/.]|$)/i.test(new URL(u).pathname);
+        const pathname = new URL(u).pathname.replace(/\/+$/, '') || '/';
+        // SauceDemo's login page is the site root, so "/" counts too.
+        if (pathname === '/') return true;
+        return /(^|\/)(log-?in|sign-?in|auth|sso)([/.]|$)/i.test(pathname);
       } catch {
         return false;
       }
@@ -2756,7 +2773,10 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       const call = t.call;
       // Unknowable failure page: never silently probe the wrong one.
       if (t.noRoute) {
-        refuse(call, `could not determine the page where ${call.raw} failed (custom browser setup produces no trace); re-run with --route <file>=<route> or --base-url`, false);
+        const why = templateSkippedFiles.has(call.file)
+          ? 'a page.goto template literal was skipped because it is not a real route'
+          : 'custom browser setup produces no trace';
+        refuse(call, `could not determine the page where ${call.raw} failed (${why}); re-run with --route <file>=<route> or --base-url`, false);
         continue;
       }
       const entries = t.routes.map((r) => ({ route: r, o: t.outcomes.get(r)! }));
@@ -2980,7 +3000,11 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       }
 
       const newRaw = distinctRaw[0]!;
-      if (newRaw === call.raw) {
+      // The emitter always uses double quotes. Keep the quote style of the
+      // line being rewritten. The nameless-role check above stays on the
+      // double-quoted form.
+      const styled = applyQuoteStyle(newRaw, call.raw);
+      if (styled === call.raw) {
         // Re-resolved to the same call it already was, nothing to change.
         markIntact(call, false);
         continue;
@@ -3001,22 +3025,22 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
             && argsSignature(c.method, c.args) === sig)
         : [];
       const list = editsByFile.get(call.file) ?? [];
-      list.push({ line: call.line, startCol: call.startCol, endLine: call.endLine, endCol: call.endCol, newRaw });
+      list.push({ line: call.line, startCol: call.startCol, endLine: call.endLine, endCol: call.endCol, newRaw: styled });
       for (const s of siblings) {
-        list.push({ line: s.line, startCol: s.startCol, endLine: s.endLine, endCol: s.endCol, newRaw });
+        list.push({ line: s.line, startCol: s.startCol, endLine: s.endLine, endCol: s.endCol, newRaw: applyQuoteStyle(newRaw, s.raw) });
       }
       editsByFile.set(call.file, list);
       const occurrenceLines = [call.line, ...siblings.map((s) => s.line)];
       healed.push({
-        file: call.file, line: call.line, old: call.raw, new: newRaw, level,
+        file: call.file, line: call.line, old: call.raw, new: styled, level,
         occurrences: occurrenceLines.length, occurrenceLines,
       });
       locators.push({
-        file: relFile(call.file), line: call.line, old: call.raw, new: newRaw,
+        file: relFile(call.file), line: call.line, old: call.raw, new: styled,
         level, ambiguous: false, status: 'healed',
         occurrences: occurrenceLines.length, occurrenceLines,
       });
-      opts.onEvent?.({ type: 'healed', old: call.raw, new: newRaw, level, file: relFile(call.file), occurrences: occurrenceLines.length });
+      opts.onEvent?.({ type: 'healed', old: call.raw, new: styled, level, file: relFile(call.file), occurrences: occurrenceLines.length });
     }
   } finally {
     await browser?.close();

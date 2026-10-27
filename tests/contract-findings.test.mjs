@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -9,6 +9,13 @@ import {
   assertValid, baseOf, finding, findingsDoc, makeProject, pkg, readJsonFile, rm, runCli, startServer,
   validateFindings, validateResults, writeFindings,
 } from './helpers/contract.mjs';
+import { chromiumProfiles, removeNewChromiumProfiles, sweepTemps } from './helpers/temps.mjs';
+
+const profilesAtStart = chromiumProfiles();
+after(() => {
+  sweepTemps();
+  removeNewChromiumProfiles(profilesAtStart);
+});
 
 /**
  * 0.4.0: --findings <file> --results <file>. Every test builds a small
@@ -49,10 +56,12 @@ async function setup(bodies, { html = HEALABLE_PAGE, projects, timeout } = {}) {
 }
 
 /** Run the CLI in findings mode and load the results file. */
-async function runFindings(s, findings, extra = ['--dry-run'], { baseUrl = baseOf(s.server) } = {}) {
+async function runFindings(s, findings, extra = ['--dry-run'], { baseUrl = baseOf(s.server), shadowRuns = 1 } = {}) {
   const findingsPath = writeFindings(s.dir, findings, baseUrl);
   const resultsPath = path.join(s.dir, 'heal-results.json');
-  const r = await runCli(['--findings', findingsPath, '--results', resultsPath, ...extra], s.dir);
+  const args = ['--findings', findingsPath, '--results', resultsPath, ...extra];
+  if (shadowRuns != null && !extra.includes('--shadow-runs')) args.push('--shadow-runs', String(shadowRuns));
+  const r = await runCli(args, s.dir);
   const results = fs.existsSync(resultsPath) ? readJsonFile(resultsPath) : null;
   if (results) assertValid(validateResults, results, 'results file');
   return { r, results, findingsPath, resultsPath };
@@ -484,6 +493,7 @@ test('refusal spec-not-found: a missing file, a missing test, and a path outside
 });
 
 test('refusal timeout: a run that goes past --run-timeout is stopped', async () => {
+  const profiles = chromiumProfiles();
   const s = await setup(`test('fills mail', async ({ page }) => { log('fills mail'); await new Promise((r) => setTimeout(r, 120000)); });`, { timeout: 200000 });
   try {
     const before = s.spec();
@@ -493,6 +503,8 @@ test('refusal timeout: a run that goes past --run-timeout is stopped', async () 
     assert.equal(e.status, 'refused');
     assert.equal(e.refusal.code, 'timeout');
     assert.equal(s.spec(), before);
+    removeNewChromiumProfiles(profiles);
+    assert.deepEqual(chromiumProfiles().filter((p) => !profiles.includes(p)), [], 'no Chromium profile left by the timed out run');
     // The workers of the stopped run are stopped too. A worker has the project folder as its
     // working directory. /proc is read on Linux only; the check is skipped elsewhere.
     if (fs.existsSync('/proc/self/cwd')) {
@@ -545,7 +557,7 @@ test('a findings title path that starts with the project name still finds the te
   } finally { s.done(); }
 });
 
-test('every refusal code in the schema is a code this build knows, and the reserved ones are never emitted yet', async () => {
+test('every refusal code in the schema is a code this build knows', async () => {
   const schema = readJsonFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'schemas', 'heal-results.v1.schema.json'));
   const text = JSON.stringify(schema);
   const codes = ['ambiguous-match', 'element-changed', 'strict-needs-human', 'possible-real-bug', 'weakens-test',
@@ -554,4 +566,83 @@ test('every refusal code in the schema is a code this build knows, and the reser
   for (const c of codes) assert.equal(text.includes(`"${c}"`), true, c);
   const { REFUSAL_CODES } = await import(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'dist', 'contract.js'));
   assert.deepEqual([...REFUSAL_CODES].sort(), [...codes].sort());
+});
+
+test('the default is three shadow runs and every one must pass', async () => {
+  const s = await setup(HEALABLE_BODY);
+  try {
+    const { r, results } = await runFindings(s, [finding()], ['--dry-run', '--verbose'], { shadowRuns: null });
+    assert.equal(r.status, 0, r.stderr);
+    const e = only(results);
+    assert.equal(e.status, 'proposed', e.explanation);
+    assert.equal(e.verification.runs, 3);
+    assert.equal(e.verification.passed, 3);
+    assert.equal(e.verification.failed, 0);
+    const scratch = r.stderr.split('\n').filter((l) => l.startsWith('[verbose] child:') && /--output \S+\/scratch(?:\s|$)/.test(l));
+    assert.equal(scratch.length, 3, r.stderr);
+    assert.equal(countOf(s.counter).length, 4);
+  } finally { s.done(); }
+});
+
+test('a later shadow run that fails stops the check and the change is not proposed', async () => {
+  const s = await setup('PLACE');
+  const body = `import { test } from '@playwright/test';
+import fs from 'node:fs';
+test('fills mail', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#email-7d21ac').fill('a@b.dev');
+  const n = fs.existsSync(${JSON.stringify(s.counter)}) ? Number(fs.readFileSync(${JSON.stringify(s.counter)}, 'utf8')) : 0;
+  fs.writeFileSync(${JSON.stringify(s.counter)}, String(n + 1));
+  if (n >= 1) throw new Error('second shadow run');
+});
+`;
+  fs.writeFileSync(path.join(s.dir, 'tests/a.spec.ts'), body);
+  try {
+    const { r, results } = await runFindings(s, [finding()], ['--dry-run', '--shadow-runs', '2']);
+    assert.equal(r.status, 0, r.stderr);
+    const e = only(results);
+    assert.equal(e.status, 'refused');
+    assert.equal(e.refusal.code, 'verification-failed');
+    assert.equal(e.verification.runs, 2);
+    assert.equal(e.verification.passed, 1);
+    assert.equal(e.verification.failed, 1);
+  } finally { s.done(); }
+});
+
+test('heal.shadowRuns in the config is used when the flag is absent, and the flag wins', async () => {
+  const s = await setup(HEALABLE_BODY);
+  try {
+    fs.writeFileSync(path.join(s.dir, 'qa-core.config.json'), JSON.stringify({ heal: { shadowRuns: 2 } }));
+    let run = await runFindings(s, [finding()], ['--dry-run'], { shadowRuns: null });
+    assert.equal(only(run.results).verification.runs, 2);
+    assert.equal(countOf(s.counter).length, 3);
+    fs.writeFileSync(s.counter, '');
+    run = await runFindings(s, [finding()], ['--dry-run', '--shadow-runs', '1'], { shadowRuns: null });
+    assert.equal(only(run.results).verification.runs, 1);
+    assert.equal(countOf(s.counter).filter(Boolean).length, 2);
+  } finally { s.done(); }
+});
+
+test('heal.shadowRuns must be a positive integer', async () => {
+  const s = await setup(HEALABLE_BODY);
+  try {
+    fs.writeFileSync(path.join(s.dir, 'qa-core.config.json'), JSON.stringify({ heal: { shadowRuns: 0 } }));
+    const findingsPath = writeFindings(s.dir, [finding({ mode: 'none' })]);
+    const r = await runCli(['--findings', findingsPath, '--results', path.join(s.dir, 'r.json')], s.dir);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /heal\.shadowRuns in the config expects a positive integer/);
+  } finally { s.done(); }
+});
+
+test('a spec symlink inside the project is refused and the message says it is a symbolic link', async () => {
+  const s = await setup(HEALABLE_BODY);
+  try {
+    fs.symlinkSync('a.spec.ts', path.join(s.dir, 'tests/link.spec.ts'));
+    const { results } = await runFindings(s, [finding({ file: 'tests/link.spec.ts' })]);
+    const e = only(results);
+    assert.equal(e.status, 'refused');
+    assert.equal(e.refusal.code, 'spec-not-found');
+    assert.match(e.explanation, /symbolic link/);
+    assert.match(e.explanation, /Playwright lists the real file/);
+  } finally { s.done(); }
 });

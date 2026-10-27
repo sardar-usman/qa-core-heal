@@ -18,7 +18,7 @@ const OLD_FLAGS = [
 test('the help text still lists every 0.3.x flag, and the new flags', async () => {
   const r = await runCli(['--help'], repoRoot);
   assert.equal(r.status, 0);
-  for (const f of [...OLD_FLAGS, '--test', '--findings', '--results', '--run-timeout']) {
+  for (const f of [...OLD_FLAGS, '--test', '--findings', '--results', '--run-timeout', '--shadow-runs', '--playwright-config']) {
     assert.ok(r.stdout.includes(f), `help lists ${f}`);
   }
   assert.match(r.stdout, /Exit codes: 0 success/);
@@ -50,6 +50,12 @@ test('the new flags are rejected when used alone or in the wrong place', async (
   const findings = await runCli(['--findings', 'in.json'], repoRoot);
   assert.equal(findings.status, 1);
   assert.match(findings.stderr, /--findings needs --results/);
+  const shadow = await runCli(['tests/a.spec.ts', '--shadow-runs', '1'], repoRoot);
+  assert.equal(shadow.status, 1);
+  assert.match(shadow.stderr, /--shadow-runs works with --findings/);
+  const zero = await runCli(['--findings', 'in.json', '--results', 'out.json', '--shadow-runs', '0'], repoRoot);
+  assert.equal(zero.status, 1);
+  assert.match(zero.stderr, /--shadow-runs expects a positive integer/);
 });
 
 test('a classic --dry-run --json run keeps the 0.3.5 payload shape and changes no file', async () => {

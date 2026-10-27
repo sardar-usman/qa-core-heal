@@ -1,9 +1,12 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { baseOf, makeProject, rm, runCli, startServer } from './helpers/contract.mjs';
+import { sweepTemps } from './helpers/temps.mjs';
+
+after(() => sweepTemps());
 
 /**
  * 0.4.0: --test "<title>" runs exactly one test of one spec file. Test

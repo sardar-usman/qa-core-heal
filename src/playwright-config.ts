@@ -250,9 +250,11 @@ const pickState = (c) =>
 let baseUrl = null;
 let disagreement = null;
 let storageState = null;
+let testDir = null;
 if (cfg && typeof cfg === 'object') {
   baseUrl = pick(cfg);
   storageState = pickState(cfg);
+  if (typeof cfg.testDir === 'string' && cfg.testDir) testDir = cfg.testDir;
   if (!storageState && Array.isArray(cfg.projects)) {
     const states = [...new Set(cfg.projects.map(pickState).filter(Boolean))];
     if (states.length === 1) storageState = states[0];
@@ -274,7 +276,7 @@ if (cfg && typeof cfg === 'object') {
 }
 // fd 3, not stdout: user configs (and libraries like dotenv) may write to
 // stdout while loading, which must never corrupt the result channel.
-fs.writeSync(3, JSON.stringify({ baseUrl, error, disagreement, storageState }));
+fs.writeSync(3, JSON.stringify({ baseUrl, error, disagreement, storageState, testDir }));
 `;
 
 const LOADER_TIMEOUT_MS = 15000;
@@ -288,6 +290,8 @@ export interface PlaywrightConfigResolution {
   disagreement?: Array<{ name: string; baseURL: string }>;
   /** use.storageState (top-level, or agreed across projects), absolute. */
   storageState?: string;
+  /** testDir as written in the config, or null when the config does not set one. */
+  testDir?: string | null;
 }
 
 /**
@@ -299,9 +303,12 @@ export interface PlaywrightConfigResolution {
 export async function resolvePlaywrightConfig(
   dir: string,
   project?: string,
+  /** A Playwright config file to load instead of the one in `dir`. */
+  explicitConfig?: string,
 ): Promise<PlaywrightConfigResolution | null> {
-  const configPath = findPlaywrightConfig(dir);
+  const configPath = explicitConfig ?? findPlaywrightConfig(dir);
   if (!configPath) return null;
+  try { if (!fs.statSync(configPath).isFile()) return null; } catch { return null; }
   const isTs = configPath.endsWith('.ts');
   if (isTs && !supportsTypeStripping()) return { configPath, baseUrl: null };
   const args = ['--no-warnings'];
@@ -332,7 +339,7 @@ export async function resolvePlaywrightConfig(
       clearTimeout(timer);
       try {
         const parsed = JSON.parse(out) as {
-          baseUrl?: unknown; error?: unknown; storageState?: unknown;
+          baseUrl?: unknown; error?: unknown; storageState?: unknown; testDir?: unknown;
           disagreement?: Array<{ name: string; baseURL: string }> | null;
         };
         finish({
@@ -341,8 +348,9 @@ export async function resolvePlaywrightConfig(
           loadError: typeof parsed.error === 'string' ? parsed.error : undefined,
           disagreement: parsed.disagreement ?? undefined,
           storageState: typeof parsed.storageState === 'string' && parsed.storageState
-            ? path.resolve(dir, parsed.storageState)
+            ? path.resolve(path.dirname(configPath), parsed.storageState)
             : undefined,
+          testDir: typeof parsed.testDir === 'string' ? parsed.testDir : null,
         });
       } catch {
         finish({ configPath, baseUrl: null, loadError: 'loader produced no result' });

@@ -107,7 +107,7 @@ test('a valid storage state authenticates the probe and the locator heals', asyn
     }));
     const loc = result.locators[0];
     assert.equal(loc.status, 'healed');
-    assert.equal(loc.new, 'page.locator("#quantity")');
+    assert.equal(loc.new, "page.locator('#quantity')");
     assert.doesNotMatch(stderr, /redirected/);
   } finally {
     server.close();
@@ -185,6 +185,44 @@ test('x', async ({ page }) => {
     const loc = result.locators[0];
     assert.equal(loc.status, 'refused');
     assert.match(loc.reason, /candidates: #alpha, #beta, #gamma/);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a redirect to / is a login page, so the storage-state hint is shown', async () => {
+  const server = await new Promise((resolve) => {
+    const s = http.createServer((req, res) => {
+      const p = (req.url ?? '/').split('?')[0];
+      if (p === '/inventory') {
+        res.writeHead(302, { location: '/' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><body><h1>Login</h1><input id="user-name" /></body></html>');
+    });
+    s.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const dir = fs.mkdtempSync(path.join(repoRoot, '.tmp-test-'));
+  fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
+  const spec = path.join(dir, 'tests/a.spec.ts');
+  fs.writeFileSync(spec, `import { test } from '@playwright/test';
+test('x', async ({ page }) => {
+  await page.goto('/inventory');
+  await page.locator('#quantiy').fill('3');
+});
+`);
+  try {
+    const { result, stderr } = await withCapturedStderr(() => heal({
+      specPaths: [spec], baseUrl: base, write: false,
+      targets: [{ selector: "locator('#quantiy')", url: `${base}/inventory`, test: 'x' }],
+    }));
+    assert.equal(result.locators[0].status, 'refused');
+    assert.match(result.locators[0].reason, /redirected/);
+    assert.match(stderr, /the page may require authentication; pass --storage-state <path>/);
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
