@@ -4,7 +4,6 @@ Lives in the repo root. Optional: when the file is absent the CLI falls back to 
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/sardar-usman/qa-core/main/schema/config.schema.json",
   "baseUrl": "http://localhost:3000",
   "testDir": "tests",
   "selectorPreference": ["role", "label", "placeholder", "text", "alt", "title", "testid", "css", "xpath"],
