@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 (2026-10-27)
+
+The first release of the findings and results contract (version 1) between qa-core-flaky and qa-core-heal. Everything in 0.3.x works as before. The new commands and flags are additions.
+
+- **Added:** `--findings <heal-findings.json> --results <heal-results.json>`. qa-core-heal reads a findings file, runs only the one test each finding names, and writes one result per finding, in the same order. Proposals stay dry-run. Nothing is applied without `--apply`, and `--apply` still asks first unless you pass `--yes`.
+- **Added:** `qa-core-heal capabilities --json`. It reports the tool version, the findings and results contract versions, the Playwright version, and which features this build has.
+- **Added:** `--test <title>`. It runs and heals exactly one test of one spec file, in the first run and in the verify re-run. A title that matches more than one test is refused before anything runs.
+- **Added:** `--run-timeout <seconds>`, which stops one Playwright run that takes too long. It works with `--findings` and `--test`. In findings mode the default is 10 minutes. A timed out finding is refused with the code `timeout`.
+- **Added:** The handoff gate. A finding with the handoff `none` is refused with `ineligible-handoff` and no test is run for it. A finding with the handoff `suggest` is not run either. qa-core-heal also checks the verdict and the gates in the finding, so a real bug or an environment issue is never run as a locator problem.
+- **Added:** A `proposed` result is only written when the change passes one run of the test in a scratch copy of your project. The scratch copy is deleted afterwards. If that run fails, the entry is refused with `verification-failed`.
+- **Added:** An unknown findings `schemaVersion` exits with code 2 and a clear message. No results file is written.
+- **Added:** The findings and results JSON Schemas are vendored in `schemas/` and shipped with the package. They are byte for byte the contract v1 files. A test checks their hashes.
+- **Added:** Tests for the contract: schema validation of the results (ajv, as a dev dependency only), a fixture for each refusal code this build writes, a counted check that a targeted run executes exactly one test, and backward compatibility checks for the old flags.
+- **Changed:** `--version` now reads the version from one shared helper. The output is the same.
+- **Not included:** Shadow verification with repeated runs (planned for 0.4.1) and the rule-based timing and selector fixes (planned for 0.4.2 and 0.4.3). The refusal codes `weakens-test`, `baseline-not-reproduced`, `ai-disabled` and `ai-invalid-output` are in the schema, but this build does not write them.
+
 ## 0.3.5 (2026-10-27)
 
 A packaging and documentation release. The healing engine is unchanged, except for one clearer refusal message.

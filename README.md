@@ -188,8 +188,80 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--verify` / `--no-verify` | re-run previously failing tests after applying (default on); `--no-verify` skips the re-run |
 | `--max-heals <n>` | cap heals per run |
 | `--no-color` | disable ANSI colors; the `NO_COLOR` env var is honored automatically |
+| `--test <title>` | run and heal exactly one test of one spec file. Give a title, or `"Describe › title"`. Needs the spec file path. Not with `--scan` |
+| `--findings <file>` | read a heal findings file (contract version 1) instead of a spec path. Needs `--results` |
+| `--results <file>` | where `--findings` writes the heal results file. Needs `--findings` |
+| `--run-timeout <seconds>` | stop one Playwright run after this many seconds. Works with `--findings` or `--test` |
 
 **The `--json` contract (schemaVersion 1).** The payload always carries `schemaVersion: 1`, a `verdicts` array (one entry per probed locator and per non-locator failure, each with `spec`, `testTitle`, `classification` (`locator` / `non-locator`), `message`, `healApplied`, `before`, `after`, `verified`), and a `summary` of `{ heals, refusals, nonLocator, errors }`, alongside the original per-locator fields. Errors also emit valid JSON with the failure story in `error`. schemaVersion 1 is the compatibility contract: existing fields will not change meaning or disappear within it; additions may appear. Exit codes are unchanged by `--json`.
+
+## The Findings and Results Contract
+
+Since 0.4.0, qa-core-heal can read a findings file written by another tool (qa-core-flaky) and write a results file back. The two files follow contract version 1. Their JSON Schemas are in the `schemas/` folder of the package: `heal-findings.v1.schema.json` (owned by qa-core-flaky) and `heal-results.v1.schema.json` (owned by qa-core-heal). Version 1 is frozen. See `schemas/README.md`.
+
+```bash
+npx qa-core-heal --findings heal-findings.json --results heal-results.json --dry-run
+```
+
+**What it does.** For each finding whose handoff is `locator`, qa-core-heal runs that one test (not the whole file), reads the failure, and looks for a confident replacement on the live page. If it finds one, it applies the change to a temporary copy of your project and runs the same test once there. Only a change that passes that check is written to the results file as `proposed`. Your source files are not touched.
+
+**The handoff gate.** A finding with the handoff `none` is refused with the code `ineligible-handoff`, and no test is run for it. qa-core-heal also checks the verdict and the gates in the finding itself, so a real bug or an environment issue is never run as a locator problem. A finding with the handoff `suggest` is not run either.
+
+**Nothing is applied without your word.** `--dry-run` is the default. Each proposal comes with a patch file in `.qa-core/heal/patches`, next to the results file. Only `--apply` writes the change to your spec, and it asks first. `--apply --yes` skips the question. Without a terminal and without `--yes`, the answer is no and the entry stays `proposed`.
+
+**One result per finding, in the same order.** Each entry has a `status`:
+
+| Status | Meaning |
+| --- | --- |
+| `proposed` | a change was found and passed the scratch check. It is not applied |
+| `applied` | the change was written to your spec, with `--apply` and your consent |
+| `refused` | qa-core-heal chose not to act. The entry carries a `refusal` with a code and a message |
+| `not-locator` | the test failed, but not on a locator, so there is nothing to heal |
+| `nothing-to-heal` | the test passed when qa-core-heal ran it. This is weak evidence only. It does not show that the flakiness is gone |
+| `error` | the test could not be run or read, for example because it is skipped |
+
+**Refusal codes this build writes.** `ambiguous-match`, `element-changed`, `strict-needs-human`, `possible-real-bug`, `verification-failed`, `no-safe-pattern`, `ineligible-handoff`, `navigation-or-network`, `spec-not-found` and `timeout`. The schema also lists `weakens-test`, `baseline-not-reproduced`, `ai-disabled` and `ai-invalid-output`. They are reserved for later releases and 0.4.0 does not write them. Every refusal has a test fixture.
+
+**Exit codes in findings mode.**
+
+| Code | Meaning |
+| --- | --- |
+| `0` | the results file was written, whatever the statuses are |
+| `1` | an error: the findings file cannot be read or is not valid, or the flags do not fit together |
+| `2` | the findings file has a `schemaVersion` this build does not read. The message names the versions it supports. No results file is written |
+
+**Check what a build supports.**
+
+```bash
+npx qa-core-heal capabilities --json
+```
+
+It prints one JSON object. `contracts.findings` and `contracts.results` are arrays of the contract versions this build reads and writes, so a caller checks that its own version is in the array:
+
+```json
+{
+  "schema": "qa-core.heal-capabilities",
+  "schemaVersion": 1,
+  "tool": { "name": "qa-core-heal", "version": "0.4.0" },
+  "contracts": { "findings": [1], "results": [1] },
+  "playwrightVersion": "1.60.0",
+  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false }
+}
+```
+
+`playwrightVersion` is the version found for the current folder, or `null` when none is found. Without `--json` the same facts print as plain text. The word `capabilities` is read as the subcommand only when it is the only argument (with or without `--json`). A spec file or folder with that name is still reachable as `./capabilities`.
+
+**Paths in a findings file.** The `file` of each finding is relative to the folder where you run qa-core-heal (or to the folder of `project.configPath`). Absolute paths and paths that leave the project are refused with `spec-not-found`. An explicit `--dry-run` is accepted with `--findings` and is the default anyway. `--findings` runs the test named in each finding, so it is never combined with `--test`.
+
+**Run one test.** `--test` works without a findings file too:
+
+```bash
+npx qa-core-heal tests/saucedemo-login.spec.ts --test "logs in with a valid user" --dry-run
+```
+
+Exactly one test runs, in the first run and in the verify re-run. A title that matches more than one test (for example in two projects) is refused before anything runs. Give the full title (`"Describe › title"`) or `--project` to pick one.
+
+**Not in 0.4.0.** Repeated shadow verification (several runs of the changed test), and the rule-based timing and selector fixes. The scratch check here is one run of one test. Passing it is evidence, not proof.
 
 ## Limitations
 
