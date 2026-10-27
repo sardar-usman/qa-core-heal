@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import { createRequire } from 'node:module';
 import { applyHealPlan, applyHealPlanExcluding, collectSpecFiles, heal, selectorSignature, type HealEvent, type HealResult, type HealTarget, type LocatorReport } from './heal.js';
 import { escapeRegex, type CascadeLevel } from './selectors.js';
 import { loadConfig } from './config.js';
@@ -11,6 +10,10 @@ import { appendAuditLog, type AuditEntry } from './audit.js';
 import { findPlaywrightConfig, supportsTypeStripping, typeStrippingGateMessage } from './playwright-config.js';
 import { classifyFailure, collectTests, parseConsent, parseJsonReport, traceFailureUrl, type TestOutcome } from './run.js';
 import { describeFailedRun, runPlaywrightCli, toCliFileFilter } from './playwright-cli.js';
+import { projectRootFor } from './project-root.js';
+import { buildCapabilities, ContractError, parseFindings, toolVersion } from './contract.js';
+import { lineShift, runFindingsFlow, withLine } from './findings-flow.js';
+import { matchTitle, resolveTarget, type Resolution } from './targeted.js';
 
 /**
  * qa-core-heal CLI.
@@ -120,6 +123,14 @@ interface CliArgs {
   verbose: boolean;
   debug: boolean;
   output?: string;
+  /** --test: run and heal exactly one test of the single spec file. */
+  test?: string;
+  /** --findings: a qa-core heal findings file (contract version 1). */
+  findings?: string;
+  /** --results: where the heal results file is written. */
+  results?: string;
+  /** --run-timeout: seconds before one child Playwright run is stopped (findings mode). */
+  runTimeoutMs?: number;
   /** --no-color flag, or the NO_COLOR env var. Output is colorless today;
    *  the flag is honored so that never silently changes. */
   noColor: boolean;
@@ -132,7 +143,7 @@ interface CliArgs {
  */
 const jsonErrorMode = process.argv.includes('--json');
 
-function fail(msg: string): never {
+function fail(msg: string, exitCode: 1 | 2 = 1): never {
   if (jsonErrorMode) {
     console.log(JSON.stringify({
       schemaVersion: 1,
@@ -142,7 +153,7 @@ function fail(msg: string): never {
     }, null, 2));
   }
   console.error(msg);
-  process.exit(1);
+  process.exit(exitCode);
 }
 
 const HELP = `qa-core-heal — deterministic selector healing for Playwright specs
@@ -150,8 +161,10 @@ const HELP = `qa-core-heal — deterministic selector healing for Playwright spe
 Usage:
   qa-core-heal [spec-path] [flags]
 
-Example:
+Examples:
   qa-core-heal tests/checkout.spec.ts --dry-run
+  qa-core-heal --findings heal-findings.json --results heal-results.json --dry-run
+  qa-core-heal capabilities --json
 
 Flags:
   -h, --help                     show this help and exit
@@ -177,11 +190,16 @@ Flags:
       --max-heals <n>            refuse any heal beyond the first n
       --verify / --no-verify     re-run previously failing tests after applying (default on)
       --no-trace                 skip Playwright tracing; failure URLs come from route inference
+      --test <title>             run and heal exactly one test of the spec file (a title, or "Describe › title")
+      --findings <file>          read a qa-core heal findings file (contract version 1) instead of a spec path
+      --results <file>           where --findings writes the heal results file (required with --findings)
+      --run-timeout <s>          seconds before one Playwright run is stopped (with --findings or --test)
       --audit-log <path>         append applied heals to this JSONL file
       --no-color                 disable ANSI colors (the NO_COLOR env var is honored automatically)
 
 Exit codes: 0 success · 1 error, or a heal was reverted because its
-verify re-run still failed · 2 heals available but not applied.
+verify re-run still failed · 2 heals available but not applied, or a
+findings file with a schema version this build does not read.
 `;
 
 function parseCliArgs(argv: string[]): CliArgs {
@@ -216,6 +234,10 @@ function parseCliArgs(argv: string[]): CliArgs {
         verbose: { type: 'boolean' },
         debug: { type: 'boolean' },
         output: { type: 'string' },
+        test: { type: 'string' },
+        findings: { type: 'string' },
+        results: { type: 'string' },
+        'run-timeout': { type: 'string' },
         'no-color': { type: 'boolean' },
       },
     }));
@@ -247,6 +269,15 @@ function parseCliArgs(argv: string[]): CliArgs {
   out.authSetup = v['auth-setup'] as string | undefined;
   out.auditLog = v['audit-log'] as string | undefined;
   out.output = v.output as string | undefined;
+  out.test = v.test as string | undefined;
+  out.findings = v.findings as string | undefined;
+  out.results = v.results as string | undefined;
+  if (out.test !== undefined && out.test.trim() === '') fail('--test expects a test title.');
+  if (v['run-timeout'] !== undefined) {
+    const t = Number(v['run-timeout']);
+    if (!Number.isFinite(t) || t <= 0) fail('--run-timeout expects a positive number of seconds.');
+    out.runTimeoutMs = t * 1000;
+  }
   if (v['auth-setup-timeout'] !== undefined) {
     const s = Number(v['auth-setup-timeout']);
     if (!Number.isFinite(s) || s <= 0) fail('--auth-setup-timeout expects a positive number of seconds.');
@@ -272,6 +303,17 @@ function parseCliArgs(argv: string[]): CliArgs {
   out.specPath = positionals[0];
   if (positionals.length > 1) fail(`Unknown argument: ${positionals[1]}`);
   if (out.dryRun && out.apply) fail('Pass either --dry-run or --apply, not both.');
+  if (out.findings !== undefined && out.results === undefined) fail('--findings needs --results <path> for the results file.');
+  if (out.results !== undefined && out.findings === undefined) fail('--results only works together with --findings <path>.');
+  if (out.findings !== undefined) {
+    if (out.specPath !== undefined) fail('--findings reads its spec files from the findings file. Do not pass a spec path with it.');
+    if (out.scan) fail('--findings cannot be combined with --scan.');
+    if (out.test !== undefined) fail('--findings cannot be combined with --test. Each finding names its own test.');
+  }
+  if (out.test !== undefined && out.scan) fail('--test cannot be combined with --scan, because --scan runs no tests.');
+  if (out.runTimeoutMs !== undefined && out.findings === undefined && out.test === undefined) {
+    fail('--run-timeout works with --findings or --test.');
+  }
   return out;
 }
 
@@ -365,16 +407,95 @@ function logChildRun(cli: CliArgs, run: ReturnType<typeof runPlaywrightCli>): vo
   }
 }
 
-/** Nearest directory at or above the spec that holds a package.json. */
-function projectRootFor(specPath: string): string {
-  let dir = path.dirname(specPath);
-  for (;;) {
-    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) return path.dirname(specPath);
-    dir = parent;
+/**
+ * qa-core-heal --findings <file> --results <file>
+ *
+ * Reads the handoff decisions of qa-core-flaky (contract version 1) and
+ * writes one result per finding. See src/findings-flow.ts for the rules.
+ * Exit 0 means the results file was written, even when single findings
+ * ended in refused or error. Exit 1 is a failed run, or a change that was
+ * applied and then undone. Exit 2 is a findings file with a schema
+ * version this build does not read.
+ */
+async function runFindingsMode(cli: CliArgs, loaded: ReturnType<typeof loadConfig>): Promise<void> {
+  const cfg = loaded?.config ?? {};
+  const cfgDir = loaded?.dir ?? process.cwd();
+  const fromCfg = (p: string): string => path.resolve(cfgDir, p);
+  const findingsPath = path.resolve(cli.findings!);
+  const resultsPath = path.resolve(cli.results!);
+  let text: string;
+  try {
+    text = fs.readFileSync(findingsPath, 'utf8');
+  } catch (e) {
+    fail(`Could not read the findings file ${cli.findings}: ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}`);
   }
+  let parsed: ReturnType<typeof parseFindings>;
+  try {
+    parsed = parseFindings(text, `The findings file ${cli.findings}`);
+  } catch (e) {
+    if (e instanceof ContractError) fail(e.message, e.exitCode);
+    throw e;
+  }
+  if (!supportsTypeStripping() && !(cli.baseUrl ?? cfg.baseUrl ?? parsed.doc.project.baseUrl)) {
+    const roots = new Set<string>([process.cwd()]);
+    for (const f of parsed.doc.findings) roots.add(projectRootFor(path.resolve(f.file)));
+    if ([...roots].some((r) => findPlaywrightConfig(r)?.endsWith('.ts'))) fail(typeStrippingGateMessage());
+  }
+  const write = cli.apply;
+  const reportLines: string[] = [];
+  const say = (line: string): void => {
+    if (cli.json) return;
+    console.log(line);
+    reportLines.push(line);
+  };
+  if (cli.output) {
+    const outPath = path.resolve(cli.output);
+    process.on('exit', () => {
+      try { fs.writeFileSync(outPath, reportLines.join('\n') + '\n'); } catch { /* best effort */ }
+    });
+  }
+  say(`▸ Reading ${parsed.doc.findings.length} finding(s) from ${path.relative(process.cwd(), findingsPath) || findingsPath}${write ? '' : '  (dry run, nothing is written to source files)'}`);
+
+  const outcome = await runFindingsFlow({
+    doc: parsed.doc,
+    findingsSha256: parsed.sha256,
+    cwd: process.cwd(),
+    resultsPath,
+    apply: write,
+    verify: cli.verify ?? cfg.heal?.verifyAfterApply ?? true,
+    noTrace: cli.noTrace,
+    maxHeals: cli.maxHeals ?? cfg.heal?.maxHealsPerRun,
+    project: cli.project,
+    runTimeoutMs: cli.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS,
+    heal: {
+      baseUrl: cli.baseUrl ?? cfg.baseUrl ?? parsed.doc.project.baseUrl ?? undefined,
+      allowedLevels: cfg.selectorPreference as CascadeLevel[] | undefined,
+      followImports: cfg.pageObjects?.enabled !== false,
+      pageObjectDirs: cfg.pageObjects?.dir ? [fromCfg(cfg.pageObjects.dir)] : undefined,
+      storageState: cli.storageState ? path.resolve(cli.storageState) : cfg.auth?.storageState ? fromCfg(cfg.auth.storageState) : undefined,
+      authSetup: cli.authSetup ?? cfg.authSetup,
+      authSetupTimeout: cli.authSetupTimeout,
+      settleMs: cli.settleMs,
+      routeOverrides: cli.routeOverrides.length > 0 ? cli.routeOverrides : undefined,
+    },
+    verbose: cli.verbose,
+    say,
+    observe: cli.verbose ? (run) => logChildRun(cli, run) : undefined,
+    confirm: () => confirmApply(cli, 1),
+  });
+
+  fs.mkdirSync(path.dirname(resultsPath), { recursive: true });
+  const tmp = `${resultsPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(outcome.doc, null, 2)}\n`);
+  fs.renameSync(tmp, resultsPath);
+  const n = (s: string): number => outcome.doc.results.filter((r) => r.status === s).length;
+  say(`\n▸ Wrote ${path.relative(process.cwd(), resultsPath) || resultsPath}: ${n('proposed')} proposed · ${n('applied')} applied · ${n('refused')} refused · ${n('not-locator')} not a locator problem · ${n('nothing-to-heal')} nothing to heal · ${n('error')} error`);
+  if (cli.json) console.log(JSON.stringify(outcome.doc, null, 2));
+  if (outcome.exitCode !== 0) process.exitCode = outcome.exitCode;
 }
+
+/** Seconds a single child Playwright run may take in findings mode, unless --run-timeout says otherwise. */
+const DEFAULT_RUN_TIMEOUT_MS = 10 * 60 * 1000;
 
 async function main(): Promise<void> {
   const cli = parseCliArgs(process.argv);
@@ -383,11 +504,28 @@ async function main(): Promise<void> {
     return;
   }
   if (cli.version) {
-    const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
-    console.log(pkg.version);
+    console.log(toolVersion());
+    return;
+  }
+  // The capabilities subcommand: the one word "capabilities" as the only
+  // argument. A folder with that name is passed as ./capabilities.
+  if (cli.specPath === 'capabilities') {
+    const caps = buildCapabilities(process.cwd());
+    if (cli.json) {
+      console.log(JSON.stringify(caps, null, 2));
+    } else {
+      console.log(`qa-core-heal ${caps.tool.version}`);
+      console.log(`  findings contract versions: ${caps.contracts.findings.join(', ')}`);
+      console.log(`  results contract versions: ${caps.contracts.results.join(', ')}`);
+      console.log(`  Playwright: ${caps.playwrightVersion ?? 'not found'}`);
+    }
     return;
   }
   const loaded = loadConfig(cli.configPath);
+  if (cli.findings !== undefined) {
+    await runFindingsMode(cli, loaded);
+    return;
+  }
   const cfg = loaded?.config ?? {};
   const cfgDir = loaded?.dir ?? process.cwd();
   const fromCfg = (p: string): string => path.resolve(cfgDir, p);
@@ -550,9 +688,26 @@ async function main(): Promise<void> {
   };
 
   if (!cli.scan) {
+    let only: OnlyTest | undefined;
+    if (cli.test !== undefined) {
+      const target = cli.specPath ? path.resolve(cli.specPath) : '';
+      if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
+        fail('--test needs the path of exactly one spec file, for example: qa-core-heal tests/login.spec.ts --test "logs in".');
+      }
+      const wanted = cli.test.split(/ [›>] /).map((x) => x.trim());
+      const res: Resolution = resolveTarget({
+        root: projectRootFor(target), file: target, title: wanted[wanted.length - 1]!, project: cli.project,
+        match: matchTitle(cli.test), timeoutMs: cli.runTimeoutMs, observe: (run) => logChildRun(cli, run),
+      });
+      const where = path.relative(process.cwd(), target) || target;
+      if (res.kind === 'not-found') fail(`No test titled "${cli.test}" was found in ${where}. Nothing was run.`);
+      if (res.kind === 'ambiguous') fail(`${res.count} tests match "${cli.test}" in ${where}, and --test runs exactly one. Use the full title ("Describe › test") or --project. Nothing was run.`);
+      if (res.kind === 'error') fail(`${res.message} Nothing was run.`);
+      only = { selectArgs: res.selectArgs, file: target, line: res.test.line };
+    }
     await runFirstFlow({
       cli, specs, write, verify, say, runPass, printDiff, writeAudit,
-      displayTarget: cli.specPath,
+      displayTarget: cli.specPath, only,
     });
     return;
   }
@@ -735,6 +890,9 @@ async function main(): Promise<void> {
   }
 }
 
+/** One test selected by --test: the exact Playwright selection that lists exactly one test. */
+interface OnlyTest { selectArgs: string[]; file: string; line: number }
+
 interface RunFirstCtx {
   cli: CliArgs;
   specs: string[];
@@ -751,6 +909,8 @@ interface RunFirstCtx {
   ) => void;
   /** The spec target exactly as the user typed it, for the run echo. */
   displayTarget?: string;
+  /** Set by --test: every run, and every verify re-run, is limited to this one test. */
+  only?: OnlyTest;
 }
 
 /**
@@ -771,8 +931,13 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   // browser launches, older Playwright); failure URLs then come from static
   // route inference, or the locator is refused when no route is knowable.
   const traceArgs = cli.noTrace ? [] : ['--trace', 'retain-on-failure'];
-  const run = runPlaywrightCli(root, ['test', ...rels.map(toCliFileFilter), '--reporter=json', ...traceArgs], 64 * 1024 * 1024);
+  const run = runPlaywrightCli(
+    root,
+    ['test', ...(ctx.only ? ctx.only.selectArgs : rels.map(toCliFileFilter)), '--reporter=json', ...traceArgs],
+    64 * 1024 * 1024, undefined, cli.runTimeoutMs,
+  );
   logChildRun(cli, run);
+  if (run.timedOut) fail(`The test run timed out after ${(cli.runTimeoutMs ?? 0) / 1000} seconds.`);
   const report = parseJsonReport(run.stdout ?? '') as { config?: { rootDir?: string } } | null;
   if (!report) {
     // The child's failure story travels whole: the exact command, the
@@ -803,6 +968,9 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   };
   if (tests.length === 0) {
     fail(`Playwright reported no tests for ${rels.join(', ')} — check the spec path and playwright config.`);
+  }
+  if (ctx.only && tests.length !== 1) {
+    fail(`--test expected exactly one test to run, but Playwright reported ${tests.length}. Nothing was changed.`);
   }
   const failing = tests.filter((t) => !t.ok);
 
@@ -1010,7 +1178,10 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     say(`▸ Verifying: re-running ${locatorTests.length} previously failing test(s)`);
     // The grep pattern joins titles with '|': under a Windows shell that
     // would be a cmd.exe pipe — runPlaywrightCli passes argv verbatim.
-    const rerun = runPlaywrightCli(root, ['test', ...fileArgs, '--grep', grep], 32 * 1024 * 1024);
+    // With --test the re-run keeps the one-test selection. A heal can move
+    // the declaration line, so the line is followed through the plan.
+    const onlyArgs = (): string[] => withLine(ctx.only!.selectArgs, ctx.only!.line, ctx.only!.line - lineShift(result.plan, ctx.only!.file, ctx.only!.line));
+    const rerun = runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [...fileArgs, '--grep', grep])], 32 * 1024 * 1024, undefined, cli.runTimeoutMs);
     logChildRun(cli, rerun);
     rerunPassed = rerun.status === 0;
     if (rerunPassed) {
@@ -1019,7 +1190,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     } else {
       say('  ✗ re-run FAILED — verifying per test to isolate the failing heal(s)');
       for (const t of locatorTests) {
-        const one = runPlaywrightCli(root, ['test', fileArgOf(t), '--grep', escapeRegex(t.title), '--reporter=json'], 32 * 1024 * 1024);
+        const one = runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [fileArgOf(t), '--grep', escapeRegex(t.title)]), '--reporter=json'], 32 * 1024 * 1024, undefined, cli.runTimeoutMs);
         logChildRun(cli, one);
         verifiedByTitle.set(t.title, one.status === 0);
         // Why is it STILL failing? A locator-classified failure means the
