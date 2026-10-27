@@ -52,9 +52,14 @@ export function shortRunFailure(run: PlaywrightRunResult): string {
   return `Playwright exited with status ${run.status ?? 'unknown'}: ${first.replace(/\s+at .*$/, '')}`;
 }
 
+/** The `--output` argument pair for a private output folder, or nothing. */
+export function outputArgs(dir?: string): string[] {
+  return dir ? ['--output', dir] : [];
+}
+
 /** Run `playwright test --list` with the given selection arguments. */
-export function listTests(root: string, selectArgs: string[], timeoutMs?: number, observe?: RunObserver): ListOutcome {
-  const run = runPlaywrightCli(root, ['test', '--list', '--reporter=json', ...selectArgs], BUFFER, undefined, timeoutMs);
+export function listTests(root: string, selectArgs: string[], timeoutMs?: number, observe?: RunObserver, outputDir?: string): ListOutcome {
+  const run = runPlaywrightCli(root, ['test', '--list', '--reporter=json', ...selectArgs, ...outputArgs(outputDir)], BUFFER, undefined, timeoutMs);
   observe?.(run);
   if (run.timedOut) return { ok: false, tests: [], timedOut: true, error: 'Listing the tests timed out.' };
   const report = parseJsonReport(run.stdout) as { config?: { rootDir?: string }; suites?: RawSuite[] } | null;
@@ -106,6 +111,10 @@ export interface TargetSpec {
   project?: string | null;
   timeoutMs?: number;
   observe?: RunObserver;
+  /** Config file for every Playwright call, relative to `root`. Unset means Playwright finds its own. */
+  config?: string | null;
+  /** A private output folder for the list calls, so concurrent runs do not clear each other's files. */
+  outputDir?: string;
 }
 
 export type Resolution =
@@ -122,9 +131,10 @@ export type Resolution =
   | { kind: 'error'; message: string; timedOut?: boolean };
 
 /** Selection arguments for one file, optionally pinned to a line. */
-export function selectionArgs(root: string, file: string, project: string | null | undefined, line: number | null, title: string | null): string[] {
+export function selectionArgs(root: string, file: string, project: string | null | undefined, line: number | null, title: string | null, config?: string | null): string[] {
   const rel = path.relative(root, file).split(path.sep).join('/');
   const args = [`${toCliFileFilter(rel)}${line ? `:${line}` : ''}`];
+  if (config) args.push('--config', config);
   if (project) args.push('--project', project);
   if (title !== null) args.push('--grep', escapeRegex(title));
   return args;
@@ -132,18 +142,18 @@ export function selectionArgs(root: string, file: string, project: string | null
 
 /** Find exactly one test, without running anything. */
 export function resolveTarget(spec: TargetSpec): Resolution {
-  const all = listTests(spec.root, selectionArgs(spec.root, spec.file, spec.project, null, null), spec.timeoutMs, spec.observe);
+  const all = listTests(spec.root, selectionArgs(spec.root, spec.file, spec.project, null, null, spec.config), spec.timeoutMs, spec.observe, spec.outputDir);
   if (!all.ok) return { kind: 'error', message: all.error ?? 'Could not list the tests.', timedOut: all.timedOut };
   const wantFile = realPathOf(spec.file);
   const found = all.tests.filter((t) => realPathOf(t.file) === wantFile && spec.match(t));
   if (found.length === 0) return { kind: 'not-found' };
   if (found.length > 1) return { kind: 'ambiguous', count: found.length };
   const test = found[0]!;
-  const selectArgs = selectionArgs(spec.root, spec.file, spec.project ?? test.project, test.line > 0 ? test.line : null, spec.title);
+  const selectArgs = selectionArgs(spec.root, spec.file, spec.project ?? test.project, test.line > 0 ? test.line : null, spec.title, spec.config);
   // The exact run filter must list exactly one test. A line shared by
   // several tests (a loop) or a title that is part of another title shows
   // up here, before anything has run.
-  const exact = listTests(spec.root, selectArgs, spec.timeoutMs, spec.observe);
+  const exact = listTests(spec.root, selectArgs, spec.timeoutMs, spec.observe, spec.outputDir);
   if (!exact.ok) return { kind: 'error', message: exact.error ?? 'Could not list the tests.', timedOut: exact.timedOut };
   if (exact.tests.length === 0) return { kind: 'not-found' };
   if (exact.tests.length !== 1) return { kind: 'ambiguous', count: exact.tests.length };

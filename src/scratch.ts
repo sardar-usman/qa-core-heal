@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { renderHealPlan, type HealPlanEntry } from './heal.js';
-import { runSelected } from './targeted.js';
+import { outputArgs, runSelected, type RunObserver } from './targeted.js';
 
 /**
  * A one-run check of a proposed heal in a scratch copy of the project.
@@ -34,6 +34,10 @@ export interface ScratchOptions {
   /** The exact selection arguments of the targeted run. */
   selectArgs: string[];
   timeoutMs?: number;
+  /** A private Playwright output folder for the one run. */
+  outputDir?: string;
+  /** Called with the finished child run, for --verbose. */
+  observe?: RunObserver;
 }
 
 /**
@@ -85,7 +89,7 @@ export function scratchVerify(opts: ScratchOptions): ScratchOutcome {
     for (const r of rendered) {
       fs.writeFileSync(path.join(scratch, path.relative(root, fs.realpathSync(r.file))), r.after);
     }
-    const one = runSelected(scratch, opts.selectArgs, [], opts.timeoutMs);
+    const one = runSelected(scratch, opts.selectArgs, outputArgs(opts.outputDir), opts.timeoutMs, opts.observe);
     if (one.kind === 'timeout') return { state: 'timeout', message: 'The re-run in the copy timed out.' };
     if (one.kind === 'error') return { state: 'unavailable', message: one.message };
     if (one.status === 'expected' && one.run.status === 0) {

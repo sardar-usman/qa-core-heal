@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   applyHealPlan, applyHealPlanExcluding, heal, renderHealPlan,
@@ -12,7 +13,7 @@ import {
 import { projectRootFor } from './project-root.js';
 import { scratchVerify } from './scratch.js';
 import {
-  matchFinding, realPathOf, resolveTarget, runSelected, type RunObserver,
+  matchFinding, outputArgs, realPathOf, resolveTarget, runSelected, type RunObserver,
 } from './targeted.js';
 import { classifyFailure, stripAnsi, traceFailureUrl } from './run.js';
 
@@ -75,28 +76,67 @@ function scrub(text: string, root: string): string {
   return out;
 }
 
-/** Candidate base folders for a finding's relative file path. */
+/** True when a path has a `..` step, or is absolute on any platform. Such a path is never trusted. */
+function isUnsafeRelative(p: string): boolean {
+  return path.isAbsolute(p) || path.win32.isAbsolute(p) || p.split(/[\\/]+/).includes('..');
+}
+
+/**
+ * Candidate base folders for a finding's relative file path: the working
+ * folder, then the folder of project.configPath. A configPath that is
+ * absolute or has a `..` step adds nothing.
+ */
 function bases(cwd: string, doc: FindingsDoc): string[] {
   const out = [cwd];
-  if (doc.project.configPath && !path.isAbsolute(doc.project.configPath)) {
-    const dir = path.dirname(path.resolve(cwd, doc.project.configPath));
+  const cfg = doc.project.configPath;
+  if (cfg && !isUnsafeRelative(cfg)) {
+    const dir = path.dirname(path.resolve(cwd, cfg));
     if (!out.includes(dir)) out.push(dir);
   }
   return out;
 }
 
-/** The absolute spec path, or null when it is missing, absolute, or outside every base. */
-export function resolveSpecPath(file: string, candidates: string[]): string | null {
-  if (path.isAbsolute(file) || /^[A-Za-z]:/.test(file)) return null;
+/**
+ * The --config value for Playwright: project.configPath as a path relative
+ * to the Playwright working folder. Null (so Playwright finds its own
+ * config, as before) when there is no configPath, it is absolute or has a
+ * `..` step, the file does not exist, or its real path is outside the
+ * project folder or the Playwright working folder.
+ */
+export function configArgFor(cwd: string, configPath: string | null | undefined, root: string): string | null {
+  if (!configPath || isUnsafeRelative(configPath)) return null;
+  try {
+    const real = fs.realpathSync(path.resolve(cwd, configPath));
+    if (!fs.statSync(real).isFile()) return null;
+    if (!isInside(fs.realpathSync(cwd), real)) return null;
+    const rel = path.relative(fs.realpathSync(root), real);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    return posix(rel);
+  } catch {
+    return null;
+  }
+}
+
+/** True when `child` is `parent` or below it. Both must already be real paths. */
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/**
+ * The absolute spec path, or null when it is missing, absolute, or not
+ * inside the project folder. The real path of the spec (links followed) is
+ * compared with the real path of the project folder for every base folder.
+ */
+export function resolveSpecPath(file: string, candidates: string[], projectDir: string = candidates[0]!): string | null {
+  if (isUnsafeRelative(file) || /^[A-Za-z]:/.test(file)) return null;
+  let fence: string;
+  try { fence = fs.realpathSync(projectDir); } catch { return null; }
   for (const base of candidates) {
     const abs = path.resolve(base, file);
-    const rel = path.relative(base, abs);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) continue;
     try {
       if (!fs.statSync(abs).isFile()) continue;
-      const real = fs.realpathSync(abs);
-      const realRel = path.relative(fs.realpathSync(base), real);
-      if (realRel.startsWith('..') || path.isAbsolute(realRel)) continue;
+      if (!isInside(fence, fs.realpathSync(abs))) continue;
       return abs;
     } catch { /* try the next base */ }
   }
@@ -202,7 +242,17 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     say(`  ${tag}: ${entry.explanation}`);
   }
 
+  /** Each finding gets its own Playwright output folders, removed afterwards, so runs at the same time do not clear each other's files. */
   async function processFinding(f: Finding): Promise<HealResultEntry> {
+    const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-out-'));
+    try {
+      return await processOne(f, outRoot);
+    } finally {
+      fs.rmSync(outRoot, { recursive: true, force: true });
+    }
+  }
+
+  async function processOne(f: Finding, outRoot: string): Promise<HealResultEntry> {
     // 1. The handoff gate. Nothing below runs for an ineligible finding.
     const why = ineligibleReason(f);
     if (why) return refusedEntry(f, 'ineligible-handoff', why);
@@ -218,16 +268,17 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     }
 
     // 3. Locator handoff.
-    const specAbs = resolveSpecPath(f.file, baseDirs);
+    const specAbs = resolveSpecPath(f.file, baseDirs, o.cwd);
     if (!specAbs) return refusedEntry(f, 'spec-not-found', `The spec file ${f.file} was not found inside the project folder. No test was run.`);
     const root = projectRootFor(specAbs);
     pwVersion ??= playwrightVersion(root);
     const fileRel = posix(path.relative(root, specAbs));
     const title = f.titlePath[f.titlePath.length - 1]!;
     const project = o.project ?? f.project;
+    const config = configArgFor(o.cwd, doc.project.configPath, root);
 
     const res = resolveTarget({
-      root, file: specAbs, title, project,
+      root, file: specAbs, title, project, config, outputDir: path.join(outRoot, 'list'),
       match: matchFinding(f.titlePath, project, f.file),
       timeoutMs: o.runTimeoutMs, observe: o.observe,
     });
@@ -243,7 +294,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
         : plainEntry(f, 'error', scrub(res.message, root));
     }
 
-    const first = runSelected(root, res.selectArgs, o.noTrace ? [] : ['--trace', 'retain-on-failure'], o.runTimeoutMs, o.observe);
+    const first = runSelected(root, res.selectArgs, [...outputArgs(path.join(outRoot, 'first')), ...(o.noTrace ? [] : ['--trace', 'retain-on-failure'])], o.runTimeoutMs, o.observe);
     if (first.kind === 'timeout') return refusedEntry(f, 'timeout', 'The test run timed out before it finished.');
     if (first.kind === 'error') return plainEntry(f, 'error', scrub(first.message, root));
     if (first.status === 'skipped') return plainEntry(f, 'error', 'The test is skipped, so heal could not run it.');
@@ -317,7 +368,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     // 4. The scratch check. No candidate is shown without it.
     const declShift = lineShift(healed.plan, specAbs, test.line);
     const scratchArgs = withLine(res.selectArgs, test.line, test.line - declShift);
-    const check = scratchVerify({ root, plan: healed.plan, selectArgs: scratchArgs, timeoutMs: o.runTimeoutMs });
+    const check = scratchVerify({ root, plan: healed.plan, selectArgs: scratchArgs, timeoutMs: o.runTimeoutMs, outputDir: path.join(outRoot, 'scratch'), observe: o.observe });
     if (check.state === 'timeout') return refusedEntry(f, 'timeout', check.message);
     if (check.state === 'unavailable') return plainEntry(f, 'error', `The change could not be checked, so it is not proposed. ${check.message}`);
     if (check.state === 'failed') return refusedEntry(f, 'verification-failed', `${check.message} The change is not proposed.`);
@@ -359,7 +410,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     }
     applyHealPlan(healed.plan);
     if (o.verify) {
-      const again = runSelected(root, withLine(res.selectArgs, test.line, test.line - declShift), [], o.runTimeoutMs, o.observe);
+      const again = runSelected(root, withLine(res.selectArgs, test.line, test.line - declShift), outputArgs(path.join(outRoot, 'rerun')), o.runTimeoutMs, o.observe);
       if (again.kind !== 'ran' || again.status !== 'expected') {
         applyHealPlanExcluding(healed.plan, () => true);
         reverted = true;
