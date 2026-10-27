@@ -1,0 +1,507 @@
+{
+  "schema": "qa-core.heal-findings",
+  "schemaVersion": 1,
+  "tool": {
+    "name": "qa-core-flaky",
+    "version": "0.0.1"
+  },
+  "project": {
+    "configPath": "playwright.config.ts",
+    "baseUrl": null,
+    "testIdAttribute": null,
+    "playwrightVersion": "1.60.0"
+  },
+  "source": {
+    "triageSchemaVersion": 1,
+    "reports": [
+      "demo/saucedemo/reports/recorded-seed-443.json"
+    ],
+    "commit": null
+  },
+  "redaction": {
+    "applied": true,
+    "rules": [
+      "home-user",
+      "absolute-path",
+      "url-query",
+      "token-like",
+      "email"
+    ]
+  },
+  "findings": [
+    {
+      "findingId": "5414d07c3354",
+      "testId": "real-bug.spec.ts::chromium::problem user image src differs from the standard catalog",
+      "file": "tests/real-bug.spec.ts",
+      "line": 10,
+      "project": "chromium",
+      "titlePath": [
+        "problem user image src differs from the standard catalog"
+      ],
+      "verdict": "likely-real-bug",
+      "verdictConfidence": "medium",
+      "primaryRuleId": "UNK-NONE",
+      "causes": [
+        {
+          "cause": "unknown",
+          "ruleIds": [
+            "UNK-NONE"
+          ],
+          "confidence": "low",
+          "evidence": [
+            "Expected substring: \"sauce-backpack\"",
+            "Received string:    \"/assets/sl-404-Cq1a9k9X.jpg\""
+          ]
+        }
+      ],
+      "attempts": {
+        "total": 3,
+        "failed": 3,
+        "passed": 0,
+        "sameCommit": false
+      },
+      "errorSignature": "sha256:f3170d4ce261717c5e28d626aeac80f548dce155014fb3e45edd3a8d64a6b694",
+      "failingSelector": null,
+      "errorLocation": {
+        "file": "tests/real-bug.spec.ts",
+        "line": 13,
+        "column": 21
+      },
+      "handoff": {
+        "mode": "none",
+        "reason": "Verdict is likely-real-bug. Heal must not change this test.",
+        "gates": [
+          {
+            "name": "verdict-not-likely-real-bug",
+            "passed": false
+          },
+          {
+            "name": "verdict-not-environment-issue",
+            "passed": true
+          },
+          {
+            "name": "no-slow-load-signal",
+            "passed": true
+          },
+          {
+            "name": "rule-has-fix-strategy",
+            "passed": false
+          },
+          {
+            "name": "evidence-present",
+            "passed": true
+          }
+        ]
+      },
+      "review": {
+        "status": "Needs Review"
+      }
+    },
+    {
+      "findingId": "faeccfe0f87f",
+      "testId": "environment.spec.ts::chromium::aborted document fails page.goto",
+      "file": "tests/environment.spec.ts",
+      "line": 6,
+      "project": "chromium",
+      "titlePath": [
+        "aborted document fails page.goto"
+      ],
+      "verdict": "flaky",
+      "verdictConfidence": "low",
+      "primaryRuleId": "ENV-NET",
+      "causes": [
+        {
+          "cause": "environment",
+          "ruleIds": [
+            "ENV-NET"
+          ],
+          "confidence": "medium",
+          "evidence": [
+            "Error: page.goto: net::ERR_INTERNET_DISCONNECTED at https://www.saucedemo.com/"
+          ]
+        }
+      ],
+      "attempts": {
+        "total": 2,
+        "failed": 1,
+        "passed": 1,
+        "sameCommit": true
+      },
+      "errorSignature": "sha256:ad7f22134467362ac8703a65a4f108733529a7b2a1c3760c62df39869e04ea2a",
+      "failingSelector": null,
+      "errorLocation": {
+        "file": "tests/environment.spec.ts",
+        "line": 16,
+        "column": 14
+      },
+      "handoff": {
+        "mode": "none",
+        "reason": "Rule ENV-NET has no fix strategy. Heal must not change this test.",
+        "gates": [
+          {
+            "name": "verdict-not-likely-real-bug",
+            "passed": true
+          },
+          {
+            "name": "verdict-not-environment-issue",
+            "passed": true
+          },
+          {
+            "name": "no-slow-load-signal",
+            "passed": true
+          },
+          {
+            "name": "rule-has-fix-strategy",
+            "passed": false
+          },
+          {
+            "name": "evidence-present",
+            "passed": true
+          }
+        ]
+      },
+      "review": {
+        "status": "Needs Review"
+      }
+    },
+    {
+      "findingId": "7e7452f789d4",
+      "testId": "selectors.spec.ts::chromium::unscoped Remove is strict when two items were added",
+      "file": "tests/selectors.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "titlePath": [
+        "unscoped Remove is strict when two items were added"
+      ],
+      "verdict": "flaky",
+      "verdictConfidence": "low",
+      "primaryRuleId": "SEL-STRICT",
+      "causes": [
+        {
+          "cause": "selectors",
+          "ruleIds": [
+            "SEL-STRICT"
+          ],
+          "confidence": "medium",
+          "evidence": [
+            "Error: locator.click: Error: strict mode violation: getByRole('button', { name: 'Remove' }) resolved to 2 elements:"
+          ]
+        }
+      ],
+      "attempts": {
+        "total": 2,
+        "failed": 1,
+        "passed": 1,
+        "sameCommit": true
+      },
+      "errorSignature": "sha256:13e7cc580117a3ee3a573f97c8714072295f584691bcbce0736037707d0fec30",
+      "failingSelector": "getByRole('button', { name: 'Remove' })",
+      "errorLocation": {
+        "file": "tests/selectors.spec.ts",
+        "line": 14,
+        "column": 54
+      },
+      "handoff": {
+        "mode": "suggest",
+        "reason": "Rule SEL-STRICT has a suggestion heal can review. The verdict is not a likely real bug or an environment issue.",
+        "gates": [
+          {
+            "name": "verdict-not-likely-real-bug",
+            "passed": true
+          },
+          {
+            "name": "verdict-not-environment-issue",
+            "passed": true
+          },
+          {
+            "name": "no-slow-load-signal",
+            "passed": true
+          },
+          {
+            "name": "rule-has-fix-strategy",
+            "passed": true
+          },
+          {
+            "name": "evidence-present",
+            "passed": true
+          }
+        ]
+      },
+      "review": {
+        "status": "Needs Review"
+      }
+    },
+    {
+      "findingId": "6d539ce36191",
+      "testId": "test-data.spec.ts::chromium::shared cart page > B expects the badge A added",
+      "file": "tests/test-data.spec.ts",
+      "line": 44,
+      "project": "chromium",
+      "titlePath": [
+        "shared cart page",
+        "B expects the badge A added"
+      ],
+      "verdict": "flaky",
+      "verdictConfidence": "high",
+      "primaryRuleId": "DATA-VALUE-DRIFT",
+      "causes": [
+        {
+          "cause": "test-data",
+          "ruleIds": [
+            "DATA-VALUE-DRIFT"
+          ],
+          "confidence": "high",
+          "evidence": [
+            "Received: \"2\"",
+            "Received: \"3\""
+          ]
+        }
+      ],
+      "attempts": {
+        "total": 3,
+        "failed": 2,
+        "passed": 1,
+        "sameCommit": true
+      },
+      "errorSignature": "sha256:46df8e3002439c9b20d30fedfcda3e71b39c5fa7eab335b1157512f82a9d69c2",
+      "failingSelector": "[data-test=\"shopping-cart-badge\"]",
+      "errorLocation": {
+        "file": "tests/test-data.spec.ts",
+        "line": 53,
+        "column": 71
+      },
+      "handoff": {
+        "mode": "suggest",
+        "reason": "Rule DATA-VALUE-DRIFT has a suggestion heal can review. The verdict is not a likely real bug or an environment issue.",
+        "gates": [
+          {
+            "name": "verdict-not-likely-real-bug",
+            "passed": true
+          },
+          {
+            "name": "verdict-not-environment-issue",
+            "passed": true
+          },
+          {
+            "name": "no-slow-load-signal",
+            "passed": true
+          },
+          {
+            "name": "rule-has-fix-strategy",
+            "passed": true
+          },
+          {
+            "name": "evidence-present",
+            "passed": true
+          }
+        ]
+      },
+      "review": {
+        "status": "Needs Review"
+      }
+    },
+    {
+      "findingId": "5239ced7ef35",
+      "testId": "timing.spec.ts::chromium::image delay fails the short visibility check",
+      "file": "tests/timing.spec.ts",
+      "line": 8,
+      "project": "chromium",
+      "titlePath": [
+        "image delay fails the short visibility check"
+      ],
+      "verdict": "flaky",
+      "verdictConfidence": "low",
+      "primaryRuleId": "TIM-EXPECT-TIMEOUT",
+      "causes": [
+        {
+          "cause": "timing",
+          "ruleIds": [
+            "TIM-EXPECT-TIMEOUT"
+          ],
+          "confidence": "medium",
+          "evidence": [
+            "       - unexpected value \"hidden\""
+          ]
+        }
+      ],
+      "attempts": {
+        "total": 2,
+        "failed": 1,
+        "passed": 1,
+        "sameCommit": true
+      },
+      "errorSignature": "sha256:8b1c1c63ae4b5e92cd2abeef92c0551c38d4babe0a64a312ec909e1e3f8789d1",
+      "failingSelector": "locator('[data-test=\"inventory-item\"] img').first()",
+      "errorLocation": {
+        "file": "tests/timing.spec.ts",
+        "line": 19,
+        "column": 32
+      },
+      "handoff": {
+        "mode": "suggest",
+        "reason": "Rule TIM-EXPECT-TIMEOUT has a suggestion heal can review. The verdict is not a likely real bug or an environment issue.",
+        "gates": [
+          {
+            "name": "verdict-not-likely-real-bug",
+            "passed": true
+          },
+          {
+            "name": "verdict-not-environment-issue",
+            "passed": true
+          },
+          {
+            "name": "no-slow-load-signal",
+            "passed": true
+          },
+          {
+            "name": "rule-has-fix-strategy",
+            "passed": true
+          },
+          {
+            "name": "evidence-present",
+            "passed": true
+          }
+        ]
+      },
+      "review": {
+        "status": "Needs Review"
+      }
+    },
+    {
+      "findingId": "5fdc4542aaf2",
+      "testId": "timing.spec.ts::chromium::waitForTimeout before add to cart",
+      "file": "tests/timing.spec.ts",
+      "line": 22,
+      "project": "chromium",
+      "titlePath": [
+        "waitForTimeout before add to cart"
+      ],
+      "verdict": "flaky",
+      "verdictConfidence": "low",
+      "primaryRuleId": "TIM-TEST-TIMEOUT",
+      "causes": [
+        {
+          "cause": "timing",
+          "ruleIds": [
+            "TIM-TEST-TIMEOUT"
+          ],
+          "confidence": "medium",
+          "evidence": [
+            "Test timeout of 8000ms exceeded.",
+            "Error: page.waitForTimeout: Test timeout of 8000ms exceeded."
+          ]
+        }
+      ],
+      "attempts": {
+        "total": 2,
+        "failed": 1,
+        "passed": 1,
+        "sameCommit": true
+      },
+      "errorSignature": "sha256:53187b8df28ac9d75045988bea84b74de803db2c0355ba227bb76938e515cbd8",
+      "failingSelector": null,
+      "errorLocation": {
+        "file": "tests/timing.spec.ts",
+        "line": 26,
+        "column": 56
+      },
+      "handoff": {
+        "mode": "suggest",
+        "reason": "Rule TIM-TEST-TIMEOUT has a suggestion heal can review. The verdict is not a likely real bug or an environment issue.",
+        "gates": [
+          {
+            "name": "verdict-not-likely-real-bug",
+            "passed": true
+          },
+          {
+            "name": "verdict-not-environment-issue",
+            "passed": true
+          },
+          {
+            "name": "no-slow-load-signal",
+            "passed": true
+          },
+          {
+            "name": "rule-has-fix-strategy",
+            "passed": true
+          },
+          {
+            "name": "evidence-present",
+            "passed": true
+          }
+        ]
+      },
+      "review": {
+        "status": "Needs Review"
+      }
+    },
+    {
+      "findingId": "c842129141c0",
+      "testId": "broken.spec.ts::chromium::typo locator never finds the backpack button",
+      "file": "tests/broken.spec.ts",
+      "line": 4,
+      "project": "chromium",
+      "titlePath": [
+        "typo locator never finds the backpack button"
+      ],
+      "verdict": "broken-test",
+      "verdictConfidence": "high",
+      "primaryRuleId": "SEL-NOTFOUND",
+      "causes": [
+        {
+          "cause": "selectors",
+          "ruleIds": [
+            "SEL-NOTFOUND",
+            "SEL-ZERO"
+          ],
+          "confidence": "high",
+          "evidence": [
+            "Error: element(s) not found"
+          ]
+        }
+      ],
+      "attempts": {
+        "total": 3,
+        "failed": 3,
+        "passed": 0,
+        "sameCommit": false
+      },
+      "errorSignature": "sha256:fd7f0ebe3afa278ae09cdf037cf3a0caa77bde212d7585cb4fe048d9f5ba01bc",
+      "failingSelector": "#add-to-cart-sauce-labs-bakpack",
+      "errorLocation": {
+        "file": "tests/broken.spec.ts",
+        "line": 8,
+        "column": 65
+      },
+      "handoff": {
+        "mode": "locator",
+        "reason": "Selector rule SEL-NOTFOUND can be handed to heal. The verdict is not a likely real bug or an environment issue, and there is no slow load signal.",
+        "gates": [
+          {
+            "name": "verdict-not-likely-real-bug",
+            "passed": true
+          },
+          {
+            "name": "verdict-not-environment-issue",
+            "passed": true
+          },
+          {
+            "name": "no-slow-load-signal",
+            "passed": true
+          },
+          {
+            "name": "rule-has-fix-strategy",
+            "passed": true
+          },
+          {
+            "name": "evidence-present",
+            "passed": true
+          }
+        ]
+      },
+      "review": {
+        "status": "Needs Review"
+      }
+    }
+  ]
+}

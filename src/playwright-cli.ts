@@ -49,6 +49,8 @@ export interface PlaywrightRunResult {
   command: string;
   /** The spawn-level error (ENOENT and friends), when the child never ran. */
   error?: Error;
+  /** True when the child was stopped because it ran past timeoutMs. */
+  timedOut?: boolean;
 }
 
 export function runPlaywrightCli(
@@ -56,12 +58,25 @@ export function runPlaywrightCli(
   args: string[],
   maxBuffer: number,
   env?: NodeJS.ProcessEnv,
+  /** Optional wall-clock limit for the child. Unset means no limit, as before. */
+  timeoutMs?: number,
 ): PlaywrightRunResult {
   const opts = {
     cwd: root,
     encoding: 'utf8' as const,
     maxBuffer,
     ...(env ? { env } : {}),
+    ...(timeoutMs !== undefined ? { timeout: timeoutMs } : {}),
+    // With a time limit the child leads its own process group, so a timed out
+    // run can be stopped together with its workers and browsers (below).
+    ...(timeoutMs !== undefined && process.platform !== 'win32' ? { detached: true } : {}),
+  };
+  const timedOutOf = (e: Error | undefined): boolean =>
+    timeoutMs !== undefined && (e as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
+  /** After a timeout only the direct child is gone. Stop the workers and browsers it left. */
+  const stopGroup = (pid: number | undefined, e: Error | undefined): void => {
+    if (!timedOutOf(e) || !pid || process.platform === 'win32') return;
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* nothing left to stop */ }
   };
   let cliJs: string | null = null;
   try {
@@ -69,10 +84,12 @@ export function runPlaywrightCli(
   } catch { /* not installed under this root; npx may still find it */ }
   if (cliJs) {
     const r = spawnSync(process.execPath, [cliJs, ...args], opts);
+    stopGroup(r.pid, r.error);
     return {
       status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '',
       command: [process.execPath, cliJs, ...args].join(' '),
       error: r.error,
+      ...(timedOutOf(r.error) ? { timedOut: true } : {}),
     };
   }
   // The weaker, PATH-dependent path is in use — say so exactly once. The
@@ -85,10 +102,12 @@ export function runPlaywrightCli(
     ...opts,
     shell: process.platform === 'win32',
   });
+  stopGroup(r.pid, r.error);
   return {
     status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '',
     command: ['npx', 'playwright', ...args].join(' '),
     error: r.error,
+    ...(timedOutOf(r.error) ? { timedOut: true } : {}),
   };
 }
 

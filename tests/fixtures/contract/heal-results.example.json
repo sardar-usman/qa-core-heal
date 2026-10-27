@@ -1,0 +1,64 @@
+{
+  "schema": "qa-core.heal-results",
+  "schemaVersion": 1,
+  "tool": { "name": "qa-core-heal", "version": "0.4.1", "playwrightVersion": "1.60.0" },
+  "mode": "dry-run",
+  "input": { "findingsSchemaVersion": 1, "findingsSha256": "0000000000000000000000000000000000000000000000000000000000000004", "findingCount": 3 },
+  "ai": { "enabled": false, "provider": null, "model": null },
+  "results": [
+    {
+      "findingId": "a1b2c3d4e5f6",
+      "testId": "tests/broken.spec.ts::chromium::typo locator fails every time",
+      "status": "proposed",
+      "strategy": "locator-heal",
+      "fixRuleId": "HEAL-SEL-LOCATOR",
+      "reviewLevel": "review-carefully",
+      "changes": [
+        {
+          "file": "tests/broken.spec.ts", "startLine": 5, "endLine": 5,
+          "before": "page.locator('#add-to-cart-sauce-labs-bakpack')",
+          "after": "page.locator(\"#add-to-cart-sauce-labs-backpack\")"
+        }
+      ],
+      "patchFile": ".qa-core/heal/patches/a1b2c3d4e5f6.diff",
+      "explanation": "One confident candidate on the live page, same element kind. Level css, so review it.",
+      "refusal": null,
+      "verification": { "performed": true, "method": "shadow-rerun", "runs": 3, "passed": 3, "failed": 0, "baselineReproduced": true, "outcome": "passed" },
+      "ai": { "used": false, "label": null, "promptSha256": null }
+    },
+    {
+      "findingId": "b2c3d4e5f6a1",
+      "testId": "tests/timing.spec.ts::chromium::waitForTimeout before add to cart",
+      "status": "proposed",
+      "strategy": "rule-suggestion",
+      "fixRuleId": "FIX-TIM-FIXED-SLEEP",
+      "reviewLevel": "standard",
+      "changes": [
+        {
+          "file": "tests/timing.spec.ts", "startLine": 25, "endLine": 26,
+          "before": "  // waitForTimeout before the click is the antipattern being demonstrated.\n  if (shouldFlake(WAIT_ID, testInfo.retry)) await page.waitForTimeout(12000);",
+          "after": ""
+        }
+      ],
+      "patchFile": ".qa-core/heal/patches/b2c3d4e5f6a1.diff",
+      "explanation": "A fixed sleep before a click. The click already waits until the button is visible and enabled, so the sleep is removed.",
+      "refusal": null,
+      "verification": { "performed": true, "method": "shadow-rerun", "runs": 3, "passed": 3, "failed": 0, "baselineReproduced": true, "outcome": "passed" },
+      "ai": { "used": false, "label": null, "promptSha256": null }
+    },
+    {
+      "findingId": "c3d4e5f6a1b2",
+      "testId": "tests/real-bug.spec.ts::chromium::sort order matches the selected option",
+      "status": "refused",
+      "strategy": "none",
+      "fixRuleId": null,
+      "reviewLevel": "standard",
+      "changes": [],
+      "patchFile": null,
+      "explanation": "Flaky marked this finding as handoff none because the verdict is likely-real-bug.",
+      "refusal": { "code": "ineligible-handoff", "message": "Heal does not act on findings with handoff mode none." },
+      "verification": { "performed": false, "method": "none", "runs": 0, "passed": 0, "failed": 0, "baselineReproduced": null, "outcome": "not-run" },
+      "ai": { "used": false, "label": null, "promptSha256": null }
+    }
+  ]
+}

@@ -38,10 +38,10 @@ If the user pointed at specific failing specs, use those. Otherwise run the suit
 Run the heal engine in dry-run mode against each broken spec:
 
 ```
-npm run heal -- <spec-path> --base-url <baseURL> --dry-run
+npx qa-core-heal <spec-path> --dry-run --json
 ```
 
-Run with --json for parseable output. Each proposed heal carries the cascade level it resolved at (role, label, placeholder, text, alt, title, testid, css, css-tag-fix, xpath) and an ambiguous flag (css-tag-fix means a compound CSS selector whose typo'd tag token was corrected, e.g. buttons.btn.btn-primary → button.btn.btn-primary). Collect them all before showing the user anything.
+The base URL is resolved from the project's Playwright config. Add `--base-url <baseURL>` only when it cannot be resolved. The `--json` flag gives parseable output. Each proposed heal carries the cascade level it resolved at (role, label, placeholder, text, alt, title, testid, css, css-tag-fix, xpath) and an ambiguous flag. The flag is true only when several elements matched. The engine refuses those locators, so a proposed heal always has ambiguous false. The css-tag-fix level means a compound CSS selector whose typo'd tag token was corrected, for example buttons.btn.btn-primary → button.btn.btn-primary. Collect them all before showing the user anything.
 
 ### Step 4: Present the diff
 
@@ -54,7 +54,7 @@ Show a single consolidated review, one entry per proposed heal:
   reason: id matched auto-generated pattern; role+name is unique and stable on page
 ```
 
-Group by file. Flag anything that resolved at css or xpath level, or that carries ambiguous: true, as "review carefully". These are honest signals from the engine's cascade: css and xpath are last-resort levels, and ambiguous means multiple elements matched and the engine picked the best-level first match. List refused locators separately with the engine's reason; a refusal (for example a locator whose identity was the text and the text is gone) is the safety guard working, not a failure.
+Group by file. Flag anything that resolved at css or xpath level as "review carefully". This is an honest signal from the engine's cascade: css and xpath are last-resort levels. An entry with ambiguous: true is never a proposed heal: several elements matched, and the engine never picks one from a set, so it refuses the locator. Report it with the refused locators. List refused locators separately with the engine's reason; a refusal (for example a locator whose identity was the text and the text is gone) is the safety guard working, not a failure.
 
 Then ask the user: apply all, apply selected, or abort.
 

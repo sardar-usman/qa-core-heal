@@ -1,0 +1,502 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:qa-core:heal-results:1",
+  "title": "qa-core Heal Results, Version 1",
+  "description": "Written by qa-core-heal, read by qa-core-flaky. One entry per finding that heal received.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "tool",
+    "mode",
+    "input",
+    "ai",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "qa-core.heal-results"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "playwrightVersion"
+      ],
+      "properties": {
+        "name": {
+          "const": "qa-core-heal"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "playwrightVersion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "mode": {
+      "enum": [
+        "dry-run",
+        "apply"
+      ]
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingsSchemaVersion",
+        "findingsSha256",
+        "findingCount"
+      ],
+      "properties": {
+        "findingsSchemaVersion": {
+          "const": 1
+        },
+        "findingsSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "findingCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "provider",
+        "model"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/result"
+      }
+    }
+  },
+  "$defs": {
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "startLine",
+        "endLine",
+        "before",
+        "after"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "startLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "before": {
+          "type": "string"
+        },
+        "after": {
+          "type": "string"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingId",
+        "testId",
+        "status",
+        "strategy",
+        "fixRuleId",
+        "reviewLevel",
+        "changes",
+        "patchFile",
+        "explanation",
+        "refusal",
+        "verification",
+        "ai"
+      ],
+      "properties": {
+        "findingId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{12}$"
+        },
+        "testId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "proposed",
+            "applied",
+            "refused",
+            "not-locator",
+            "nothing-to-heal",
+            "error"
+          ],
+          "description": "proposed: a verified change is shown, not applied. applied: written to disk with explicit --apply. refused: heal chose not to act, see refusal. not-locator: failure is not a locator problem. nothing-to-heal: test passed when heal ran it, which is weak evidence only. error: heal could not finish."
+        },
+        "strategy": {
+          "enum": [
+            "locator-heal",
+            "rule-suggestion",
+            "ai-suggestion",
+            "none"
+          ]
+        },
+        "fixRuleId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^(HEAL|FIX)-[A-Z0-9-]+$"
+        },
+        "reviewLevel": {
+          "enum": [
+            "standard",
+            "review-carefully"
+          ]
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/change"
+          }
+        },
+        "patchFile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Relative path to a unified diff. Null when there are no changes."
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "refusal": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "ambiguous-match",
+                "element-changed",
+                "strict-needs-human",
+                "possible-real-bug",
+                "weakens-test",
+                "verification-failed",
+                "baseline-not-reproduced",
+                "no-safe-pattern",
+                "ai-disabled",
+                "ai-invalid-output",
+                "ineligible-handoff",
+                "navigation-or-network",
+                "spec-not-found",
+                "timeout"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 400
+            }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "performed",
+            "method",
+            "runs",
+            "passed",
+            "failed",
+            "baselineReproduced",
+            "outcome"
+          ],
+          "properties": {
+            "performed": {
+              "type": "boolean"
+            },
+            "method": {
+              "enum": [
+                "shadow-rerun",
+                "none"
+              ]
+            },
+            "runs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "baselineReproduced": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "true: the unpatched test failed in the shadow copy before the change. false: it did not fail in the baseline runs, so a passing re-run is weak evidence and reviewLevel must be review-carefully. null: no baseline was run."
+            },
+            "outcome": {
+              "enum": [
+                "passed",
+                "failed",
+                "not-run"
+              ]
+            }
+          }
+        },
+        "ai": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "used",
+            "label",
+            "promptSha256"
+          ],
+          "properties": {
+            "used": {
+              "type": "boolean"
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Shown to the reader when used is true, for example: AI suggestion, Needs Review."
+            },
+            "promptSha256": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "proposed",
+                  "applied"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "refusal": {
+                "type": "null"
+              },
+              "strategy": {
+                "enum": [
+                  "locator-heal",
+                  "rule-suggestion",
+                  "ai-suggestion"
+                ]
+              },
+              "changes": {
+                "minItems": 1,
+                "type": "array"
+              },
+              "verification": {
+                "properties": {
+                  "performed": {
+                    "const": true
+                  },
+                  "outcome": {
+                    "const": "passed"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "refused"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "refusal": {
+                "type": "object"
+              },
+              "changes": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "strategy": {
+                "const": "ai-suggestion"
+              }
+            },
+            "required": [
+              "strategy"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "ai": {
+                "properties": {
+                  "used": {
+                    "const": true
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "reviewLevel": {
+                "const": "review-carefully"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "strategy": {
+                "enum": [
+                  "rule-suggestion",
+                  "ai-suggestion"
+                ]
+              }
+            },
+            "required": [
+              "strategy"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "not": {
+                  "const": "applied"
+                }
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "proposed",
+                  "applied"
+                ]
+              },
+              "verification": {
+                "type": "object",
+                "properties": {
+                  "baselineReproduced": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "baselineReproduced"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "verification"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "reviewLevel": {
+                "const": "review-carefully"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,421 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:qa-core:heal-findings:1",
+  "title": "qa-core Heal Findings, Version 1",
+  "description": "Written by qa-core-flaky, read by qa-core-heal. One entry per test that flaky wants heal to look at.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "tool",
+    "project",
+    "source",
+    "redaction",
+    "findings"
+  ],
+  "properties": {
+    "schema": {
+      "const": "qa-core.heal-findings"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "qa-core-flaky"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configPath",
+        "baseUrl",
+        "testIdAttribute",
+        "playwrightVersion"
+      ],
+      "properties": {
+        "configPath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Relative, forward-slash path."
+        },
+        "baseUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Origin only. No path, query, user or password."
+        },
+        "testIdAttribute": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "playwrightVersion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "triageSchemaVersion",
+        "reports",
+        "commit"
+      ],
+      "properties": {
+        "triageSchemaVersion": {
+          "const": 1
+        },
+        "reports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applied",
+        "rules"
+      ],
+      "properties": {
+        "applied": {
+          "const": true
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "home-user",
+              "absolute-path",
+              "url-query",
+              "token-like",
+              "email"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingId",
+        "testId",
+        "file",
+        "line",
+        "project",
+        "titlePath",
+        "verdict",
+        "verdictConfidence",
+        "primaryRuleId",
+        "causes",
+        "attempts",
+        "errorSignature",
+        "handoff",
+        "review"
+      ],
+      "properties": {
+        "findingId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{12}$"
+        },
+        "testId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative, forward-slash spec path."
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "project": {
+          "type": "string"
+        },
+        "titlePath": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "verdict": {
+          "enum": [
+            "broken-test",
+            "environment-issue",
+            "likely-real-bug",
+            "flaky",
+            "needs-more-runs"
+          ]
+        },
+        "verdictConfidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "primaryRuleId": {
+          "type": "string",
+          "pattern": "^(SEL|TIM|DATA|ENV|UNK)-[A-Z0-9-]+$"
+        },
+        "causes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "cause",
+              "ruleIds",
+              "confidence",
+              "evidence"
+            ],
+            "properties": {
+              "cause": {
+                "enum": [
+                  "selectors",
+                  "timing",
+                  "test-data",
+                  "environment",
+                  "unknown"
+                ]
+              },
+              "ruleIds": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidence": {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 300
+                }
+              }
+            }
+          }
+        },
+        "attempts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total",
+            "failed",
+            "passed",
+            "sameCommit"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "failed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sameCommit": {
+              "type": "boolean"
+            }
+          }
+        },
+        "errorSignature": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "failingSelector": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 300
+        },
+        "errorLocation": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "file",
+            "line"
+          ],
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "column": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "handoff": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "reason",
+            "gates"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "locator",
+                "suggest",
+                "none"
+              ],
+              "description": "locator: heal may propose a locator fix. suggest: heal may propose a rule-based or AI suggestion. none: heal must not act."
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "gates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "passed"
+                ],
+                "properties": {
+                  "name": {
+                    "enum": [
+                      "verdict-not-likely-real-bug",
+                      "verdict-not-environment-issue",
+                      "no-slow-load-signal",
+                      "rule-has-fix-strategy",
+                      "evidence-present"
+                    ]
+                  },
+                  "passed": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "Needs Review"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "likely-real-bug",
+                  "environment-issue"
+                ]
+              }
+            },
+            "required": [
+              "verdict"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "handoff": {
+                "properties": {
+                  "mode": {
+                    "const": "none"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ]
+    }
+  }
+}
