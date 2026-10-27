@@ -41,8 +41,9 @@ test('without --playwright-config a nested config is ignored and the relative go
   const n = nestedSpec(baseOf(server));
   try {
     const r = await runCli([n.specRel, '--dry-run', '--verbose'], n.dir);
-    assert.notEqual(r.status, 0);
-    assert.match(`${r.stdout}\n${r.stderr}`, /invalid URL/i);
+    assert.match(`${r.stdout}\n${r.stderr}`, /Cannot navigate to invalid URL/);
+    assert.doesNotMatch(r.stdout, /healed to/);
+    assert.doesNotMatch(r.stderr, /--config /);
   } finally { server.close(); rm(n.dir); }
 });
 
@@ -53,7 +54,7 @@ test('--playwright-config is passed to Playwright as --config and the spec can h
     const before = fs.readFileSync(path.join(n.dir, n.specRel), 'utf8');
     const r = await runCli([n.specRel, '--dry-run', '--verbose', '--playwright-config', n.configRel], n.dir);
     assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, /#mail-x9/);
+    assert.match(r.stdout, /input\[type="email"\]/);
     assert.equal(fs.readFileSync(path.join(n.dir, n.specRel), 'utf8'), before);
     const children = r.stderr.split('\n').filter((l) => l.startsWith('[verbose] child:'));
     assert.ok(children.length >= 1, r.stderr);

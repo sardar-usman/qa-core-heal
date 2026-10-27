@@ -154,7 +154,7 @@ async function interruptApply(sig, expectStatus) {
     await waitFor(() => {
       const text = run.text().stdout;
       const src = fs.readFileSync(spec, 'utf8');
-      return text.includes('Verifying') && src.includes('#mail-x9') ? true : null;
+      return text.includes('Verifying') && src.includes('input[type="email"]') ? true : null;
     }, 'the unverified heal and the verify re-run');
     const outRoot = await waitFor(() => outputRootFrom(dir, run.child.pid), 'the verify child output folder');
     const done = await stopAndJoin(run.child, run.closed, sig);

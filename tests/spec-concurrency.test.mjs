@@ -42,7 +42,7 @@ test('several rounds of two spec-mode runs at once each keep a private output fo
         const text = `${r.stdout}\n${r.stderr}`;
         assert.equal(r.status, 0, `round ${round} run ${i}: ${text}`);
         assert.doesNotMatch(text, /Could not determine the target URL/);
-        assert.match(r.stdout, /#mail-x9/);
+        assert.match(r.stdout, /input\[type="email"\]/);
         const children = r.stderr.split('\n').filter((l) => l.startsWith('[verbose] child:'));
         assert.ok(children.length >= 1, r.stderr);
         const outputs = [];

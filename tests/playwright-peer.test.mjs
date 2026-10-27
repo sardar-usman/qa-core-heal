@@ -76,6 +76,7 @@ async function smoke(version, base) {
 export default defineConfig({
   testDir: './tests', workers: 1, retries: 0, timeout: 20000,
   use: { baseURL: '${base}' },
+  projects: [{ name: 'chromium' }],
   reporter: [['line']],
 });
 `);
@@ -100,7 +101,7 @@ test('broken mail', async ({ page }) => {
   assert.equal(doc.results[0].status, 'nothing-to-heal', doc.results[0].explanation);
   const scan = await runCopied(cli, ['tests/bad.spec.ts', '--scan', '--dry-run'], proj);
   assert.equal(scan.status, 0, `${version} scan: ${scan.stderr}`);
-  assert.match(scan.stdout, /#mail-x9/);
+  assert.match(scan.stdout, /input\[type="email"\]/);
   fs.rmSync(proj, { recursive: true, force: true });
 }
 

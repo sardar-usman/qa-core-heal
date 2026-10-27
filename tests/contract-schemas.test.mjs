@@ -54,8 +54,8 @@ test('the findings schema rejects an unknown version and a real bug handed off a
 });
 
 test('ajv is a dev dependency only: nothing in dist or the runtime dependencies uses it', () => {
-  assert.equal(pkg.dependencies.ajv, undefined);
-  assert.equal(pkg.dependencies['ajv-formats'], undefined);
+  assert.equal(pkg.dependencies?.ajv, undefined);
+  assert.equal(pkg.dependencies?.['ajv-formats'], undefined);
   assert.ok(pkg.devDependencies.ajv);
   assert.ok(pkg.devDependencies['ajv-formats']);
   for (const f of fs.readdirSync(path.join(repoRoot, 'dist')).filter((n) => n.endsWith('.js'))) {
@@ -68,6 +68,6 @@ test('the package ships the schemas', () => {
   assert.ok(fs.existsSync(path.join(repoRoot, 'schemas', 'README.md')));
 });
 
-test('the package version is 0.4.0 and the CLI reports it', () => {
-  assert.equal(pkg.version, '0.4.0');
+test('the package version is 0.4.1', () => {
+  assert.equal(pkg.version, '0.4.1');
 });

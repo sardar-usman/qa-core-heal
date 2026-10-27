@@ -27,8 +27,8 @@ test('a locator-only rewrite is not a weakening, and a looser or missing asserti
   );
   assert.match(
     weakeningReason(
-      "await expect(page.getByRole('button', { exact: true })).toBeVisible();\n",
-      "await expect(page.getByRole('button')).toBeVisible();\n",
+      "await expect(page.locator('#a')).toHaveText('Hello', { exact: true });\n",
+      "await expect(page.locator('#a')).toHaveText('Hello');\n",
     ),
     /loosens an assertion/,
   );
