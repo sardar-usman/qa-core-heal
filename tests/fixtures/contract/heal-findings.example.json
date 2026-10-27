@@ -1,0 +1,105 @@
+{
+  "schema": "qa-core.heal-findings",
+  "schemaVersion": 1,
+  "tool": { "name": "qa-core-flaky", "version": "0.1.0" },
+  "project": {
+    "configPath": "playwright.config.ts",
+    "baseUrl": "https://www.saucedemo.com",
+    "testIdAttribute": "data-test",
+    "playwrightVersion": "1.60.0"
+  },
+  "source": { "triageSchemaVersion": 1, "reports": ["reports/results.json"], "commit": null },
+  "redaction": { "applied": true, "rules": ["home-user", "absolute-path", "url-query"] },
+  "findings": [
+    {
+      "findingId": "a1b2c3d4e5f6",
+      "testId": "tests/broken.spec.ts::chromium::typo locator fails every time",
+      "file": "tests/broken.spec.ts",
+      "line": 5,
+      "project": "chromium",
+      "titlePath": ["typo locator fails every time"],
+      "verdict": "broken-test",
+      "verdictConfidence": "high",
+      "primaryRuleId": "SEL-NOTFOUND",
+      "causes": [
+        { "cause": "selectors", "ruleIds": ["SEL-NOTFOUND"], "confidence": "high", "evidence": ["element(s) not found"] }
+      ],
+      "attempts": { "total": 3, "failed": 3, "passed": 0, "sameCommit": true },
+      "errorSignature": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "failingSelector": "#add-to-cart-sauce-labs-bakpack",
+      "errorLocation": { "file": "tests/broken.spec.ts", "line": 5, "column": 40 },
+      "handoff": {
+        "mode": "locator",
+        "reason": "Selector rule matched on every failed attempt, no slow load signal, verdict is broken-test.",
+        "gates": [
+          { "name": "verdict-not-likely-real-bug", "passed": true },
+          { "name": "verdict-not-environment-issue", "passed": true },
+          { "name": "no-slow-load-signal", "passed": true },
+          { "name": "rule-has-fix-strategy", "passed": true },
+          { "name": "evidence-present", "passed": true }
+        ]
+      },
+      "review": { "status": "Needs Review" }
+    },
+    {
+      "findingId": "b2c3d4e5f6a1",
+      "testId": "tests/timing.spec.ts::chromium::waitForTimeout before add to cart",
+      "file": "tests/timing.spec.ts",
+      "line": 26,
+      "project": "chromium",
+      "titlePath": ["waitForTimeout before add to cart"],
+      "verdict": "flaky",
+      "verdictConfidence": "medium",
+      "primaryRuleId": "TIM-TEST-TIMEOUT",
+      "causes": [
+        { "cause": "timing", "ruleIds": ["TIM-TEST-TIMEOUT"], "confidence": "medium", "evidence": ["Test timeout of 8000ms exceeded."] }
+      ],
+      "attempts": { "total": 4, "failed": 2, "passed": 2, "sameCommit": true },
+      "errorSignature": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+      "failingSelector": null,
+      "errorLocation": { "file": "tests/timing.spec.ts", "line": 26 },
+      "handoff": {
+        "mode": "suggest",
+        "reason": "Timing rule has a fix strategy, no real-bug or environment signal.",
+        "gates": [
+          { "name": "verdict-not-likely-real-bug", "passed": true },
+          { "name": "verdict-not-environment-issue", "passed": true },
+          { "name": "no-slow-load-signal", "passed": true },
+          { "name": "rule-has-fix-strategy", "passed": true },
+          { "name": "evidence-present", "passed": true }
+        ]
+      },
+      "review": { "status": "Needs Review" }
+    },
+    {
+      "findingId": "c3d4e5f6a1b2",
+      "testId": "tests/real-bug.spec.ts::chromium::sort order matches the selected option",
+      "file": "tests/real-bug.spec.ts",
+      "line": 9,
+      "project": "chromium",
+      "titlePath": ["sort order matches the selected option"],
+      "verdict": "likely-real-bug",
+      "verdictConfidence": "high",
+      "primaryRuleId": "UNK-NONE",
+      "causes": [
+        { "cause": "unknown", "ruleIds": ["UNK-NONE"], "confidence": "low", "evidence": ["Expected: 'Name (A to Z)' Received: 'Name (Z to A)'"] }
+      ],
+      "attempts": { "total": 3, "failed": 3, "passed": 0, "sameCommit": true },
+      "errorSignature": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+      "failingSelector": null,
+      "errorLocation": { "file": "tests/real-bug.spec.ts", "line": 9 },
+      "handoff": {
+        "mode": "none",
+        "reason": "Verdict is likely-real-bug. Heal must not change this test.",
+        "gates": [
+          { "name": "verdict-not-likely-real-bug", "passed": false },
+          { "name": "verdict-not-environment-issue", "passed": true },
+          { "name": "no-slow-load-signal", "passed": true },
+          { "name": "rule-has-fix-strategy", "passed": false },
+          { "name": "evidence-present", "passed": true }
+        ]
+      },
+      "review": { "status": "Needs Review" }
+    }
+  ]
+}
