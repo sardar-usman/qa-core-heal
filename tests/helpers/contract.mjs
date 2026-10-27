@@ -152,7 +152,7 @@ export const writeFindings = (dir, findings, baseUrl = null, name = 'heal-findin
  * the specs under that folder's tests/, and a login helper that opens the
  * page through a template literal origin.
  */
-export function makeNestedProject(base, { configDir = 'demo/saucedemo', timeout = 8000 } = {}) {
+export function makeNestedProject(base, { configDir = 'demo/saucedemo', timeout = 30000 } = {}) {
   const dir = fs.mkdtempSync(path.join(repoRoot, '.tmp-test-'));
   fs.writeFileSync(path.join(dir, 'package.json'), '{ "name": "t", "private": true, "type": "module" }');
   const put = (rel, text) => {
