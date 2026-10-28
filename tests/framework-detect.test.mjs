@@ -127,7 +127,8 @@ test('an unknown framework value is a usage error and lists the accepted values'
     const r = await runCli(['--dry-run', '--framework', 'webdriver'], dir);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /Unknown framework "webdriver"/);
-    assert.match(r.stderr, /Accepted values: playwright-js, cypress-js, selenium-js, playwright-py, selenium-py/);
+    assert.match(r.stderr, /Supported now: playwright-js/);
+    assert.match(r.stderr, /Planned: cypress-js, selenium-js, playwright-py, selenium-py/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

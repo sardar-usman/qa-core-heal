@@ -19,7 +19,8 @@ export type Detection =
   | { ok: true; id: 'playwright-js'; reason: string }
   | { ok: false; message: string };
 
-const ACCEPTED = FRAMEWORK_IDS.join(', ');
+const SUPPORTED_NOW = 'playwright-js';
+const PLANNED_IDS = 'cypress-js, selenium-js, playwright-py, selenium-py';
 const PYTHON_CONFIGS = new Set(['pytest.ini', 'pyproject.toml', 'setup.cfg', 'conftest.py']);
 const CYPRESS_CONFIGS = ['cypress.config.ts', 'cypress.config.js', 'cypress.config.mjs', 'cypress.config.cjs'];
 const PYTHON_PROJECT_FILES = ['pytest.ini', 'pyproject.toml', 'conftest.py'];
@@ -130,7 +131,7 @@ export function detectFramework(input: { root: string; flag?: string; configPath
   if (input.flag !== undefined) {
     const flag = input.flag.trim();
     if (!FRAMEWORK_IDS.includes(flag as FrameworkId)) {
-      return { ok: false, message: `Unknown framework "${flag}". Accepted values: ${ACCEPTED}.` };
+      return { ok: false, message: `Unknown framework "${flag}". Supported now: ${SUPPORTED_NOW}. Planned: ${PLANNED_IDS}.` };
     }
     const id = flag as FrameworkId;
     if (id !== 'playwright-js') return { ok: false, message: planned(id) };

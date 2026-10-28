@@ -196,7 +196,7 @@ Flags:
       --debug                    implies --verbose; adds stack traces and raw child stdout/stderr
       --config <file>            use this qa-core config file instead of the default qa-core.config.json lookup
       --playwright-config <path> Playwright config for a spec run, passed through as --config. Same path rules as a findings configPath. Not with --findings
-      --framework <id>           framework to use. Accepted: playwright-js, cypress-js, selenium-js, playwright-py, selenium-py. Only playwright-js runs in this version
+      --framework <id>           framework to use. Supported now: playwright-js. Planned: cypress-js, selenium-js, playwright-py, selenium-py
       --base-url <url>           base URL of the app under test (overrides config and playwright.config)
       --project <name>           playwright project to take use.baseURL from when projects disagree
       --route <file>=<route>     override the inferred route for a spec or page-object file (repeatable)

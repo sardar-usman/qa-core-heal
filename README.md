@@ -179,7 +179,7 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--debug` | implies `--verbose`; adds stack traces and raw child stdout/stderr |
 | `--config <file>` | use this qa-core config file instead of the default lookup; missing or invalid errors with the full story |
 | `--playwright-config <path>` | Playwright config for a spec run, passed through as `--config`. Same path rules as a findings `configPath`. Not with `--findings` |
-| `--framework <id>` | framework to use. Accepted values: `playwright-js`, `cypress-js`, `selenium-js`, `playwright-py`, `selenium-py`. Only `playwright-js` runs in this version. The flag overrides detection |
+| `--framework <id>` | framework to use. Supported now: `playwright-js`. Planned: `cypress-js`, `selenium-js`, `playwright-py`, `selenium-py`. The flag overrides detection |
 | `--base-url <url>` | override base URL resolution (config → goto scan) |
 | `--project <name>` | pick a Playwright project when their baseURLs disagree |
 | `--route <file>=<route>` | override route inference per file (repeatable) |
