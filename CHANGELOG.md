@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 (2026-10-28)
+
+Cypress JS/TS healing. Contract version 1 is unchanged. Playwright output for the same inputs stays the same except the version, the framework list, and the `--framework` help line.
+
+- **Added:** `cypress-js` runs. A project with a Cypress config is healed as Cypress. `--framework cypress-js` selects it.
+- **Added:** Literal `cy.get`, `cy.contains`, and `cy.getByRole` can be healed from the captured failing page. `cy.getByRole` is emitted only on Cypress 16.2.0 or newer. Cypress older than 15.10.0 is refused.
+- **Added:** Refusals for `cy.origin`, iframes, `.shadow()`, `includeShadowDom`, `.within()`, chained `.find()`, jQuery-only selectors, variables, template expressions, and custom commands. The refusal codes are the existing ones.
+- **Changed:** `capabilities` lists `playwright-js` and `cypress-js`. `@playwright/test` stays an optional peer. `playwright` stays required.
+
 ## 0.5.0 (2026-10-28)
 
 Playwright JS/TS is now one adapter behind a shared core. Contract version 1 is unchanged. The JSON Schemas in `schemas/` are the same bytes as 0.4.0. This version runs Playwright only.
