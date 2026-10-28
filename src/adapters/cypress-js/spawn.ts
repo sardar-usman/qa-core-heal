@@ -58,6 +58,7 @@ export async function runCypressInScratch(request: CypressSpawnRequest): Promise
   trackOutputDir(outRoot);
   fs.mkdirSync(path.join(request.projectRoot, '.qa-core'), { recursive: true });
   const scratch = fs.mkdtempSync(path.join(request.projectRoot, '.qa-core', 'scratch-'));
+  trackOutputDir(scratch);
   const captureDir = path.join(outRoot, 'capture');
   fs.mkdirSync(captureDir, { recursive: true });
   for (const name of ['screenshots', 'videos', 'downloads']) fs.mkdirSync(path.join(outRoot, name), { recursive: true });

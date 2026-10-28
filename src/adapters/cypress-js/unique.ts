@@ -11,26 +11,28 @@ import type { ProbeQuery } from '../types.js';
  * https://docs.cypress.io/api/commands/contains
  * https://docs.cypress.io/api/commands/getbyrole
  */
-export async function countCypressQuery(probePage: unknown, query: ProbeQuery): Promise<number> {
+/** Ids of the elements the Cypress rule matches. The count is this list's length. */
+export async function cypressMatchIds(probePage: unknown, query: ProbeQuery): Promise<string[]> {
   const page = probePage as Page;
   try {
-    const count = await page.evaluate((q) => {
+    const ids = await page.evaluate((q) => {
       const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
       const all = (selector: string): Element[] => Array.from(document.querySelectorAll(selector));
+      const idsOf = (els: Element[]): string[] => els.map((el) => el.id || '');
       if (q.kind === 'css' || q.kind === 'testId') {
         const selector = q.kind === 'css' ? q.selector : `[data-cy="${q.value.replace(/"/g, '\\"')}"]`;
-        return all(selector).length;
+        return idsOf(all(selector));
       }
       if (q.kind === 'text') {
         const selector = q.selector && q.selector.length > 0 ? q.selector : '*';
         const want = collapse(q.text);
-        return all(selector).filter((el) => collapse(el.textContent ?? '') === want).length;
+        return idsOf(all(selector).filter((el) => collapse(el.textContent ?? '') === want));
       }
       if (q.kind === 'role') {
         const want = collapse(q.name ?? '');
-        return all(nativeSelector(q.role)).filter((el) => exactName(el) === want).length;
+        return idsOf(all(nativeSelector(q.role)).filter((el) => exactName(el) === want));
       }
-      return 0;
+      return [];
 
       function nativeSelector(role: string): string {
         switch (role) {
@@ -54,8 +56,12 @@ export async function countCypressQuery(probePage: unknown, query: ProbeQuery): 
         return collapse(el.textContent ?? '');
       }
     }, query);
-    return typeof count === 'number' ? count : 0;
+    return Array.isArray(ids) ? ids.map(String) : [];
   } catch {
-    return 0;
+    return [];
   }
+}
+
+export async function countCypressQuery(probePage: unknown, query: ProbeQuery): Promise<number> {
+  return (await cypressMatchIds(probePage, query)).length;
 }

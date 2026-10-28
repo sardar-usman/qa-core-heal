@@ -77,6 +77,10 @@ export async function healCypress(opts: HealOptions): Promise<HealResult> {
         continue;
       }
       const proposal = await propose(page, call, roleOk);
+      if (proposal && 'ambiguous' in proposal) {
+        locators.push(refused(call, 'More than one candidate matches, so heal will not guess.', true));
+        continue;
+      }
       if (!proposal) {
         locators.push(refused(call, 'not found on the captured page.'));
         continue;
@@ -109,7 +113,7 @@ export async function healCypress(opts: HealOptions): Promise<HealResult> {
   return resultOf(locators, plan, specs);
 }
 
-async function propose(page: Page, call: CypressCall, roleOk: boolean): Promise<{ code: string; level: 'testid' | 'role' | 'text' | 'css' } | null> {
+async function propose(page: Page, call: CypressCall, roleOk: boolean): Promise<{ code: string; level: 'testid' | 'role' | 'text' | 'css' } | { ambiguous: true } | null> {
   const quote = call.quote;
   const elements = await scan(page);
   const source = identityOf(call);
@@ -120,7 +124,7 @@ async function propose(page: Page, call: CypressCall, roleOk: boolean): Promise<
     attrOf: el.attrOf,
   }));
   const verdict = source ? matchFuzzy(source, candidates) : { kind: 'none' as const };
-  if (verdict.kind === 'ambiguous') return null;
+  if (verdict.kind === 'ambiguous') return { ambiguous: true };
   if (verdict.kind !== 'match') return null;
   const value = verdict.value;
   const attr = verdict.candidate.attrOf?.[value];
