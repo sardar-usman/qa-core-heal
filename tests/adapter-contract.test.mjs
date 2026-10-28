@@ -8,8 +8,10 @@ const { playwrightJs } = await import(path.join(repoRoot, 'dist', 'adapters', 'p
 const { registeredAdapters, getAdapter } = await import(path.join(repoRoot, 'dist', 'adapters', 'index.js'));
 
 const MEMBERS = [
-  'id', 'detect', 'version', 'discoverConfig', 'listTests', 'runOne', 'parseReport',
-  'classifyFailure', 'parseLocators', 'emitLocator', 'uniqueInTarget',
+  'id', 'enabled', 'detect', 'version', 'discoverConfig', 'listTests', 'runOne', 'runBatch', 'parseReport',
+  'classifyFailure', 'parseLocators', 'emitLocator', 'uniqueInTarget', 'pageSource',
+  'resolveProbeBase', 'probeLocator', 'probeScope', 'selectorSignature',
+  'blocksTypeScriptConfig', 'typeStrippingMessage', 'locatorSignature',
   'assertionGrammar', 'routeCalls', 'cleanup', 'capabilities',
 ];
 
@@ -35,6 +37,15 @@ test('the Playwright JS adapter implements every interface member', () => {
   assert.equal(typeof playwrightJs.parseLocators, 'function');
   assert.equal(typeof playwrightJs.emitLocator, 'function');
   assert.equal(typeof playwrightJs.uniqueInTarget, 'function');
+  assert.equal(playwrightJs.enabled, true);
+  assert.equal(typeof playwrightJs.pageSource, 'function');
+  assert.equal(typeof playwrightJs.runBatch, 'function');
+  assert.equal(typeof playwrightJs.locatorSignature, 'function');
+  assert.equal(playwrightJs.pageSource({}), null);
+});
+
+test('uniqueInTarget returns a count and treats a broken probe as zero', async () => {
+  assert.equal(await playwrightJs.uniqueInTarget({}, { kind: 'css', selector: '#missing' }), 0);
   assert.equal(playwrightJs.assertionGrammar.assertionCallee, 'expect');
   assert.deepEqual([...playwrightJs.assertionGrammar.forms], ['soft', 'poll']);
   assert.equal(playwrightJs.routeCalls.method, 'goto');

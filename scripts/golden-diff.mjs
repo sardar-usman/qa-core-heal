@@ -1,30 +1,25 @@
 /**
- * Compare heal output from 0.4.2 and from this build.
+ * Compare heal output from 0.5.0 and from this build.
  *
  * Both builds run, one after the other, on the same absolute path.
  * The script exits non-zero when a difference is not in the list below.
  *
- * Normalisations:
- *   - the package version string (0.4.2 versus 0.5.0) wherever heal prints its own version
+ * Normalisations for this core change:
  *   - results generatedAt and audit timestamp values
- *   - the one new --framework line in --help
- *   - the new capabilities keys and the new capabilities text line
+ *   - the temporary output folder id
  */
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureBaseline, headCli, repoRoot } from '../tests/helpers/baseline.mjs';
+import { ensureGoldenBaseline, headCli, repoRoot } from '../tests/helpers/baseline.mjs';
 
-const baselineCli = ensureBaseline();
+const baselineCli = ensureGoldenBaseline();
 
 const NORMALISATIONS = [
-  'package version string 0.4.2 versus 0.5.0, including results tool.version',
   'results generatedAt and audit timestamp values',
-  '--help: the one new --framework line',
-  'capabilities: features.frameworks, frameworkVersions, and the frameworks text line',
-  'temporary output folder id (qa-core-heal-out-*), which also differs between two runs of 0.4.2',
+  'temporary output folder id (qa-core-heal-out-*)',
 ];
 
 const SUITES = [
@@ -118,32 +113,13 @@ function cleanArtifacts(dir) {
 
 function scrubText(text) {
   return text
-    .replaceAll('0.5.0', '0.4.2')
     .replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt": "TIME"')
     .replace(/"timestamp":\s*"[^"]*"/g, '"timestamp": "TIME"')
-    .replace(/^ {6}--framework <id>.*\n/gm, '')
-    .replace(/^ {2}frameworks: playwright-js\n/gm, '')
     .replace(/qa-core-heal-out-[A-Za-z0-9_-]+/g, 'qa-core-heal-out-ID');
 }
 
-function scrubJsonKeys(text) {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return text;
-  try {
-    const obj = JSON.parse(trimmed);
-    if (obj && typeof obj === 'object' && obj.features && typeof obj.features === 'object') {
-      delete obj.features.frameworks;
-    }
-    if (obj && typeof obj === 'object' && 'frameworkVersions' in obj) delete obj.frameworkVersions;
-    const newline = text.endsWith('\n') ? '\n' : '';
-    return `${JSON.stringify(obj, null, 2)}${newline}`;
-  } catch {
-    return text;
-  }
-}
-
 function normalize(text) {
-  return scrubJsonKeys(scrubText(text));
+  return scrubText(text);
 }
 
 function runCli(cli, args, cwd) {
@@ -417,7 +393,7 @@ test('passes', async ({ page }) => {
 function showDiff(d) {
   const clip = (s) => s.length > 2000 ? `${s.slice(0, 2000)}\n... (${s.length} chars)` : s;
   console.log(`\n--- ${d.label}`);
-  console.log('<<<<<<< 0.4.2');
+  console.log('<<<<<<< 0.5.0');
   console.log(clip(d.a));
   console.log('>>>>>>> head');
   console.log(clip(d.b));
