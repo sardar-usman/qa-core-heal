@@ -1316,7 +1316,16 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     const rerun = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [...fileArgs, '--grep', grep]), ...childExtra('rerun')], 32 * 1024 * 1024, undefined, ctx.childTimeout);
     logChildRun(cli, rerun);
     rerunPassed = rerun.status === 0;
-    if (rerunPassed) {
+    if (ctx.only && rerun.timedOut) {
+      applyHealPlanExcluding(result.plan, () => true);
+      for (const h of result.healed) {
+        const rel = path.relative(process.cwd(), h.file).split(path.sep).join('/');
+        revertedKeys.add(`${rel}|${h.line}`);
+        revertReasonByKey.set(`${rel}|${h.line}`, 'locator');
+      }
+      say('The run timeout was reached during the re-run, so the heal was reverted.');
+      process.exitCode = 1;
+    } else if (rerunPassed) {
       say('  ✓ re-run passed');
       for (const t of locatorTests) verifiedByTitle.set(t.title, true);
     } else {
