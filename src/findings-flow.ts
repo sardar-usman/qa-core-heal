@@ -11,15 +11,15 @@ import {
   toolVersion, TOOL_NAME,
   type Change, type Finding, type FindingsDoc, type HealResultEntry, type HealResultsDoc, type RefusalCode,
 } from './contract.js';
+import { activeAdapter } from './adapters/index.js';
 import { projectRootFor } from './project-root.js';
-import { resolvePlaywrightConfig } from './playwright-config.js';
 import { startRunBudget } from './playwright-cli.js';
 import { clearUnverifiedApplies, trackOutputDir, trackUnverifiedApply, untrackOutputDir } from './process-guard.js';
 import { scratchVerify } from './scratch.js';
 import {
-  matchFinding, outputArgs, realPathOf, resolveTarget, runSelected, type RunObserver,
+  matchFinding, outputArgs, realPathOf, resolveTarget, type RunObserver,
 } from './targeted.js';
-import { classifyFailure, stripAnsi, traceFailureUrl } from './run.js';
+import { stripAnsi, traceFailureUrl } from './run.js';
 
 /**
  * The findings flow: read the handoff decisions of qa-core-flaky and write
@@ -223,8 +223,8 @@ export async function testDirBase(cwd: string, configPath: string | null | undef
   const abs = path.resolve(cwd, configPath);
   let relDir: string;
   try {
-    const res = await resolvePlaywrightConfig(path.dirname(abs), undefined, abs);
-    relDir = res?.testDir && res.testDir.length > 0 ? res.testDir : '.';
+    const found = await activeAdapter().discoverConfig(path.dirname(abs), { explicitConfig: abs });
+    relDir = found.testDir && found.testDir.length > 0 ? found.testDir : '.';
   } catch {
     return null;
   }
@@ -528,7 +528,13 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
         : plainEntry(f, 'error', scrub(res.message, root));
     }
 
-    const first = await runSelected(root, res.selectArgs, [...outputArgs(path.join(outRoot, 'first')), ...(o.noTrace ? [] : ['--trace', 'retain-on-failure'])], timeoutMs, o.observe);
+    const first = await activeAdapter().runOne(root, {
+      selectArgs: res.selectArgs,
+      extraArgs: outputArgs(path.join(outRoot, 'first')),
+      noTrace: o.noTrace,
+      timeoutMs,
+      observe: o.observe,
+    }, 'first');
     if (first.kind === 'timeout') return refusedEntry(f, 'timeout', 'The test run timed out before it finished.');
     if (first.kind === 'error') return plainEntry(f, 'error', scrub(first.message, root));
     if (first.status === 'skipped') return plainEntry(f, 'error', 'The test is skipped, so heal could not run it.');
@@ -540,12 +546,12 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
 
     // The test failed. Is it a locator failure?
     const test = first.test;
-    const failure = classifyFailure(test.message);
+    const failure = activeAdapter().classifyFailure(test.message);
     if (failure.kind === 'other') {
       // Source code frames show neighbouring lines (often a page.goto), so
       // they are removed before looking for a navigation or network error.
       const noFrames = stripAnsi(test.message).replace(/^[ \t]*>?[ \t]*\d+ \|.*$/gm, '');
-      if (/page\.goto:|net::|Navigation failed|NS_ERROR|Protocol error/.test(noFrames)) {
+      if (activeAdapter().navigationError.test(noFrames)) {
         return refusedEntry(f, 'navigation-or-network', `The test failed on a navigation or network step, which a test change cannot fix: ${scrub(failure.summary, root)}`);
       }
       return plainEntry(f, 'not-locator', `The test did not fail on a locator: ${scrub(failure.summary, root)}`);
@@ -656,7 +662,12 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     if (o.verify) {
       trackAppliedForSignal(healed.plan, healed.locators, o.auditPath, o.cwd);
       try {
-        const again = await runSelected(root, withLine(res.selectArgs, test.line, test.line - declShift), outputArgs(path.join(outRoot, 'rerun')), timeoutMs, o.observe);
+        const again = await activeAdapter().runOne(root, {
+          selectArgs: withLine(res.selectArgs, test.line, test.line - declShift),
+          extraArgs: outputArgs(path.join(outRoot, 'rerun')),
+          timeoutMs,
+          observe: o.observe,
+        }, 'rerun');
         if (again.kind !== 'ran' || again.status !== 'expected') {
           applyHealPlanExcluding(healed.plan, () => true);
           reverted = true;

@@ -1,9 +1,11 @@
 import path from 'node:path';
 import { playwrightVersion } from '../../contract.js';
-import { parseLocatorCalls } from '../../heal.js';
-import { findPlaywrightConfig, resolvePlaywrightConfig } from '../../playwright-config.js';
-import { classifyFailure, collectTests, parseJsonReport } from '../../run.js';
-import { emitLocatorCall, type CascadeLevel } from '../../selectors.js';
+import { findPlaywrightConfig, resolvePlaywrightConfig } from './config.js';
+import { emitLocatorCall } from './emit.js';
+import type { CascadeLevel } from '../../selectors.js';
+import { parseLocatorCalls } from './parse-locators.js';
+import { classifyFailure, collectTests, parseJsonReport } from './report.js';
+import { uniqueInTarget as playwrightUnique } from './unique.js';
 import { listTests as listTestsImpl, runSelected } from '../../targeted.js';
 import type {
   ChildRun,
@@ -87,14 +89,8 @@ export const playwrightJs: FrameworkAdapter = {
     return { code: identity.root === 'this.page' ? `this.${code}` : code };
   },
 
-  /**
-   * Playwright strict locator semantics: exactly one match.
-   * Other adapters must implement their own framework's matching rule
-   * (Cypress cy.contains and cy.get, Selenium first-match and non-piercing
-   * CSS and XPath). A Playwright count is not proof for them.
-   */
-  async uniqueInTarget(_probePage: unknown, target: { count(): Promise<number> }): Promise<boolean> {
-    try { return (await target.count()) === 1; } catch { return false; }
+  uniqueInTarget(probePage: unknown, target: { count(): Promise<number> }): Promise<boolean> {
+    return playwrightUnique(probePage, target);
   },
 
   assertionGrammar: playwrightAssertionGrammar,
