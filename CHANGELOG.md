@@ -12,7 +12,7 @@ Playwright JS/TS is now one adapter behind a shared core. Contract version 1 is 
 - **Fixed:** Without `/proc`, heal reads `ps` once per stop loop and answers every pid from that table.
 - **Fixed:** In `--test` mode, a re-run that hits the run timeout is reported as a timeout and the heal is reverted.
 - **Fixed:** In findings mode, a finding that never started because the run timeout was already used up gets its own message. The refusal code stays `timeout`.
-- **Fixed:** A spec path that is absolute, or that contains `..`, is refused as outside the project, even when the resolved file would sit inside the project. The code stays `spec-not-found`. A missing relative path inside the project says it was not found.
+- **Note:** Absolute spec paths and spec paths that contain `..` are still refused as outside the project, as in 0.4.2.
 - **Fixed:** If the spec was deleted after heal wrote it, the audit warning says so. The audit field names are unchanged.
 - **Fixed:** If the verify re-run throws after an apply, heal restores the spec and then clears the unverified list, so a later signal does not restore it again. `unverifiedApplyCount` is the test guard for that list.
 - **Internal:** Playwright-specific parsing, reports, config loading, and the test runner live in the Playwright adapter. The registry contains `playwright-js` only. Spec mode still calls some Playwright helpers through the old module paths. `heal.ts` imports the Playwright adapter files directly. `parseReport` and `listTests` are on the adapter and are not used by the core yet.
