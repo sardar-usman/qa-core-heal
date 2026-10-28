@@ -1,3 +1,4 @@
+import { cypressJs } from './cypress-js/index.js';
 import { playwrightJs } from './playwright-js/index.js';
 import type { FrameworkAdapter, FrameworkId } from './types.js';
 
@@ -7,6 +8,7 @@ import type { FrameworkAdapter, FrameworkId } from './types.js';
  */
 const registry = new Map<FrameworkId, FrameworkAdapter>([
   ['playwright-js', playwrightJs],
+  ['cypress-js', cypressJs],
 ]);
 
 /** Capabilities and detection list frameworks in this order. Python ids stay planned. */

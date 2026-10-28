@@ -602,7 +602,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     if (!failure.selector) {
       return plainEntry(f, 'not-locator', 'The test failed on a locator, but heal could not read the failing selector from the message.');
     }
-    const url = !o.noTrace && test.tracePath ? activeAdapter().pageSource({ tracePath: test.tracePath }) : null;
+    const url = !o.noTrace ? activeAdapter().pageSource({ tracePath: test.tracePath, capturePath: test.capturePath }) : null;
     const next = res.startLines.find((l) => l > test.line);
     const target: HealTarget = {
       selector: failure.selector,

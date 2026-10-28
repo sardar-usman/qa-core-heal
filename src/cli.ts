@@ -13,7 +13,7 @@ import { startRunBudget } from './playwright-cli.js';
 import { clearUnverifiedApplies, installSignalCleanup, trackOutputDir, trackUnverifiedApply, untrackOutputDir } from './process-guard.js';
 import { projectRootFor } from './project-root.js';
 import { detectFramework } from './adapters/detect.js';
-import { activeAdapter } from './adapters/index.js';
+import { activeAdapter, enabledAdapters, FRAMEWORK_IDS } from './adapters/index.js';
 import type { ChildRun, NeutralTestResult, SpecBatchSelection } from './adapters/types.js';
 import { buildCapabilities, ContractError, parseFindings, toolVersion } from './contract.js';
 import { configArgFor, configIgnoreReason, lineShift, runFindingsFlow } from './findings-flow.js';
@@ -172,6 +172,13 @@ function fail(msg: string, exitCode: 1 | 2 = 1): never {
   process.exit(exitCode);
 }
 
+function frameworkHelpLine(): string {
+  const enabled = enabledAdapters().map((adapter) => adapter.id);
+  const supported = enabled.length > 0 ? enabled.join(', ') : 'playwright-js';
+  const planned = FRAMEWORK_IDS.filter((id) => !enabled.includes(id)).join(', ');
+  return `      --framework <id>           framework to use. Supported now: ${supported}. Planned: ${planned}`;
+}
+
 const HELP = `qa-core-heal — deterministic selector healing for Playwright specs
 
 Usage:
@@ -197,7 +204,7 @@ Flags:
       --debug                    implies --verbose; adds stack traces and raw child stdout/stderr
       --config <file>            use this qa-core config file instead of the default qa-core.config.json lookup
       --playwright-config <path> Playwright config for a spec run, passed through as --config. Same path rules as a findings configPath. Not with --findings
-      --framework <id>           framework to use. Supported now: playwright-js. Planned: cypress-js, selenium-js, playwright-py, selenium-py
+${frameworkHelpLine()}
       --base-url <url>           base URL of the app under test (overrides config and playwright.config)
       --project <name>           playwright project to take use.baseURL from when projects disagree
       --route <file>=<route>     override the inferred route for a spec or page-object file (repeatable)
@@ -1090,7 +1097,8 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     // spawn error code or exit status, and the stderr tail. A bare
     // "could not run" would leave a Windows ENOENT indistinguishable
     // from a broken config.
-    fail(`Could not run the Playwright tests (no JSON report). ${run.failureDetail}`);
+    fail(activeAdapter().noReportMessage?.(run.failureDetail)
+      ?? `Could not run the Playwright tests (no JSON report). ${run.failureDetail}`);
   }
   const tests = run.tests;
   // Every test's declaration line, per file: a failing test's BODY span is
@@ -1113,10 +1121,12 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     return { file: path.resolve(reportRootDir, t.file), startLine: t.line, endLine: next ?? Number.MAX_SAFE_INTEGER };
   };
   if (tests.length === 0) {
-    fail(`Playwright reported no tests for ${rels.join(', ')} — check the spec path and playwright config.`);
+    fail(activeAdapter().noTestsMessage?.(rels.join(', '))
+      ?? `Playwright reported no tests for ${rels.join(', ')} — check the spec path and playwright config.`);
   }
   if (ctx.only && tests.length !== 1) {
-    fail(`--test expected exactly one test to run, but Playwright reported ${tests.length}. Nothing was changed.`);
+    fail(activeAdapter().unexpectedCountMessage?.(tests.length)
+      ?? `--test expected exactly one test to run, but Playwright reported ${tests.length}. Nothing was changed.`);
   }
   const failing = tests.filter((t) => !t.ok);
 
@@ -1222,7 +1232,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   for (const t of failing) {
     const c = activeAdapter().classifyFailure(t.errorText);
     if (c.kind === 'locator' && c.selector) {
-      const url = !cli.noTrace && t.tracePath ? activeAdapter().pageSource({ tracePath: t.tracePath }) : null;
+      const url = !cli.noTrace ? activeAdapter().pageSource({ tracePath: t.tracePath, capturePath: t.capturePath }) : null;
       targets.push({
         selector: c.selector,
         url: url ?? undefined,

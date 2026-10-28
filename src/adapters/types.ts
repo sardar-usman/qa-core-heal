@@ -104,6 +104,8 @@ export interface NeutralTestResult {
   locations: Array<{ file: string; line: number }>;
   /** The runner's own status word when the report has one. */
   status: string;
+  /** Cypress writes the failing page here. Playwright leaves this unset. */
+  capturePath?: string | null;
 }
 
 /**
@@ -262,6 +264,11 @@ export interface WeakenGrammar {
   /** Not global. Matches test.skip and test.fixme, including test.describe.skip. */
   skipCall: RegExp;
   assertCallee: string;
+  /**
+   * Cypress counts `.should()` and `.and()` as assertions.
+   * Unset for Playwright, so the expect() rules stay as they are.
+   */
+  shouldChain?: boolean;
 }
 
 /**
@@ -344,6 +351,10 @@ export interface FrameworkAdapter {
   /** True when this project has a TypeScript config this Node cannot load. */
   blocksTypeScriptConfig(root: string): boolean;
   typeStrippingMessage(): string;
+  /** Spec-mode wording. Playwright keeps the sentences it already prints. */
+  noReportMessage?(detail: string): string;
+  noTestsMessage?(specs: string): string;
+  unexpectedCountMessage?(count: number): string;
   assertionGrammar: WeakenGrammar;
   routeCalls: RouteGrammar;
   cleanup: CleanupRules;
