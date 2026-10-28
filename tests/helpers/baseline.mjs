@@ -26,6 +26,18 @@ function removeOwned() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+function ensureCommitPresent(sha) {
+  const has = spawnSync('git', ['cat-file', '-t', sha], { cwd: repoRoot, encoding: 'utf8' });
+  if (has.status === 0) return;
+  // CI checks out a shallow commit, so 8da827d is not local until it is fetched.
+  const fetch = spawnSync('git', ['fetch', '--depth', '1', 'origin', sha], {
+    cwd: repoRoot, encoding: 'utf8',
+  });
+  if (fetch.status !== 0) {
+    throw new Error(fetch.stderr || fetch.stdout || `could not fetch ${sha}`);
+  }
+}
+
 function assertBaseline(root) {
   const sha = headSha(root);
   if (sha !== BASELINE_SHA) {
@@ -48,6 +60,7 @@ export function ensureBaseline() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-042-'));
   ownedRoot = root;
   process.once('exit', removeOwned);
+  ensureCommitPresent(BASELINE_SHA);
   const add = spawnSync('git', ['worktree', 'add', '--detach', root, BASELINE_SHA], {
     cwd: repoRoot, encoding: 'utf8',
   });
