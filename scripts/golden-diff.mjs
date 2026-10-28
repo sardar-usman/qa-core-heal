@@ -15,7 +15,9 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { baselineCli, ensureBaseline, headCli, repoRoot } from '../tests/helpers/baseline.mjs';
+import { ensureBaseline, headCli, repoRoot } from '../tests/helpers/baseline.mjs';
+
+const baselineCli = ensureBaseline();
 
 const NORMALISATIONS = [
   'package version string 0.4.2 versus 0.5.0, including results tool.version',
@@ -422,7 +424,6 @@ function showDiff(d) {
 }
 
 async function main() {
-  ensureBaseline();
   if (!fs.existsSync(headCli)) {
     console.error('dist/cli.js is missing. Run npm run build first.');
     process.exit(1);

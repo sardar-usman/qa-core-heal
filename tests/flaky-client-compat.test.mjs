@@ -2,12 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { baselineCli, ensureBaseline, headCli } from './helpers/baseline.mjs';
+import { ensureBaseline, headCli } from './helpers/baseline.mjs';
 import { baseOf, finding, findingsDoc, makeProject, rm, startServer } from './helpers/contract.mjs';
 
-ensureBaseline();
+const baselineCli = ensureBaseline();
 
 function run(cli, args, cwd) {
   const runResult = spawnSync(process.execPath, [cli, ...args], { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
