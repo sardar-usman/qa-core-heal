@@ -541,8 +541,6 @@ function buildSmartCssFromIntent(intent: string): string | null {
   return null;
 }
 
-export { emitLocatorCall, frameScopeExpr } from './adapters/playwright-js/emit.js';
-
 /** Escape a string for safe use inside a `new RegExp(...)` pattern. */
 export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

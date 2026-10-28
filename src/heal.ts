@@ -1,16 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser, type ElementHandle, type Locator, type Page } from 'playwright';
-import { emitLocatorCall, resolve as resolveIntent, type CascadeLevel } from './selectors.js';
+import { resolve as resolveIntent, type CascadeLevel, type ResolvedLocator, type Scope } from './selectors.js';
 import { healResolve } from './heal-resolve.js';
 import { installEvalShim } from './eval-shim.js';
-import { resolveBaseUrl } from './adapters/playwright-js/base-url.js';
-import { buildLocator, scopeFor } from './adapters/playwright-js/build-locator.js';
-import {
-  parseArgs, parseLocatorCalls, matchParen, ROLE_BOOL_OPTS,
-  type LocatorArgs, type LocatorCall, type LocatorMethod,
-} from './adapters/playwright-js/parse-locators.js';
-import { uniqueInTarget } from './adapters/playwright-js/unique.js';
+import { activeAdapter, type LocatorCall } from './adapters/index.js';
+import type { ProbeQuery } from './adapters/types.js';
 import {
   buildRoutePlan, routesForLocator, routeLabel, resolveRoute, stripAutoSuffixes, hasExplicitRoute,
   templateGotos, templateRouteSkipLine, type RouteOverride,
@@ -653,7 +648,7 @@ interface Fingerprint {
  *  A read landing on a node DETACHED between resolution and evaluation is
  *  a mid-render artifact, not evidence — its zero-sized box would fake a
  *  geometry disagreement — so it throws into the retry. */
-async function readFingerprint(locator: ReturnType<typeof buildLocator>): Promise<Fingerprint | null> {
+async function readFingerprint(locator: Locator): Promise<Fingerprint | null> {
   for (let i = 0; i < 3; i++) {
     try {
       return await locator.first().evaluate((el) => {
@@ -733,7 +728,7 @@ function describeFingerprint(f: Fingerprint): string {
  * Matching compares separator-normalized forms too: an attribute
  * "search_field" carries the token "search field 1".
  */
-async function confirmSameElement(locator: ReturnType<typeof buildLocator>, token: string): Promise<ConfirmResult> {
+async function confirmSameElement(locator: Locator, token: string): Promise<ConfirmResult> {
   const nt = norm(token);
   if (nt.length < 2) return { confirmed: false, unstableMatch: false }; // nothing specific enough to confirm against
   const st = normSep(token);
@@ -836,38 +831,21 @@ function applyEdits(src: string, edits: Edit[]): string {
  * `getByRole('textbox', { name: 'X' })` in a Playwright error are the
  * same identity.
  */
-function argsSignature(method: LocatorMethod, args: LocatorArgs): string {
-  const sig: Record<string, unknown> = { method };
-  if (method === 'getByRole') {
-    sig.role = args.role ?? '';
-    if (args.name) sig.name = args.name;
-    if (args.exact) sig.exact = true;
-    // ALL remaining options, in a fixed key order so property order in the
-    // source or the error rendering can never affect the signature.
-    for (const k of ROLE_BOOL_OPTS) {
-      if (args.roleOpts?.[k] !== undefined) sig[k] = args.roleOpts[k];
-    }
-    if (args.roleOpts?.level !== undefined) sig.level = args.roleOpts.level;
-  } else if (method === 'locator') {
-    if (args.xpath) sig.xpath = args.xpath;
-    else sig.css = args.css ?? '';
-    if (args.hasText) sig.hasText = args.hasText;
-  } else {
-    sig.value = args.label ?? args.placeholder ?? args.text ?? args.alt ?? args.title ?? args.testid ?? '';
-  }
-  return JSON.stringify(sig);
-}
-
 /** Signature of a selector call TEXT (e.g. from an error message), or null. */
 export function selectorSignature(text: string): string | null {
-  const t = text.trim();
-  const m = t.match(/^(getByRole|getByLabel|getByPlaceholder|getByText|getByAltText|getByTitle|getByTestId|locator)\s*\(/);
-  if (!m) return null;
-  const method = m[1] as LocatorMethod;
-  const open = m[0].length - 1;
-  const close = matchParen(t, open);
-  if (close < 0) return null;
-  return argsSignature(method, parseArgs(method, t.slice(open + 1, close)));
+  return activeAdapter().selectorSignature(text);
+}
+
+function emitRaw(
+  level: CascadeLevel,
+  arg: ResolvedLocator['arg'],
+  frameChain: string[] | undefined,
+  root: string,
+): string {
+  return activeAdapter().emitLocator(
+    { root, frameChain },
+    { level, arg, ambiguous: false },
+  )?.code ?? '';
 }
 
 /* ─────────────────────── fuzzy typo matching ─────────────────────── */
@@ -1480,12 +1458,14 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
     }
     specFiles.set(sp, list);
   }
-  const calls = files.flatMap((f) => parseLocatorCalls(f.src, f.path));
+  const calls = files.flatMap((f) => activeAdapter().parseLocators(f.src, f.path) as LocatorCall[]);
 
   const roots = [process.cwd()];
   const specRoot = projectRootFor(specPaths[0]!);
   if (!roots.includes(specRoot)) roots.push(specRoot);
-  const resolved = await resolveBaseUrl(files, roots, opts.baseUrl, opts.project, opts.playwrightConfig);
+  const resolved = await activeAdapter().resolveProbeBase({
+    files, roots, baseUrl: opts.baseUrl, project: opts.project, explicitConfig: opts.playwrightConfig,
+  });
   let url = resolved.url;
   // Nothing resolved, but run-mode targets carry failure-time trace URLs:
   // they already passed the main-frame and non-http filters, and with no
@@ -1585,7 +1565,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
   const scopeByCall = new Map<LocatorCall, { file: string; startLine: number; endLine: number }>();
   if (opts.targets) {
     const sigOfCall = new Map<LocatorCall, string>();
-    for (const c of calls) sigOfCall.set(c, argsSignature(c.method, c.args));
+    for (const c of calls) sigOfCall.set(c, activeAdapter().locatorSignature(c));
     // Origins a trace URL may legitimately point at: the resolved base URL
     // and every goto()/--route target. Anything else — a feedback-widget
     // iframe, an auth provider — is not a page this suite tests.
@@ -1811,7 +1791,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       call: LocatorCall,
       locator: Locator,
       level: CascadeLevel,
-      arg: Parameters<typeof emitLocatorCall>[1],
+      arg: ResolvedLocator['arg'],
       frameChain: string[] | undefined,
       confirmToken: string,
     ): Promise<RouteOutcome> => {
@@ -1877,8 +1857,9 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           // Count-checks run in the RESOLUTION's frame scope: the ladder
           // resolves into iframes (frameChain), and a frame-resolved
           // element counts 0 against the top document.
-          const scope = scopeFor(page, frameChain && frameChain.length > 0 ? frameChain : call.frameChain);
-          const unique = (loc: Locator): Promise<boolean> => uniqueInTarget(page, loc);
+          const frames = frameChain && frameChain.length > 0 ? frameChain : call.frameChain;
+          const unique = async (query: ProbeQuery): Promise<boolean> =>
+            (await activeAdapter().uniqueInTarget(page, { ...query, frameChain: frames })) === 1;
           // A stable id has NO generated segment: '#digest-checkbox-1f8a2e'
           // rotates per load even though 'digest-checkbox' is human — the
           // dynamic-id doctrine (a random id is never proposed) applies to
@@ -1895,8 +1876,8 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
             : level === 'placeholder' ? ev.placeholder
             : level === 'title' ? ev.title
             : ev.ownText;
-          let rebuilt: { level: CascadeLevel; arg: Parameters<typeof emitLocatorCall>[1] } | null = null;
-          if (call.level === 'css' && idArg && await unique(scope.locator(idArg))) {
+          let rebuilt: { level: CascadeLevel; arg: ResolvedLocator['arg'] } | null = null;
+          if (call.level === 'css' && idArg && await unique({ kind: 'css', selector: idArg })) {
             rebuilt = { level: 'css', arg: idArg };
           } else if (fullValue) {
             const exactArg = level === 'role'
@@ -1905,15 +1886,15 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
               : level === 'placeholder' ? { placeholder: fullValue, exact: true as const }
               : level === 'title' ? { title: fullValue, exact: true as const }
               : { text: fullValue, exact: true as const };
-            const exactLoc = level === 'role'
-              ? scope.getByRole((arg as { role: string }).role as Parameters<Page['getByRole']>[0], { name: fullValue, exact: true })
-              : level === 'label' ? scope.getByLabel(fullValue, { exact: true })
-              : level === 'placeholder' ? scope.getByPlaceholder(fullValue, { exact: true })
-              : level === 'title' ? scope.getByTitle(fullValue, { exact: true })
-              : scope.getByText(fullValue, { exact: true });
-            if (await unique(exactLoc)) rebuilt = { level, arg: exactArg };
-            else if (idArg && await unique(scope.locator(idArg))) rebuilt = { level: 'css', arg: idArg };
-          } else if (idArg && await unique(scope.locator(idArg))) {
+            const exactQuery: ProbeQuery = level === 'role'
+              ? { kind: 'role', role: (arg as { role: string }).role, name: fullValue, exact: true }
+              : level === 'label' ? { kind: 'label', text: fullValue, exact: true }
+              : level === 'placeholder' ? { kind: 'placeholder', text: fullValue, exact: true }
+              : level === 'title' ? { kind: 'title', text: fullValue, exact: true }
+              : { kind: 'text', text: fullValue, exact: true };
+            if (await unique(exactQuery)) rebuilt = { level, arg: exactArg };
+            else if (idArg && await unique({ kind: 'css', selector: idArg })) rebuilt = { level: 'css', arg: idArg };
+          } else if (idArg && await unique({ kind: 'css', selector: idArg })) {
             rebuilt = { level: 'css', arg: idArg };
           }
           if (rebuilt) {
@@ -1926,8 +1907,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           }
         }
       }
-      let newRaw = emitLocatorCall(level, arg, false, frameChain);
-      if (call.root === 'this.page') newRaw = 'this.' + newRaw;
+      const newRaw = emitRaw(level, arg, frameChain, call.root);
       // Role correction: the original getByRole named its target EXACTLY
       // (exact:true) and the candidate carries that identical exact name at
       // role level — only the role differs (a link that became a button).
@@ -2118,12 +2098,13 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
     // the normal refusal paths apply.
     const tagFixProbe = async (call: LocatorCall): Promise<RouteOutcome | null> => {
       if (call.level !== 'css' || !call.args.css) return null;
-      const scope = scopeFor(page, call.frameChain);
+      const scope = activeAdapter().probeScope(page, call.frameChain) as Scope;
       const unique: Array<{ css: string; locator: Locator }> = [];
       for (const corrected of tagTypoCorrections(call.args.css)) {
         const locator = scope.locator(corrected);
-        let n = 0;
-        try { n = await locator.count(); } catch { n = 0; }
+        const n = await activeAdapter().uniqueInTarget(page, {
+          kind: 'css', selector: corrected, frameChain: call.frameChain,
+        });
         if (n === 1) unique.push({ css: corrected, locator });
       }
       if (unique.length !== 1) return null;
@@ -2140,11 +2121,11 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       // A declared expectation with an UNVERIFIABLE candidate kind is the
       // same guess the gate refuses below — never propose it from here.
       if (expected.length > 0 && candidateKind === null) return null;
-      let newRaw = emitLocatorCall(
-        'css-tag-fix', hit.css, false,
+      const newRaw = emitRaw(
+        'css-tag-fix', hit.css,
         call.frameChain.length > 0 ? call.frameChain : undefined,
+        call.root,
       );
-      if (call.root === 'this.page') newRaw = 'this.' + newRaw;
       return {
         kind: 'resolved', newRaw, level: 'css-tag-fix',
         confirmed: true, unstableMatch: false,
@@ -2223,7 +2204,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       //    multi-match IS the failure: the positional disambiguator
       //    (.first()/.nth()) was deleted and cannot be guessed back.
       let count = 0;
-      const original = buildLocator(page, call);
+      const original = activeAdapter().probeLocator(page, call) as Locator;
       try { count = await original.count(); } catch { count = 0; }
       if (strict && count >= 2) {
         return { kind: 'strict-multi', count, candidates: await distinguishers(original, count) };
@@ -2711,12 +2692,12 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
       // and not itself a selected probe target (its own failure owns it).
       const scope = scopeByCall.get(call);
       const selectedCalls = new Set(tasks.map((x) => x.call));
-      const sig = argsSignature(call.method, call.args);
+      const sig = activeAdapter().locatorSignature(call);
       const siblings = scope
         ? calls.filter((c) => c !== call && !selectedCalls.has(c)
             && c.file === call.file && c.root === call.root
             && c.line >= scope.startLine && c.line < scope.endLine
-            && argsSignature(c.method, c.args) === sig)
+            && activeAdapter().locatorSignature(c) === sig)
         : [];
       const list = editsByFile.get(call.file) ?? [];
       list.push({ line: call.line, startCol: call.startCol, endLine: call.endLine, endCol: call.endCol, newRaw: styled });
