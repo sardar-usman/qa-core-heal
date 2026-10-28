@@ -105,6 +105,8 @@ session may be expired. Re-generate it and retry.
 
 And when `--auth-setup` ran but the redirect still happens: `auth setup ran but /accounts still redirected to /login; the login function may have failed silently or the session did not persist`.
 
+**A login page at /.** SauceDemo's login page is the site root (`/`). Heal treats a redirect to `/` the same way it treats a redirect to `/login`, and it prints `the page may require authentication; pass --storage-state <path>`. A SauceDemo session lasts only a short time, so save a fresh login to `.auth/state.json` before the heal run. Heal auto-detects that file. Keep the session out of git (`.auth/` is already in `.gitignore`).
+
 **3. Security.**
 
 > The tool never reads or stores credentials. It executes only the login code you explicitly name, and nothing else in your setup files. Sessions stay in memory for the duration of the run. Logs and audit entries carry file paths, export names, and pass/fail results, never credentials, cookie values, or storage-state contents. Keep session files out of version control: add `.auth/` to your `.gitignore`.
@@ -175,7 +177,8 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--output <path>` | additionally write the human report to a file; stdout unchanged |
 | `--verbose` | detailed progress on stderr: probe steps, candidate scoring, child commands executed |
 | `--debug` | implies `--verbose`; adds stack traces and raw child stdout/stderr |
-| `--config <file>` | use this config file instead of the default lookup; missing or invalid errors with the full story |
+| `--config <file>` | use this qa-core config file instead of the default lookup; missing or invalid errors with the full story |
+| `--playwright-config <path>` | Playwright config for a spec run, passed through as `--config`. Same path rules as a findings `configPath`. Not with `--findings` |
 | `--base-url <url>` | override base URL resolution (config → goto scan) |
 | `--project <name>` | pick a Playwright project when their baseURLs disagree |
 | `--route <file>=<route>` | override route inference per file (repeatable) |
@@ -192,6 +195,7 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--findings <file>` | read a heal findings file (contract version 1) instead of a spec path. Needs `--results` |
 | `--results <file>` | where `--findings` writes the heal results file. Needs `--findings` |
 | `--run-timeout <seconds>` | stop one Playwright run after this many seconds. Works with `--findings` or `--test` |
+| `--shadow-runs <n>` | scratch re-runs that must all pass before a findings proposal is verified (default 3, with `--findings`) |
 
 **The `--json` contract (schemaVersion 1).** The payload always carries `schemaVersion: 1`, a `verdicts` array (one entry per probed locator and per non-locator failure, each with `spec`, `testTitle`, `classification` (`locator` / `non-locator`), `message`, `healApplied`, `before`, `after`, `verified`), and a `summary` of `{ heals, refusals, nonLocator, errors }`, alongside the original per-locator fields. Errors also emit valid JSON with the failure story in `error`. schemaVersion 1 is the compatibility contract: existing fields will not change meaning or disappear within it; additions may appear. Exit codes are unchanged by `--json`.
 
@@ -200,10 +204,13 @@ re-resolved element differs: expected an element matching "search panel 42"
 Since 0.4.0, qa-core-heal can read a findings file written by another tool (qa-core-flaky) and write a results file back. The two files follow contract version 1. Their JSON Schemas are in the `schemas/` folder of the package: `heal-findings.v1.schema.json` (owned by qa-core-flaky) and `heal-results.v1.schema.json` (owned by qa-core-heal). Version 1 is frozen. See `schemas/README.md`.
 
 ```bash
+npx qa-core-flaky triage <report.json> --heal-findings heal-findings.json
 npx qa-core-heal --findings heal-findings.json --results heal-results.json --dry-run
 ```
 
-**What it does.** For each finding whose handoff is `locator`, qa-core-heal runs that one test (not the whole file), reads the failure, and looks for a confident replacement on the live page. If it finds one, it applies the change to a temporary copy of your project and runs the same test once there. Only a change that passes that check is written to the results file as `proposed`. Your source files are not touched.
+The first command is qa-core-flaky. It writes the findings file. The second command is qa-core-heal. A finding's `file` is relative to Playwright's `testDir` (for example `broken.spec.ts` when `testDir` is `./tests`). `project.configPath` stays relative to the folder where you run heal (for example `demo/saucedemo/playwright.config.ts`). Heal still receives that `configPath` unchanged.
+
+**What it does.** For each finding whose handoff is `locator`, qa-core-heal runs that one test (not the whole file), reads the failure, and looks for a confident replacement on the live page. If it finds one, it applies the change to a temporary copy of your project and runs the same test there. The default is 3 runs, and every run must pass. `--shadow-runs` or `heal.shadowRuns` in `qa-core.config.json` sets the count. The flag wins. Only a change that passes every run is written to the results file as `proposed`. Your source files are not touched. A diff that removes or loosens an assertion is refused with `weakens-test` before any copy is made.
 
 **The handoff gate.** A finding with the handoff `none` is refused with the code `ineligible-handoff`, and no test is run for it. qa-core-heal also checks the verdict and the gates in the finding itself, so a real bug or an environment issue is never run as a locator problem. A finding with the handoff `suggest` is not run either.
 
@@ -220,7 +227,7 @@ npx qa-core-heal --findings heal-findings.json --results heal-results.json --dry
 | `nothing-to-heal` | the test passed when qa-core-heal ran it. This is weak evidence only. It does not show that the flakiness is gone |
 | `error` | the test could not be run or read, for example because it is skipped |
 
-**Refusal codes this build writes.** `ambiguous-match`, `element-changed`, `strict-needs-human`, `possible-real-bug`, `verification-failed`, `no-safe-pattern`, `ineligible-handoff`, `navigation-or-network`, `spec-not-found` and `timeout`. The schema also lists `weakens-test`, `baseline-not-reproduced`, `ai-disabled` and `ai-invalid-output`. They are reserved for later releases and 0.4.0 does not write them. Every refusal has a test fixture.
+**Refusal codes this build writes.** `ambiguous-match`, `element-changed`, `strict-needs-human`, `possible-real-bug`, `verification-failed`, `weakens-test`, `no-safe-pattern`, `ineligible-handoff`, `navigation-or-network`, `spec-not-found` and `timeout`. The schema also lists `baseline-not-reproduced`, `ai-disabled` and `ai-invalid-output`. This build does not write those three. Every refusal this build writes has a test fixture.
 
 **Exit codes in findings mode.**
 
@@ -242,20 +249,20 @@ It prints one JSON object. `contracts.findings` and `contracts.results` are arra
 {
   "schema": "qa-core.heal-capabilities",
   "schemaVersion": 1,
-  "tool": { "name": "qa-core-heal", "version": "0.4.0" },
+  "tool": { "name": "qa-core-heal", "version": "0.4.1" },
   "contracts": { "findings": [1], "results": [1] },
   "playwrightVersion": "1.60.0",
-  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false }
+  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true }
 }
 ```
 
-`playwrightVersion` is the version found for the current folder, or `null` when none is found. Without `--json` the same facts print as plain text. The word `capabilities` is read as the subcommand only when it is the only argument (with or without `--json`). A spec file or folder with that name is still reachable as `./capabilities`.
+`playwrightVersion` is the version found for the current folder, or `null` when none is found. `features.runTimeout` is true when this build accepts `--run-timeout`. Without `--json` the same facts print as plain text. The word `capabilities` is read as the subcommand only when it is the only argument (with or without `--json`). A spec file or folder with that name is still reachable as `./capabilities`.
 
-**Paths in a findings file.** The `file` of each finding is relative to the folder where you run qa-core-heal (or to the folder of `project.configPath`). Absolute paths and paths that leave the project are refused with `spec-not-found`. The real location of the spec is checked against the project folder, so a `..` in `project.configPath` or a symbolic link cannot bring in a spec from outside it.
+**Paths in a findings file.** The `file` of each finding is relative to the folder where you run qa-core-heal, or to the folder of `project.configPath`. When `project.configPath` is set and the file is not found from either of those, heal also looks in that config's `testDir` (Playwright's own default is `tests` when the config does not set one). Absolute paths and paths that leave the project are refused with `spec-not-found`. The real location of the spec is checked against the project folder, so a `..` in `project.configPath` or a symbolic link cannot bring in a spec from outside it. A hard link inside the project that names a spec outside the project is not caught, because a hard link and a normal file look the same. Do not point a hard link at a spec outside the project. An explicit `--dry-run` is accepted with `--findings` and is the default anyway. `--findings` runs the test named in each finding, so it is never combined with `--test`.
 
-**The Playwright config.** `project.configPath` is passed to Playwright as `--config` for the test list, the first run, the scratch check and the re-run after an apply, so a config that lives in a folder below the project root (for example `demo/saucedemo/playwright.config.ts`) is used. A `configPath` that does not exist, or that points outside the project, is ignored and Playwright finds its own config as before.
+**The Playwright config.** `project.configPath` is passed to Playwright as `--config` for the test list, the first run, the scratch check and the re-run after an apply, so a config that lives in a folder below the project root (for example `demo/saucedemo/playwright.config.ts`) is used. A `configPath` that does not exist, or that points outside the project, is ignored and Playwright finds its own config as before. With `--verbose`, heal prints one line saying why: `[verbose] ignored configPath <path>: <why>`. In spec mode (no findings file), pass `--playwright-config <path>`. It uses the same path rules and is passed through as `--config`. `--config` itself still names the qa-core config file.
 
-**Separate output folders.** Every Playwright call in findings mode writes to its own temporary `--output` folder, which is removed when the finding is done. Two runs of qa-core-heal in the same project at the same time do not delete each other's traces. An explicit `--dry-run` is accepted with `--findings` and is the default anyway. `--findings` runs the test named in each finding, so it is never combined with `--test`.
+**Separate output folders.** Every Playwright call in findings mode, and every Playwright call in spec mode, writes to its own temporary `--output` folder (`qa-core-heal-out-*` in the system temp directory). Heal removes that folder when the run finishes, when `--run-timeout` stops it, and when heal is stopped with SIGINT or SIGTERM. Those stops also kill the Playwright process group and the browser processes it started in their own group. Two runs of qa-core-heal in the same project at the same time do not delete each other's traces.
 
 **Run one test.** `--test` works without a findings file too:
 
@@ -265,7 +272,7 @@ npx qa-core-heal tests/saucedemo-login.spec.ts --test "logs in with a valid user
 
 Exactly one test runs, in the first run and in the verify re-run. A title that matches more than one test (for example in two projects) is refused before anything runs. Give the full title (`"Describe › title"`) or `--project` to pick one.
 
-**Not in 0.4.0.** Repeated shadow verification (several runs of the changed test), and the rule-based timing and selector fixes. The scratch check here is one run of one test. Passing it is evidence, not proof.
+**Not in 0.4.1.** The rule-based timing and selector fixes.
 
 ## Limitations
 
@@ -306,6 +313,8 @@ npm run evals                                   # the full eval harness
 ```
 
 Use `node dist/cli.js` in place of `npx qa-core-heal` from a checkout (run `npm run build` once). Optional `qa-core.config.json` in your repo root sets baseUrl, test dir, allowed locator levels, page objects, authSetup, and storage state; full schema in `skill/references/config.md`.
+
+Playwright is a peer dependency (`@playwright/test` and `playwright`, `>=1.49.0`). This package was tested at 1.49.0 and at 1.64.1. The evals in this repo run on Playwright 1.60.0.
 
 ## Use It as a Claude Code Skill
 

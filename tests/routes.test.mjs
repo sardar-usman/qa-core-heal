@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const {
   parseGotos, routeForLine, stripAutoSuffixes, buildRoutePlan, routesForLocator, routeLabel,
+  templateGotos, templateRouteSkipLine,
 } = await import(path.join(repoRoot, 'dist', 'routes.js'));
 
 test('parseGotos finds literal goto routes with line numbers', () => {
@@ -160,6 +161,25 @@ test('a file with no goto anywhere falls back to the base URL', () => {
   const spec = { path: '/p/tests/plain.spec.ts', src: "await page.locator('#x').click();" };
   const plan = planFor({ files: [spec], specFiles: { [spec.path]: [spec.path] }, baseUrl: BASE });
   assert.deepEqual(routesForLocator(plan, spec.path, 1), ['https://shop.example/']);
+});
+
+test('parseGotos skips a template literal route and keeps a real goto beside it', () => {
+  const src = [
+    'const DEMO_ORIGIN = "http://127.0.0.1:9";',
+    'await page.goto(`${DEMO_ORIGIN}/`);',
+    "await page.goto('/inventory');",
+  ].join('\n');
+  assert.deepEqual(parseGotos(src), [{ line: 3, route: '/inventory' }]);
+  assert.deepEqual(templateGotos(src), [{ line: 2, raw: '`${DEMO_ORIGIN}/`' }]);
+  const only = 'await page.goto(`${DEMO_ORIGIN}/`);\nawait page.locator("#x").click();';
+  assert.deepEqual(parseGotos(only), []);
+  const spec = { path: '/p/tests/a.spec.ts', src: only };
+  const plan = planFor({ files: [spec], specFiles: { [spec.path]: [spec.path] }, baseUrl: 'https://shop.example' });
+  const routes = routesForLocator(plan, spec.path, 2);
+  assert.ok(routes.every((r) => !r.includes('%7B') && !r.includes('${')), routes.join(','));
+  const line = templateRouteSkipLine('support/login.ts', 2, '`${DEMO_ORIGIN}/`');
+  assert.match(line, /skipped template route at support\/login\.ts:2/);
+  assert.match(line, /contains \$\{/);
 });
 
 test('routeLabel shows the path of a resolved route', () => {

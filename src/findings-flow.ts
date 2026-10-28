@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { AuditEntry } from './audit.js';
 import {
   applyHealPlan, applyHealPlanExcluding, heal, renderHealPlan,
-  type HealOptions, type HealPlanEntry, type HealResult, type HealTarget,
+  type HealOptions, type HealPlanEntry, type HealResult, type HealTarget, type LocatorReport,
 } from './heal.js';
 import {
   baseEntry, clip, ineligibleReason, playwrightVersion, plainEntry, refusedEntry, RESULTS_SCHEMA, RESULTS_SCHEMA_VERSION,
@@ -11,6 +12,8 @@ import {
   type Change, type Finding, type FindingsDoc, type HealResultEntry, type HealResultsDoc, type RefusalCode,
 } from './contract.js';
 import { projectRootFor } from './project-root.js';
+import { resolvePlaywrightConfig } from './playwright-config.js';
+import { clearUnverifiedApplies, trackOutputDir, trackUnverifiedApply, untrackOutputDir } from './process-guard.js';
 import { scratchVerify } from './scratch.js';
 import {
   matchFinding, outputArgs, realPathOf, resolveTarget, runSelected, type RunObserver,
@@ -28,7 +31,8 @@ import { classifyFailure, stripAnsi, traceFailureUrl } from './run.js';
  *      a later release. Nothing is run.
  *   3. A locator handoff runs exactly one test, classifies the failure,
  *      probes the live page with the existing locator healer, and checks the
- *      candidate once in a scratch copy of the project.
+ *      candidate in a scratch copy of the project. Every requested shadow
+ *      run must pass. The default is three runs.
  *   4. Only a candidate that passed that check is written as proposed.
  *   5. With --apply (and consent) the change is written, the test is re-run
  *      for real, and the change is undone when the re-run fails.
@@ -47,6 +51,8 @@ export interface FindingsFlowOptions {
   maxHeals?: number;
   project?: string;
   runTimeoutMs: number;
+  /** How many scratch runs must pass before a proposal counts as verified. Default 3. */
+  shadowRuns?: number;
   /** Options for the locator healer, shared with the classic flow. */
   heal: Omit<HealOptions, 'specPaths' | 'targets' | 'write' | 'maxHeals' | 'project' | 'onEvent' | 'verbose'>;
   verbose: boolean;
@@ -54,6 +60,8 @@ export interface FindingsFlowOptions {
   observe?: RunObserver;
   /** Ask for consent to write one change. */
   confirm: () => Promise<boolean>;
+  /** Where a signal during verification writes the interrupted audit line. */
+  auditPath: string;
 }
 
 export interface FindingsFlowOutcome {
@@ -104,18 +112,93 @@ function bases(cwd: string, doc: FindingsDoc): string[] {
  * project folder or the Playwright working folder.
  */
 export function configArgFor(cwd: string, configPath: string | null | undefined, root: string): string | null {
-  if (!configPath || isUnsafeRelative(configPath)) return null;
+  if (configIgnoreReason(cwd, configPath, root) !== null) return null;
+  if (!configPath) return null;
   try {
     const real = fs.realpathSync(path.resolve(cwd, configPath));
-    if (!fs.statSync(real).isFile()) return null;
-    if (!isInside(fs.realpathSync(cwd), real)) return null;
     const rel = path.relative(fs.realpathSync(root), real);
-    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
     return posix(rel);
   } catch {
     return null;
   }
 }
+
+/**
+ * Why a provided configPath is not passed to Playwright, or null when it is used.
+ * The words are the ones --verbose prints.
+ */
+export function configIgnoreReason(cwd: string, configPath: string | null | undefined, root: string): string | null {
+  if (!configPath) return null;
+  if (isUnsafeRelative(configPath)) return 'it is absolute or it contains ..';
+  const abs = path.resolve(cwd, configPath);
+  let real: string;
+  try {
+    if (!fs.existsSync(abs)) return 'the file is missing';
+    real = fs.realpathSync(abs);
+    const st = fs.statSync(real);
+    if (st.isDirectory()) return 'it is a folder';
+    if (!st.isFile()) return 'it is not a file';
+  } catch {
+    return 'the file is missing';
+  }
+  try {
+    if (!isInside(fs.realpathSync(cwd), real)) return 'it is outside the project';
+    const rel = path.relative(fs.realpathSync(root), real);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return 'it is outside the project';
+  } catch {
+    return 'it is outside the project';
+  }
+  return null;
+}
+
+function assertNever(x: never): never {
+  throw new Error(`Unhandled scratch state: ${String(x)}`);
+}
+
+/** The result entry when a scratch check does not pass. Null when it passed. */
+export function scratchStopEntry(f: Finding, check: {
+  state: 'passed' | 'failed' | 'timeout' | 'unavailable' | 'weakened';
+  message: string;
+  runs?: number;
+  passed?: number;
+  failed?: number;
+}): HealResultEntry | null {
+  let entry: HealResultEntry | null;
+  switch (check.state) {
+    case 'timeout':
+      entry = refusedEntry(f, 'timeout', check.message);
+      break;
+    case 'unavailable':
+      entry = plainEntry(f, 'error', `The change could not be checked, so it is not proposed. ${check.message}`);
+      break;
+    case 'failed':
+      entry = refusedEntry(f, 'verification-failed', `${check.message} The change is not proposed.`);
+      break;
+    case 'weakened':
+      return refusedEntry(f, 'weakens-test', `${check.message} The change is not proposed.`);
+    case 'passed':
+      return null;
+    default:
+      return assertNever(check.state);
+  }
+  const runs = check.runs ?? 0;
+  const ran = runs > 0 && check.state !== 'unavailable';
+  return {
+    ...entry,
+    verification: {
+      performed: ran,
+      method: ran ? 'shadow-rerun' : 'none',
+      runs,
+      passed: check.passed ?? 0,
+      failed: check.failed ?? 0,
+      baselineReproduced: check.state === 'failed' ? true : null,
+      outcome: check.state === 'failed' || check.state === 'timeout' ? 'failed' : 'not-run',
+    },
+  };
+}
+
+/** How many scratch runs must pass when the caller does not say. */
+export const DEFAULT_SHADOW_RUNS = 3;
 
 /** True when `child` is `parent` or below it. Both must already be real paths. */
 function isInside(parent: string, child: string): boolean {
@@ -128,6 +211,33 @@ function isInside(parent: string, child: string): boolean {
  * inside the project folder. The real path of the spec (links followed) is
  * compared with the real path of the project folder for every base folder.
  */
+/**
+ * The config's test directory, when configPath is safe and the directory
+ * stays inside the project. Playwright's own default is `tests` when the
+ * config does not set testDir. Null when the config cannot be used.
+ */
+export async function testDirBase(cwd: string, configPath: string | null | undefined): Promise<string | null> {
+  if (!configPath || configArgFor(cwd, configPath, cwd) === null) return null;
+  const abs = path.resolve(cwd, configPath);
+  let relDir: string;
+  try {
+    const res = await resolvePlaywrightConfig(path.dirname(abs), undefined, abs);
+    relDir = res?.testDir && res.testDir.length > 0 ? res.testDir : 'tests';
+  } catch {
+    return null;
+  }
+  if (isUnsafeRelative(relDir)) return null;
+  const base = path.resolve(path.dirname(abs), relDir);
+  try {
+    const real = fs.realpathSync(base);
+    if (!fs.statSync(real).isDirectory()) return null;
+    if (!isInside(fs.realpathSync(cwd), real)) return null;
+    return real;
+  } catch {
+    return null;
+  }
+}
+
 export function resolveSpecPath(file: string, candidates: string[], projectDir: string = candidates[0]!): string | null {
   if (isUnsafeRelative(file) || /^[A-Za-z]:/.test(file)) return null;
   let fence: string;
@@ -215,6 +325,37 @@ function changesOf(plan: HealPlanEntry[], root: string): Change[] {
   return out;
 }
 
+/** Remember files --apply wrote, so a signal during the findings verify re-run can put them back. */
+function trackAppliedForSignal(plan: HealPlanEntry[], locators: LocatorReport[], auditPath: string, cwd: string): void {
+  for (const entry of plan) {
+    const rel = posix(path.relative(cwd, entry.file));
+    const lines = entry.src.split('\n');
+    const audit: AuditEntry[] = [];
+    for (const e of entry.edits) {
+      const loc = locators.find((l) => l.status === 'healed' && (l.occurrenceLines ?? [l.line]).includes(e.line));
+      const first = lines[e.line - 1] ?? '';
+      const before = e.endLine === e.line
+        ? first.slice(e.startCol, e.endCol)
+        : [first.slice(e.startCol), ...lines.slice(e.line, e.endLine - 1), (lines[e.endLine - 1] ?? '').slice(0, e.endCol)].join('\n');
+      audit.push({
+        timestamp: new Date().toISOString(),
+        file: rel,
+        line: e.line,
+        old: before,
+        new: loc?.new ?? e.newRaw,
+        level: loc?.level ?? 'css',
+        ambiguous: false,
+        applied: true,
+        verified: false,
+        reverted: true,
+        revertReason: 'interrupted',
+      });
+    }
+    if (audit.length === 0) continue;
+    trackUnverifiedApply({ file: entry.file, original: entry.src, auditPath, entries: audit });
+  }
+}
+
 /** Lines removed above a line by multi-line edits, so a declaration line can be tracked. */
 export function lineShift(plan: HealPlanEntry[], file: string, declLine: number): number {
   let shift = 0;
@@ -233,6 +374,20 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
   let proposedCount = 0;
   let reverted = false;
   let pwVersion: string | null = null;
+  let configNoted = false;
+
+  /** One line, once, when verbose and a provided configPath is not passed through. */
+  function noteIgnoredConfig(root: string): void {
+    if (configNoted || !o.verbose) return;
+    const cfg = doc.project.configPath;
+    if (!cfg) { configNoted = true; return; }
+    if (configArgFor(o.cwd, cfg, root) !== null) return;
+    configNoted = true;
+    const why = configIgnoreReason(o.cwd, cfg, root) ?? 'it is outside the project';
+    console.error(`[verbose] ignored configPath ${cfg}: ${why}`);
+  }
+
+  noteIgnoredConfig(o.cwd);
 
   for (const f of doc.findings) {
     say(`▸ ${f.findingId}  ${f.file} · ${f.titlePath.join(' › ')}  (handoff: ${f.handoff.mode})`);
@@ -245,10 +400,12 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
   /** Each finding gets its own Playwright output folders, removed afterwards, so runs at the same time do not clear each other's files. */
   async function processFinding(f: Finding): Promise<HealResultEntry> {
     const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-out-'));
+    trackOutputDir(outRoot);
     try {
       return await processOne(f, outRoot);
     } finally {
       fs.rmSync(outRoot, { recursive: true, force: true });
+      untrackOutputDir(outRoot);
     }
   }
 
@@ -268,22 +425,36 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     }
 
     // 3. Locator handoff.
-    const specAbs = resolveSpecPath(f.file, baseDirs, o.cwd);
+    let specAbs = resolveSpecPath(f.file, baseDirs, o.cwd);
+    // A findings file from qa-core-flaky names the spec relative to
+    // Playwright's testDir. Try that only after the project root and the
+    // config folder missed, and only inside the same fence.
+    if (!specAbs && doc.project.configPath) {
+      const td = await testDirBase(o.cwd, doc.project.configPath);
+      if (td) specAbs = resolveSpecPath(f.file, [td], o.cwd);
+    }
     if (!specAbs) return refusedEntry(f, 'spec-not-found', `The spec file ${f.file} was not found inside the project folder. No test was run.`);
     const root = projectRootFor(specAbs);
+    noteIgnoredConfig(root);
     pwVersion ??= playwrightVersion(root);
     const fileRel = posix(path.relative(root, specAbs));
     const title = f.titlePath[f.titlePath.length - 1]!;
     const project = o.project ?? f.project;
     const config = configArgFor(o.cwd, doc.project.configPath, root);
 
-    const res = resolveTarget({
+    const res = await resolveTarget({
       root, file: specAbs, title, project, config, outputDir: path.join(outRoot, 'list'),
       match: matchFinding(f.titlePath, project, f.file),
       timeoutMs: o.runTimeoutMs, observe: o.observe,
     });
     if (res.kind === 'not-found') {
-      return refusedEntry(f, 'spec-not-found', `No test with the title path "${f.titlePath.join(' › ')}" was found in ${fileRel}. No test was run.`);
+      let linkNote = '';
+      try {
+        if (fs.lstatSync(specAbs).isSymbolicLink()) {
+          linkNote = ' The file is a symbolic link, and Playwright lists the real file, so heal does not run the link.';
+        }
+      } catch { /* the path check above already required a file */ }
+      return refusedEntry(f, 'spec-not-found', `No test with the title path "${f.titlePath.join(' › ')}" was found in ${fileRel}.${linkNote} No test was run.`);
     }
     if (res.kind === 'ambiguous') {
       return refusedEntry(f, 'ambiguous-match', `${res.count} tests match this finding in ${fileRel}, and heal runs exactly one test. No test was run. Pass --project to narrow it.`);
@@ -294,7 +465,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
         : plainEntry(f, 'error', scrub(res.message, root));
     }
 
-    const first = runSelected(root, res.selectArgs, [...outputArgs(path.join(outRoot, 'first')), ...(o.noTrace ? [] : ['--trace', 'retain-on-failure'])], o.runTimeoutMs, o.observe);
+    const first = await runSelected(root, res.selectArgs, [...outputArgs(path.join(outRoot, 'first')), ...(o.noTrace ? [] : ['--trace', 'retain-on-failure'])], o.runTimeoutMs, o.observe);
     if (first.kind === 'timeout') return refusedEntry(f, 'timeout', 'The test run timed out before it finished.');
     if (first.kind === 'error') return plainEntry(f, 'error', scrub(first.message, root));
     if (first.status === 'skipped') return plainEntry(f, 'error', 'The test is skipped, so heal could not run it.');
@@ -368,13 +539,17 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     // 4. The scratch check. No candidate is shown without it.
     const declShift = lineShift(healed.plan, specAbs, test.line);
     const scratchArgs = withLine(res.selectArgs, test.line, test.line - declShift);
-    const check = scratchVerify({ root, plan: healed.plan, selectArgs: scratchArgs, timeoutMs: o.runTimeoutMs, outputDir: path.join(outRoot, 'scratch'), observe: o.observe });
-    if (check.state === 'timeout') return refusedEntry(f, 'timeout', check.message);
-    if (check.state === 'unavailable') return plainEntry(f, 'error', `The change could not be checked, so it is not proposed. ${check.message}`);
-    if (check.state === 'failed') return refusedEntry(f, 'verification-failed', `${check.message} The change is not proposed.`);
+    const check = await scratchVerify({
+      root, plan: healed.plan, selectArgs: scratchArgs, timeoutMs: o.runTimeoutMs,
+      runs: o.shadowRuns ?? DEFAULT_SHADOW_RUNS,
+      outputDir: path.join(outRoot, 'scratch'), observe: o.observe,
+    });
+    const stopped = scratchStopEntry(f, check);
+    if (stopped) return stopped;
 
+    const times = check.runs === 1 ? 'once' : `${check.runs} times`;
     const core = `The locator failed, and a ${level} locator matched one confident element on the live page (${occurrences} occurrence${occurrences === 1 ? '' : 's'}). `
-      + 'The test passed once in a scratch copy with this change.'
+      + `The test passed ${times} in a scratch copy with this change.`
       + (reviewLevel === 'review-carefully' ? ' Review it carefully.' : '');
     const patchName = `${f.findingId}.diff`;
     fs.mkdirSync(patchDir, { recursive: true });
@@ -391,7 +566,13 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
       changes,
       patchFile,
       explanation: clip(`${core} This is a proposal and it is not applied.`, 600),
-      verification: { performed: true, method: 'shadow-rerun', runs: 1, passed: 1, failed: 0, baselineReproduced: true, outcome: 'passed' },
+      verification: {
+        performed: true, method: 'shadow-rerun',
+        runs: check.runs, passed: check.passed, failed: check.failed,
+        // The first real run already failed, which is what 0.4.0 recorded.
+        // This build does not run the unpatched test again inside the copy.
+        baselineReproduced: true, outcome: 'passed',
+      },
     };
     proposedCount++;
 
@@ -410,7 +591,10 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     }
     applyHealPlan(healed.plan);
     if (o.verify) {
-      const again = runSelected(root, withLine(res.selectArgs, test.line, test.line - declShift), outputArgs(path.join(outRoot, 'rerun')), o.runTimeoutMs, o.observe);
+      trackAppliedForSignal(healed.plan, healed.locators, o.auditPath, o.cwd);
+      const again = await runSelected(root, withLine(res.selectArgs, test.line, test.line - declShift), outputArgs(path.join(outRoot, 'rerun')), o.runTimeoutMs, o.observe);
+      // The rerun finished, so a later signal must not restore the file again.
+      clearUnverifiedApplies();
       if (again.kind !== 'ran' || again.status !== 'expected') {
         applyHealPlanExcluding(healed.plan, () => true);
         reverted = true;

@@ -24,6 +24,14 @@ export interface GotoCall {
   route: string;
 }
 
+/** A page.goto whose argument is a template literal. It is not a route. */
+export interface TemplateGoto {
+  /** 1-indexed line of the .goto( call. */
+  line: number;
+  /** The argument text, including its quotes. */
+  raw: string;
+}
+
 export interface RouteOverride {
   /** Absolute path or path suffix (e.g. "pages/login-page.ts"). */
   file: string;
@@ -66,9 +74,34 @@ function readString(src: string, i: number): { value: string; end: number } | nu
 }
 
 /**
- * Every page.goto() in a file, in order. A literal argument is taken as-is;
- * an identifier argument (goto(this.url)) resolves against the first `url`
- * string property in the same file, the common page-object shape.
+ * Every page.goto() whose argument is a template literal (`${...}`).
+ * These are not routes: joining one with a base URL percent-encodes the
+ * `${` and probes a page that does not exist.
+ */
+export function templateGotos(src: string): TemplateGoto[] {
+  const out: TemplateGoto[] = [];
+  const re = /\.goto\(\s*/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    const argAt = m.index + m[0].length;
+    const lit = readString(src, argAt);
+    if (!lit || !lit.value.includes('${')) continue;
+    const line = src.slice(0, m.index).split('\n').length;
+    out.push({ line, raw: src.slice(argAt, lit.end) });
+  }
+  return out;
+}
+
+/** The line heal prints when it skips a template literal route. */
+export function templateRouteSkipLine(file: string, line: number, raw: string): string {
+  return `skipped template route at ${file}:${line}: ${raw} contains \${, so it is not used as a route`;
+}
+
+/**
+ * Every page.goto() in a file, in order. A literal argument is taken as-is.
+ * A template literal (one whose text contains `${`) is skipped: it is not a
+ * real route. An identifier argument (goto(this.url)) resolves against the
+ * first `url` string property in the same file, the common page-object shape.
  */
 export function parseGotos(src: string): GotoCall[] {
   const out: GotoCall[] = [];
@@ -79,11 +112,12 @@ export function parseGotos(src: string): GotoCall[] {
     const line = src.slice(0, m.index).split('\n').length;
     const lit = readString(src, argAt);
     if (lit) {
+      if (lit.value.includes('${')) continue;
       out.push({ line, route: lit.value });
       continue;
     }
     const prop = src.match(/\burl\s*[:=]\s*["'`]([^"'`]+)["'`]/);
-    if (prop) out.push({ line, route: prop[1]! });
+    if (prop && !prop[1]!.includes('${')) out.push({ line, route: prop[1]! });
   }
   return out;
 }

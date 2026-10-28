@@ -58,8 +58,8 @@ export function outputArgs(dir?: string): string[] {
 }
 
 /** Run `playwright test --list` with the given selection arguments. */
-export function listTests(root: string, selectArgs: string[], timeoutMs?: number, observe?: RunObserver, outputDir?: string): ListOutcome {
-  const run = runPlaywrightCli(root, ['test', '--list', '--reporter=json', ...selectArgs, ...outputArgs(outputDir)], BUFFER, undefined, timeoutMs);
+export async function listTests(root: string, selectArgs: string[], timeoutMs?: number, observe?: RunObserver, outputDir?: string): Promise<ListOutcome> {
+  const run = await runPlaywrightCli(root, ['test', '--list', '--reporter=json', ...selectArgs, ...outputArgs(outputDir)], BUFFER, undefined, timeoutMs);
   observe?.(run);
   if (run.timedOut) return { ok: false, tests: [], timedOut: true, error: 'Listing the tests timed out.' };
   const report = parseJsonReport(run.stdout) as { config?: { rootDir?: string }; suites?: RawSuite[] } | null;
@@ -141,8 +141,8 @@ export function selectionArgs(root: string, file: string, project: string | null
 }
 
 /** Find exactly one test, without running anything. */
-export function resolveTarget(spec: TargetSpec): Resolution {
-  const all = listTests(spec.root, selectionArgs(spec.root, spec.file, spec.project, null, null, spec.config), spec.timeoutMs, spec.observe, spec.outputDir);
+export async function resolveTarget(spec: TargetSpec): Promise<Resolution> {
+  const all = await listTests(spec.root, selectionArgs(spec.root, spec.file, spec.project, null, null, spec.config), spec.timeoutMs, spec.observe, spec.outputDir);
   if (!all.ok) return { kind: 'error', message: all.error ?? 'Could not list the tests.', timedOut: all.timedOut };
   const wantFile = realPathOf(spec.file);
   const found = all.tests.filter((t) => realPathOf(t.file) === wantFile && spec.match(t));
@@ -153,7 +153,7 @@ export function resolveTarget(spec: TargetSpec): Resolution {
   // The exact run filter must list exactly one test. A line shared by
   // several tests (a loop) or a title that is part of another title shows
   // up here, before anything has run.
-  const exact = listTests(spec.root, selectArgs, spec.timeoutMs, spec.observe, spec.outputDir);
+  const exact = await listTests(spec.root, selectArgs, spec.timeoutMs, spec.observe, spec.outputDir);
   if (!exact.ok) return { kind: 'error', message: exact.error ?? 'Could not list the tests.', timedOut: exact.timedOut };
   if (exact.tests.length === 0) return { kind: 'not-found' };
   if (exact.tests.length !== 1) return { kind: 'ambiguous', count: exact.tests.length };
@@ -200,8 +200,8 @@ function testStatuses(report: { suites?: RawRunSuite[] }): string[] {
  * Run the selected test once, from a project root, and require that exactly
  * one test ran.
  */
-export function runSelected(root: string, selectArgs: string[], extraArgs: string[], timeoutMs?: number, observe?: RunObserver): OneRun {
-  const run = runPlaywrightCli(root, ['test', ...selectArgs, '--reporter=json', ...extraArgs], BUFFER, undefined, timeoutMs);
+export async function runSelected(root: string, selectArgs: string[], extraArgs: string[], timeoutMs?: number, observe?: RunObserver): Promise<OneRun> {
+  const run = await runPlaywrightCli(root, ['test', ...selectArgs, '--reporter=json', ...extraArgs], BUFFER, undefined, timeoutMs);
   observe?.(run);
   if (run.timedOut) return { kind: 'timeout', run };
   const report = parseJsonReport(run.stdout) as { config?: { rootDir?: string }; suites?: RawRunSuite[] } | null;

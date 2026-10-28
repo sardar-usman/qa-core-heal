@@ -69,7 +69,7 @@ test('x', async ({ page }) => {
 test('an in-word typo heals to the real element through the fuzzy band', async () => {
   const loc = await healOne(PAGE, "page.locator('#quantiy-field').fill('3')");
   assert.equal(loc.status, 'healed');
-  assert.equal(loc.new, 'page.locator("#quantity-field")');
+  assert.equal(loc.new, "page.locator('#quantity-field')");
 });
 
 test('a fuzzy candidate with a conflicting kind still refuses', async () => {
@@ -100,7 +100,7 @@ test('a mutated getByRole name heals to the real accessible name', async () => {
   ].join('');
   const loc = await healOne(html, "page.getByRole('textbox', { name: 'Ema_il_2' }).fill('x@y.dev')");
   assert.equal(loc.status, 'healed');
-  assert.match(loc.new, /^page\.getByRole\("textbox", \{"name":"Email"/);
+  assert.match(loc.new, /^page\.getByRole\('textbox', \{'name':'Email'/);
 });
 
 test('a mutated getByRole name refuses when two candidates sit in the band', async () => {
@@ -112,7 +112,7 @@ test('a mutated getByRole name refuses when two candidates sit in the band', asy
 test('a suffix-carrying semantic identity heals through the strip stage', async () => {
   const loc = await healOne(PAGE, "page.getByLabel('Quantity_1').fill('2')");
   assert.equal(loc.status, 'healed');
-  assert.match(loc.new, /^page\.getByRole\("textbox", \{"name":"Quantity"/);
+  assert.match(loc.new, /^page\.getByRole\('textbox', \{'name':'Quantity'/);
 });
 
 test('a hasText filter identity heals through fuzzy when the css part is compound', async () => {
@@ -124,7 +124,7 @@ test('a hasText filter identity heals through fuzzy when the css part is compoun
   ].join('');
   const loc = await healOne(html, "page.locator('section.plan-grid .tier-x', { hasText: 'Proo plan' }).click()");
   assert.equal(loc.status, 'healed');
-  assert.equal(loc.new, 'page.getByText("Pro plan", { exact: true })');
+  assert.equal(loc.new, "page.getByText('Pro plan', { exact: true })");
 });
 
 test('a never-found selector with state evidence names its token', async () => {
@@ -190,7 +190,7 @@ test('a mid-word typo heals even when an earlier resolution failed confirmation'
     + '<input id="inputField" type="text" /></body></html>';
   const loc = await healOne(html, "page.locator('#inputFeld').fill('42')");
   assert.equal(loc.status, 'healed');
-  assert.equal(loc.new, 'page.locator("#inputField")');
+  assert.equal(loc.new, "page.locator('#inputField')");
 });
 
 // 0.3.2 whitespace canonicalization: collected identity values fold all

@@ -17,7 +17,8 @@ Lives in the repo root. Optional: when the file is absent the CLI falls back to 
   "heal": {
     "dryRunByDefault": false,
     "maxHealsPerRun": null,
-    "verifyAfterApply": true
+    "verifyAfterApply": true,
+    "shadowRuns": 3
   },
   "audit": {
     "logPath": ".qa-core/heal-log.jsonl"
@@ -36,4 +37,5 @@ Apply mode is always gated regardless of these settings: the CLI prints the full
 - `auth.storageState`: path to a Playwright storage state JSON for authenticated pages. If the app needs auth and this is not set, heal will hit login walls; detect this (heal failures all resolving to login page elements) and prompt the user to generate a storage state with Playwright's own auth setup, then point this field at it. A setupSpec option that runs an auth spec automatically is planned for v2; it is not in v1, so do not reference it.
 - `authSetup`: `"file#export"` (or `"file:export"`) naming the user's own login function, run against the probing page. When BOTH `authSetup` and a storage state are configured, the saved session is used first and an expired session automatically falls back to the login function ("saved session expired; falling back to auth setup"). It is never the reverse.
 - `heal.maxHealsPerRun`: safety cap, unset by default. If a run proposes more than this, stop and warn (see "When things go wrong" in SKILL.md; mass drift usually means environment problems).
+- `heal.shadowRuns`: how many times a proposed change must pass in the scratch copy before findings mode calls it verified. Default 3. Every run must pass. `--shadow-runs` overrides this. A positive integer.
 - `audit.logPath`: append-only JSONL. Add `.qa-core/` to the user's `.gitignore` only if they ask; many teams want the log committed for review trails.

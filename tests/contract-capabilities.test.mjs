@@ -17,7 +17,7 @@ test('capabilities --json reports the tool version, both contract versions and t
     tool: { name: 'qa-core-heal', version: pkg.version },
     contracts: { findings: [1], results: [1] },
     playwrightVersion,
-    features: { findings: true, targetedRun: true, ruleSuggestions: false, ai: false },
+    features: { findings: true, targetedRun: true, ruleSuggestions: false, ai: false, playwrightConfig: true, runTimeout: true },
   });
   assert.equal(r.stdout.trim().split('\n').length > 1, true, 'pretty printed, one object');
 });
@@ -28,6 +28,8 @@ test('capabilities prints readable text without --json', async () => {
   assert.match(r.stdout, new RegExp(`^qa-core-heal ${pkg.version.replace(/\./g, '\\.')}`));
   assert.match(r.stdout, /findings contract versions: 1/);
   assert.match(r.stdout, /results contract versions: 1/);
+  assert.match(r.stdout, /spec mode Playwright config: --playwright-config/);
+  assert.match(r.stdout, /run timeout: --run-timeout/);
   assert.match(r.stdout, new RegExp(`Playwright: ${playwrightVersion.replace(/\./g, '\\.')}`));
 });
 

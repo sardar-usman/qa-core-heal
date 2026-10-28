@@ -15,8 +15,8 @@ export interface AuditEntry {
   verified: boolean;
   /** True when the verify re-run still failed and the edit was undone. */
   reverted: boolean;
-  /** Why the reverting re-run failed: still a locator problem, or not. */
-  revertReason?: 'locator' | 'non-locator';
+  /** Why the edit was undone: the re-run still failed, or a signal stopped the verify run. */
+  revertReason?: 'locator' | 'non-locator' | 'interrupted';
 }
 
 /** Append one JSON line per applied heal. Creates the log directory if needed. */

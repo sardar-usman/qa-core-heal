@@ -39,14 +39,16 @@ test('a nested config (SauceDemo kit layout, no config at the root) ends as prop
     const f = typoFinding(n.specFile);
     const findingsPath = writeFindings(n.dir, [f], null, 'heal-findings.json', n.configPath);
     const resultsPath = path.join(n.dir, 'heal-results.json');
-    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--verbose'], n.dir);
+    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--verbose', '--shadow-runs', '1'], n.dir);
     assert.equal(r.status, 0, r.stderr);
     const results = readJsonFile(resultsPath);
     assertValid(validateResults, results, 'results file');
     const e = entryOf(results);
     assert.equal(e.status, 'proposed', e.explanation);
     assert.equal(e.changes[0].before, "page.locator('#add-to-cart-sauce-labs-bakpack')");
-    assert.match(e.changes[0].after, /add-to-cart-sauce-labs-backpack/);
+    assert.equal(e.changes[0].after, "page.locator('#add-to-cart-sauce-labs-backpack')");
+    assert.match(r.stderr, /skipped template route at/);
+    assert.doesNotMatch(r.stderr, /%7BDEMO_ORIGIN/);
     assert.equal(fs.readFileSync(spec, 'utf8'), before, 'a proposal must not touch the spec');
     // The two --list calls, the first run and the scratch run all carry --config.
     const children = r.stderr.split('\n').filter((l) => l.startsWith('[verbose] child:'));
@@ -65,10 +67,11 @@ test('fills mail', async ({ page }) => { await page.goto('/'); await page.locato
   try {
     const findingsPath = writeFindings(dir, [finding()], baseOf(server), 'f.json', 'no/such/playwright.config.ts');
     const resultsPath = path.join(dir, 'r.json');
-    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--verbose'], dir);
+    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--verbose', '--shadow-runs', '1'], dir);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(entryOf(readJsonFile(resultsPath)).status, 'proposed');
     assert.ok(!r.stderr.includes('--config'));
+    assert.match(r.stderr, /\[verbose\] ignored configPath no\/such\/playwright\.config\.ts: the file is missing/);
   } finally { server.close(); rm(dir); }
 });
 
@@ -133,6 +136,67 @@ test('a spec reached through a symbolic link folder that points out of the proje
   });
 });
 
+test('a findings file is resolved against testDir when it is not found from the project root', async () => {
+  const n = await nested();
+  try {
+    const f = typoFinding('broken.spec.ts');
+    const findingsPath = writeFindings(n.dir, [f], null, 'f.json', n.configPath);
+    const resultsPath = path.join(n.dir, 'r.json');
+    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--shadow-runs', '1'], n.dir);
+    assert.equal(r.status, 0, r.stderr);
+    const e = entryOf(readJsonFile(resultsPath));
+    assert.equal(e.status, 'proposed', e.explanation);
+    assert.notEqual(e.refusal?.code, 'spec-not-found');
+  } finally { n.done(); }
+});
+
+test('a testDir that is a symbolic link outside the project is not used', async () => {
+  const server = await startServer('<html><body><input id="mail-x9" name="email" type="email"></body></html>');
+  const outside = outsideProject(baseOf(server));
+  const project = makeProject(baseOf(server), {
+    'tests/a.spec.ts': "import { test } from '@playwright/test';\ntest('inside', async () => {});\n",
+  });
+  try {
+    fs.symlinkSync(outside.dir, path.join(project, 'escaped'), 'dir');
+    const cfg = fs.readFileSync(path.join(project, 'playwright.config.ts'), 'utf8').replace("testDir: './tests'", "testDir: './escaped'");
+    fs.writeFileSync(path.join(project, 'playwright.config.ts'), cfg);
+    const f = finding({ file: 'tests/x.spec.ts' });
+    const findingsPath = writeFindings(project, [f], baseOf(server), 'f.json', 'playwright.config.ts');
+    const resultsPath = path.join(project, 'r.json');
+    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--shadow-runs', '1'], project);
+    assert.equal(r.status, 0, r.stderr);
+    const e = entryOf(readJsonFile(resultsPath));
+    assert.equal(e.status, 'refused');
+    assert.equal(e.refusal.code, 'spec-not-found');
+    assert.equal(fs.existsSync(outside.marker), false, 'the outside spec was loaded or run');
+  } finally { server.close(); rm(project); outside.done(); }
+});
+
+test('a configPath that is a folder, outside the project, or unsafe is ignored and --verbose says why', async () => {
+  const server = await startServer('<html><body></body></html>');
+  const dir = makeProject(baseOf(server), {
+    'tests/a.spec.ts': "import { test } from '@playwright/test';\ntest('inside', async () => {});\n",
+  });
+  const outsideFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-cfg-')), 'playwright.config.ts');
+  fs.writeFileSync(outsideFile, 'export default {};\n');
+  try {
+    const run = async (configPath, prepare) => {
+      prepare?.();
+      const findingsPath = writeFindings(dir, [finding({ mode: 'none' })], null, `f-${configPath.replace(/[^a-z0-9]+/gi, '-')}.json`, configPath);
+      return runCli(['--findings', findingsPath, '--results', path.join(dir, 'r.json'), '--verbose'], dir);
+    };
+    fs.mkdirSync(path.join(dir, 'cfgdir'));
+    let r = await run('cfgdir');
+    assert.match(r.stderr, /\[verbose\] ignored configPath cfgdir: it is a folder/);
+    fs.rmSync(path.join(dir, 'playwright.config.ts'));
+    fs.symlinkSync(outsideFile, path.join(dir, 'playwright.config.ts'));
+    r = await run('playwright.config.ts');
+    assert.match(r.stderr, /\[verbose\] ignored configPath playwright\.config\.ts: it is outside the project/);
+    r = await run('../nope.ts');
+    assert.match(r.stderr, /\[verbose\] ignored configPath \.\.\/nope\.ts: it is absolute or it contains \.\./);
+  } finally { server.close(); rm(dir); rm(path.dirname(outsideFile)); }
+});
+
 test('a spec inside the project is still found through the config folder base', async () => {
   const n = await nested();
   try {
@@ -140,7 +204,7 @@ test('a spec inside the project is still found through the config folder base', 
     const f = typoFinding('tests/broken.spec.ts');
     const findingsPath = writeFindings(n.dir, [f], null, 'f.json', n.configPath);
     const resultsPath = path.join(n.dir, 'r.json');
-    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run'], n.dir);
+    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--shadow-runs', '1'], n.dir);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(entryOf(readJsonFile(resultsPath)).status, 'proposed');
   } finally { n.done(); }
@@ -153,7 +217,7 @@ test('every Playwright call has its own --output folder, and the project test-re
   try {
     const findingsPath = writeFindings(n.dir, [typoFinding(n.specFile)], null, 'f.json', n.configPath);
     const resultsPath = path.join(n.dir, 'r.json');
-    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--verbose'], n.dir);
+    const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run', '--verbose', '--shadow-runs', '1'], n.dir);
     assert.equal(r.status, 0, r.stderr);
     const children = r.stderr.split('\n').filter((l) => l.startsWith('[verbose] child:'));
     const outputs = children.map((c) => c.match(/--output (\S+)/)?.[1]);
@@ -174,7 +238,7 @@ test('two runs at the same time in one project give the same answer every time',
     const findingsPath = writeFindings(n.dir, [typoFinding(n.specFile)], null, 'f.json', n.configPath);
     for (let round = 0; round < 3; round++) {
       const paths = [path.join(n.dir, `r${round}a.json`), path.join(n.dir, `r${round}b.json`)];
-      const runs = await Promise.all(paths.map((p) => runCli(['--findings', findingsPath, '--results', p, '--dry-run'], n.dir)));
+      const runs = await Promise.all(paths.map((p) => runCli(['--findings', findingsPath, '--results', p, '--dry-run', '--shadow-runs', '1'], n.dir)));
       for (const [i, r] of runs.entries()) {
         assert.equal(r.status, 0, r.stderr);
         const e = entryOf(readJsonFile(paths[i]));

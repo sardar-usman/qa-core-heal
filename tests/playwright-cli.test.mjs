@@ -17,14 +17,14 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const { runPlaywrightCli, describeFailedRun, toCliFileFilter } = await import(path.join(repoRoot, 'dist', 'playwright-cli.js'));
 
-test('the local @playwright/test CLI is resolved and run directly — no npx, no shell', () => {
+test('the local @playwright/test CLI is resolved and run directly — no npx, no shell', async () => {
   // The direct path must NEVER print the npx-fallback note.
   const errLines = [];
   const origErr = console.error;
   console.error = (...a) => { errLines.push(a.join(' ')); };
   let run;
   try {
-    run = runPlaywrightCli(repoRoot, ['--version'], 1024 * 1024);
+    run = await runPlaywrightCli(repoRoot, ['--version'], 1024 * 1024);
   } finally {
     console.error = origErr;
   }
@@ -36,7 +36,7 @@ test('the local @playwright/test CLI is resolved and run directly — no npx, no
   assert.ok(!errLines.some((l) => l.includes('using npx fallback')), errLines.join('\n'));
 });
 
-test('a --grep pattern with a pipe survives verbatim (no shell parsing)', () => {
+test('a --grep pattern with a pipe survives verbatim (no shell parsing)', async () => {
   // A scoped project (INSIDE the repo on purpose — the upward
   // node_modules walk finds the repo's Playwright) with two tests;
   // --list --grep "alpha one|beta two" must match BOTH: a shell would
@@ -51,7 +51,7 @@ test('alpha one', async () => {});
 test('beta two', async () => {});
 test('gamma three', async () => {});
 `);
-    const run = runPlaywrightCli(dir, ['test', '--list', '--grep', 'alpha one|beta two'], 1024 * 1024);
+    const run = await runPlaywrightCli(dir, ['test', '--list', '--grep', 'alpha one|beta two'], 1024 * 1024);
     assert.equal(run.status, 0, run.stderr);
     assert.ok(run.stdout.includes('alpha one'), run.stdout);
     assert.ok(run.stdout.includes('beta two'), run.stdout);
@@ -81,7 +81,7 @@ test('toCliFileFilter: win32 paths become forward-slash, regex-safe filters', ()
   assert.equal(toCliFileFilter('tests/(group)/b.spec.ts'), 'tests/\\(group\\)/b\\.spec\\.ts');
 });
 
-test('bracket and paren dirs match through the escaped filter (raw filters match nothing)', () => {
+test('bracket and paren dirs match through the escaped filter (raw filters match nothing)', async () => {
   const dir = fs.mkdtempSync(path.join(repoRoot, '.tmp-test-'));
   try {
     fs.writeFileSync(path.join(dir, 'package.json'), '{ "name": "t", "private": true, "type": "module" }');
@@ -92,9 +92,9 @@ test('bracket and paren dirs match through the escaped filter (raw filters match
     fs.writeFileSync(path.join(dir, 'tests/[id]/a.spec.ts'), spec);
     fs.writeFileSync(path.join(dir, 'tests/(group)/b.spec.ts'), spec);
     for (const p of ['tests/[id]/a.spec.ts', 'tests/(group)/b.spec.ts']) {
-      const raw = runPlaywrightCli(dir, ['test', '--list', p], 1024 * 1024);
+      const raw = await runPlaywrightCli(dir, ['test', '--list', p], 1024 * 1024);
       assert.match(raw.stdout, /Total: 0 tests/, `raw filter must demonstrate the breakage for ${p}`);
-      const escaped = runPlaywrightCli(dir, ['test', '--list', toCliFileFilter(p)], 1024 * 1024);
+      const escaped = await runPlaywrightCli(dir, ['test', '--list', toCliFileFilter(p)], 1024 * 1024);
       assert.match(escaped.stdout, /Total: 1 test in 1 file/, `${p}: ${escaped.stdout}`);
     }
   } finally {

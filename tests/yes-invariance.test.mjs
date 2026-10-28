@@ -57,7 +57,7 @@ test('presses the button', async ({ page }) => {
     assert.equal(r.status, 0, r.stdout);
     // The approved diff landed verbatim — no second probe saw page v2.
     const healed = fs.readFileSync(specPath, 'utf8');
-    assert.match(healed, /getByRole\("button", \{"name":"Button","exact":true\}\)/);
+    assert.match(healed, /getByRole\('button', \{'name':'Button','exact':true\}\)/);
     // The reported verdicts are the previewed ones: 1 healed, 0 refused.
     assert.match(r.stdout, /Done\. 0 intact · 1 healed · 0 refused/);
     assert.doesNotMatch(r.stdout, /refusing to guess/);
