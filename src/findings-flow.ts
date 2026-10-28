@@ -297,6 +297,10 @@ function pathInsideFence(abs: string, fence: string): boolean {
  * project is a symlink.
  */
 export function specMissReason(file: string, candidates: string[], projectDir: string): SpecMiss {
+  // Absolute paths and any path with `..` stay refused, as in 0.4.2.
+  // Resolving them and then accepting an in-project result would run a spec
+  // the findings contract does not allow.
+  if (isUnsafeRelative(file) || /^[A-Za-z]:/.test(file)) return 'outside';
   let fence: string;
   try { fence = fs.realpathSync(projectDir); } catch { return 'missing'; }
   let sawSymlink = false;
@@ -326,6 +330,7 @@ function specNotFoundMessage(file: string, reason: SpecMiss): string {
 }
 
 export function resolveSpecPath(file: string, candidates: string[], projectDir: string = candidates[0]!): string | null {
+  if (isUnsafeRelative(file) || /^[A-Za-z]:/.test(file)) return null;
   let fence: string;
   try { fence = fs.realpathSync(projectDir); } catch { return null; }
   for (const base of candidates) {

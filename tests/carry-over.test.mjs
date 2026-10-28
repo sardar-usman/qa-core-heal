@@ -6,20 +6,33 @@ import {
   baseOf, finding, makeProject, readJsonFile, rm, runCli, startServer, writeFindings,
 } from './helpers/contract.mjs';
 
-test('a spec path with .. that resolves inside the project is not found, not outside', async () => {
+test('absolute in-project paths and paths with .. are refused as outside', async () => {
   const dir = makeProject('http://127.0.0.1:9', {
     'tests/a.spec.ts': "import { test } from '@playwright/test';\ntest('inside', async () => {});\n",
   });
+  const spec = path.join(dir, 'tests', 'a.spec.ts');
   try {
-    const backInside = `tests/../../${path.basename(dir)}/tests/nope.spec.ts`;
-    const findingsPath = writeFindings(dir, [finding({ file: backInside, mode: 'locator' })], null, 'f.json');
+    const before = fs.readFileSync(spec, 'utf8');
+    const absolute = spec.split(path.sep).join('/');
+    const dotdot = 'tests/../tests/a.spec.ts';
+    const missingDotdot = `tests/../../${path.basename(dir)}/tests/nope.spec.ts`;
+    const findingsPath = writeFindings(dir, [
+      finding({ file: absolute }),
+      finding({ file: dotdot }),
+      finding({ file: missingDotdot }),
+    ], null, 'f.json');
     const resultsPath = path.join(dir, 'r.json');
     const r = await runCli(['--findings', findingsPath, '--results', resultsPath, '--dry-run'], dir);
     assert.equal(r.status, 0, r.stderr);
-    const e = readJsonFile(resultsPath).results[0];
-    assert.equal(e.refusal.code, 'spec-not-found');
-    assert.match(e.explanation, /not found inside the project folder/);
-    assert.doesNotMatch(e.explanation, /outside the project/);
+    const results = readJsonFile(resultsPath).results;
+    assert.equal(results.length, 3);
+    for (const e of results) {
+      assert.equal(e.status, 'refused');
+      assert.equal(e.refusal.code, 'spec-not-found');
+      assert.match(e.explanation, /outside the project/);
+      assert.doesNotMatch(e.explanation, /not found inside the project folder/);
+    }
+    assert.equal(fs.readFileSync(spec, 'utf8'), before);
   } finally { rm(dir); }
 });
 
