@@ -145,10 +145,13 @@ test('a forced spawn failure surfaces command + error code through the CLI', () 
 });
 
 test('a run budget is shared, and a spent budget does not start another child', async () => {
-  const timeout = startRunBudget(500);
+  const timeout = startRunBudget(15000);
   const first = await runPlaywrightCli(repoRoot, ['--version'], 1024 * 1024, undefined, timeout);
-  assert.equal(first.status, 0, first.stderr);
-  await new Promise((r) => setTimeout(r, 600));
+  assert.equal(first.status, 0, `${first.stderr}\n${first.error?.message ?? ''}`);
+  assert.equal(first.timedOut, undefined);
+  const left = timeout();
+  assert.ok(left !== undefined && left > 0 && left < 15000, `remaining ${left}`);
+  await new Promise((r) => setTimeout(r, left + 50));
   const started = performance.now();
   const second = await runPlaywrightCli(repoRoot, ['--version'], 1024 * 1024, undefined, timeout);
   const elapsed = performance.now() - started;
