@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { registeredAdapters } from './adapters/index.js';
 
 /**
  * The qa-core contract between qa-core-flaky and qa-core-heal, version 1.
@@ -76,7 +77,7 @@ export function buildCapabilities(root: string): Capabilities {
       ai: false,
       playwrightConfig: true,
       runTimeout: true,
-      frameworks: ['playwright-js'],
+      frameworks: registeredAdapters().map((adapter) => adapter.id),
     },
     frameworkVersions: { 'playwright-js': version },
   };
