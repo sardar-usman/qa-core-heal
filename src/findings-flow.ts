@@ -201,6 +201,12 @@ export function scratchStopEntry(f: Finding, check: {
 /** How many scratch runs must pass when the caller does not say. */
 export const DEFAULT_SHADOW_RUNS = 3;
 
+/** Test hook. The next verify re-run throws, then the hook clears itself. */
+let verifyThrow: Error | null = null;
+export function throwOnNextVerifyForTest(error: Error): void {
+  verifyThrow = error;
+}
+
 /** True when `child` is `parent` or below it. Both must already be real paths. */
 function isInside(parent: string, child: string): boolean {
   const rel = path.relative(parent, child);
@@ -264,25 +270,52 @@ function symlinkEscapes(abs: string, fence: string): boolean {
 export type SpecMiss = 'missing' | 'outside' | 'symlink';
 
 /**
- * Why resolveSpecPath returned null. A path with `..` or an absolute path
- * is outside the project. A symlink whose target is outside the project
- * is a symlink. A path that simply is not there is missing.
+ * True when the normalised path sits inside the project, even if the file
+ * itself is not there yet. `..` is resolved before the check.
+ */
+function pathInsideFence(abs: string, fence: string): boolean {
+  let cur = path.resolve(abs);
+  const rest: string[] = [];
+  while (true) {
+    try {
+      let full = fs.realpathSync(cur);
+      for (let i = rest.length - 1; i >= 0; i--) full = path.join(full, rest[i]!);
+      return isInside(fence, full);
+    } catch {
+      const parent = path.dirname(cur);
+      if (parent === cur) return false;
+      rest.push(path.basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+/**
+ * Why resolveSpecPath returned null. The path is resolved first. A resolved
+ * path inside the project whose file is missing is missing. A resolved path
+ * outside the project is outside. A symlink whose target is outside the
+ * project is a symlink.
  */
 export function specMissReason(file: string, candidates: string[], projectDir: string): SpecMiss {
-  if (isUnsafeRelative(file) || /^[A-Za-z]:/.test(file)) return 'outside';
   let fence: string;
   try { fence = fs.realpathSync(projectDir); } catch { return 'missing'; }
   let sawSymlink = false;
   let sawOutside = false;
+  let sawInside = false;
   for (const base of candidates) {
     const abs = path.resolve(base, file);
     if (symlinkEscapes(abs, fence)) { sawSymlink = true; continue; }
     try {
       const real = fs.realpathSync(abs);
       if (!fs.statSync(real).isFile()) continue;
-      if (!isInside(fence, real)) sawOutside = true;
-    } catch { /* not there */ }
+      if (isInside(fence, real)) sawInside = true;
+      else sawOutside = true;
+    } catch {
+      if (pathInsideFence(abs, fence)) sawInside = true;
+      else sawOutside = true;
+    }
   }
+  if (sawInside) return 'missing';
   if (sawSymlink) return 'symlink';
   if (sawOutside) return 'outside';
   return 'missing';
@@ -295,11 +328,11 @@ function specNotFoundMessage(file: string, reason: SpecMiss): string {
 }
 
 export function resolveSpecPath(file: string, candidates: string[], projectDir: string = candidates[0]!): string | null {
-  if (isUnsafeRelative(file) || /^[A-Za-z]:/.test(file)) return null;
   let fence: string;
   try { fence = fs.realpathSync(projectDir); } catch { return null; }
   for (const base of candidates) {
     const abs = path.resolve(base, file);
+    if (symlinkEscapes(abs, fence)) continue;
     try {
       if (!fs.statSync(abs).isFile()) continue;
       if (!isInside(fence, fs.realpathSync(abs))) continue;
@@ -500,6 +533,10 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     const root = projectRootFor(specAbs);
     noteIgnoredConfig(root);
     pwVersion ??= playwrightVersion(root);
+    const remaining = typeof timeoutMs === 'function' ? timeoutMs() : timeoutMs;
+    if (remaining === 0) {
+      return refusedEntry(f, 'timeout', 'The run timeout was used up before this finding started. No test was run.');
+    }
     const fileRel = posix(path.relative(root, specAbs));
     const title = f.titlePath[f.titlePath.length - 1]!;
     const project = o.project ?? f.project;
@@ -662,6 +699,11 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     if (o.verify) {
       trackAppliedForSignal(healed.plan, healed.locators, o.auditPath, o.cwd);
       try {
+        if (verifyThrow) {
+          const error = verifyThrow;
+          verifyThrow = null;
+          throw error;
+        }
         const again = await activeAdapter().runOne(root, {
           selectArgs: withLine(res.selectArgs, test.line, test.line - declShift),
           extraArgs: outputArgs(path.join(outRoot, 'rerun')),
@@ -673,6 +715,9 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
           reverted = true;
           return refusedEntry(f, 'verification-failed', 'The change was written and the test was run again, but it did not pass, so the change was undone. The files are back to how they were.');
         }
+      } catch (e) {
+        try { applyHealPlanExcluding(healed.plan, () => true); } catch { /* the spec could not be restored */ }
+        throw e;
       } finally {
         // The rerun finished, or it threw. A later signal must not restore the file.
         clearUnverifiedApplies();

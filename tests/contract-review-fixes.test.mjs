@@ -151,11 +151,51 @@ test('testDirBase uses the config folder when testDir is unset', async () => {
   } finally { rm(dir); }
 });
 
-test('clearUnverifiedApplies runs in a finally on the findings apply path', () => {
-  const src = fs.readFileSync(path.join(repoRoot, 'src', 'findings-flow.ts'), 'utf8');
-  const at = src.indexOf('clearUnverifiedApplies()');
-  assert.ok(at > 0);
-  assert.match(src.slice(Math.max(0, at - 180), at), /finally\s*\{[^}]*$/);
+test('a throw after apply restores the spec and clears the unverified list', async () => {
+  const server = await startServer('<html><body><label>Mail <input type="email" name="email" id="mail-x9" /></label></body></html>');
+  const dir = makeProject(baseOf(server), {
+    'tests/a.spec.ts': `import { test } from '@playwright/test';
+test('fills mail', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#email-7d21ac').fill('a@b.dev');
+});
+`,
+  });
+  const spec = path.join(dir, 'tests/a.spec.ts');
+  const original = fs.readFileSync(spec, 'utf8');
+  const { parseFindings } = await import(path.join(repoRoot, 'dist', 'contract.js'));
+  const { runFindingsFlow, throwOnNextVerifyForTest } = await import(path.join(repoRoot, 'dist', 'findings-flow.js'));
+  const { unverifiedApplyCount } = await import(path.join(repoRoot, 'dist', 'process-guard.js'));
+  const findingsPath = writeFindings(dir, [finding()], baseOf(server));
+  const parsed = parseFindings(fs.readFileSync(findingsPath, 'utf8'));
+  throwOnNextVerifyForTest(new Error('verify blew up'));
+  try {
+    await assert.rejects(
+      () => runFindingsFlow({
+        doc: parsed.doc,
+        findingsSha256: parsed.sha256,
+        cwd: dir,
+        resultsPath: path.join(dir, 'heal-results.json'),
+        apply: true,
+        verify: true,
+        noTrace: true,
+        project: 'chromium',
+        runTimeoutMs: 60000,
+        shadowRuns: 1,
+        heal: { baseUrl: baseOf(server) },
+        verbose: false,
+        say: () => {},
+        confirm: async () => true,
+        auditPath: path.join(dir, 'audit.jsonl'),
+      }),
+      /verify blew up/,
+    );
+    assert.equal(fs.readFileSync(spec, 'utf8'), original);
+    assert.equal(unverifiedApplyCount(), 0);
+  } finally {
+    server.close();
+    rm(dir);
+  }
 });
 
 test('a findings file is resolved against testDir when it is not found from the project root', async () => {
