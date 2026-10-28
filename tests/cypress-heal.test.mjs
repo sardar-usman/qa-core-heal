@@ -1,0 +1,128 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const cli = path.join(repoRoot, 'dist', 'cli.js');
+const cypressPkg = [
+  path.join(repoRoot, 'node_modules', 'cypress'),
+  '/tmp/cypress-cache/node_modules/cypress',
+].find((dir) => fs.existsSync(dir));
+const hasCypress = Boolean(cypressPkg);
+
+const { classifyCypressFailure, cypressFrames } = await import(path.join(repoRoot, 'dist', 'adapters', 'cypress-js', 'classify.js'));
+const { parseCypressCalls } = await import(path.join(repoRoot, 'dist', 'adapters', 'cypress-js', 'parse.js'));
+const { compareVersions } = await import(path.join(repoRoot, 'dist', 'adapters', 'cypress-js', 'version.js'));
+
+test('version compare treats 15.10.0 as the minimum and 16.2.0 as the getByRole line', () => {
+  assert.equal(compareVersions('15.10.0', '15.10.0'), 0);
+  assert.equal(compareVersions('15.9.9', '15.10.0') < 0, true);
+  assert.equal(compareVersions('16.2.1', '16.2.0') > 0, true);
+});
+
+test('classifier maps the confirmed Cypress error texts', () => {
+  const missing = classifyCypressFailure('Timed out retrying after 2000ms: Expected to find element: `[data-test="usrname"]`, but never found it.');
+  assert.equal(missing.kind, 'locator');
+  assert.match(missing.selector, /data-test="usrname"/);
+  const text = classifyCypressFailure("Expected to find content: 'Logn' within the selector: 'input' but never did.");
+  assert.equal(text.kind, 'locator');
+  assert.match(text.selector, /contains/);
+  const role = classifyCypressFailure('Expected to find an accessible native element with the role "button" and name "Logn", but never did.');
+  assert.equal(role.kind, 'locator');
+  assert.match(role.selector, /getByRole/);
+  const multi = classifyCypressFailure('CypressError: `cy.type()` can only be called on a single element. Your subject contained 3 elements.');
+  assert.equal(multi.kind, 'locator');
+  assert.equal(multi.strict, true);
+  const assertion = classifyCypressFailure('expected true to equal false');
+  assert.equal(assertion.kind, 'other');
+});
+
+test('webpack frames map to project files and other prefixes are unknown', () => {
+  const frames = cypressFrames('at Context.eval (webpack://demo/./cypress/e2e/login.cy.js:3:40)');
+  assert.equal(frames.unknownPrefix, false);
+  assert.deepEqual(frames.frames, [{ file: 'cypress/e2e/login.cy.js', line: 3 }]);
+  const other = cypressFrames('at foo (file:///tmp/login.cy.js:3:40)');
+  assert.equal(other.unknownPrefix, true);
+});
+
+test('parser accepts literal cy.get and refuses templates, shadow, and custom commands', () => {
+  const src = [
+    "cy.get('[data-test=\"usrname\"]')",
+    'cy.contains("input", "Logn")',
+    "cy.getByRole('button', { name: 'Logn' })",
+    'cy.get(`${name}`)',
+    'cy.get(".box").shadow()',
+    'cy.getBySel("user")',
+  ].join('\n');
+  const calls = parseCypressCalls(src, 'login.cy.js');
+  assert.equal(calls[0].css, '[data-test="usrname"]');
+  assert.equal(calls[0].unsafe, undefined);
+  assert.equal(calls[1].kind, 'contains');
+  assert.equal(calls[2].kind, 'getByRole');
+  assert.match(calls[3].unsafe, /template/);
+  assert.match(calls[4].unsafe, /shadow/);
+  assert.match(calls[5].unsafe, /Custom commands/);
+});
+
+test('a real Cypress run heals a test id typo and does not touch the project outside the spec', { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 180000 }, async () => {
+  const html = '<!doctype html><html><body><input data-test="username" /></body></html>';
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(html);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-cy-'));
+  const specRel = 'cypress/e2e/login.cy.js';
+  const spec = `describe('login', () => {\n  it('signs in', () => {\n    cy.visit('/');\n    cy.get('[data-test="usrname"]').type('a');\n  });\n});\n`;
+  try {
+    fs.mkdirSync(path.join(dir, 'cypress/e2e'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'cypress/support'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
+    fs.symlinkSync(cypressPkg, path.join(dir, 'node_modules', 'cypress'));
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'cy-fixture', private: true }));
+    fs.writeFileSync(path.join(dir, 'cypress.config.js'), `const { defineConfig } = require('cypress');\nmodule.exports = defineConfig({\n  e2e: { baseUrl: '${base}', supportFile: 'cypress/support/e2e.js', specPattern: 'cypress/e2e/**/*.cy.js' },\n  video: false,\n});\n`);
+    fs.writeFileSync(path.join(dir, 'cypress/support/e2e.js'), '');
+    fs.writeFileSync(path.join(dir, specRel), spec);
+    const before = new Set(walk(dir));
+    const run = await runCli([specRel, '--dry-run', '--json'], dir);
+    const after = new Set(walk(dir));
+    assert.equal(run.status, 0, `${run.stderr}\n${run.stdout}`);
+    assert.deepEqual([...after].sort(), [...before].sort());
+    const payload = JSON.parse(run.stdout);
+    const healed = payload.locators.find((item) => item.status === 'healed');
+    assert.ok(healed, `${JSON.stringify(payload.locators)}\n${run.stderr}`);
+    assert.match(healed.new, /data-test="username"/);
+    assert.equal(fs.readFileSync(path.join(dir, specRel), 'utf8'), spec);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function walk(dir, out = []) {
+  for (const name of fs.readdirSync(dir)) {
+    if (name === 'node_modules' || name === '.qa-core') continue;
+    const file = path.join(dir, name);
+    const stat = fs.statSync(file);
+    if (stat.isDirectory()) walk(file, out);
+    else out.push(path.relative(dir, file));
+  }
+  return out;
+}
+
+function runCli(args, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [cli, ...args], { cwd });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+  });
+}
