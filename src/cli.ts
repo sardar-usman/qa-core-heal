@@ -1332,10 +1332,18 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
       for (const t of locatorTests) verifiedByTitle.set(t.title, true);
     } else {
       say('  ✗ re-run FAILED — verifying per test to isolate the failing heal(s)');
+      const rerunTimedOut = new Set<string>();
       for (const [i, t] of locatorTests.entries()) {
         const one = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [fileArgOf(t), '--grep', escapeRegex(t.title)]), '--reporter=json', ...childExtra(`one-${i}`)], 32 * 1024 * 1024, undefined, ctx.childTimeout);
         logChildRun(cli, one);
         verifiedByTitle.set(t.title, one.status === 0);
+        // A per-test re-run that hits the budget is a timeout, not a
+        // failed assertion. The heal is still reverted below.
+        if (one.timedOut) {
+          rerunTimedOut.add(t.title);
+          revertReasonByTitle.set(t.title, { reason: 'locator' });
+          continue;
+        }
         // Why is it STILL failing? A locator-classified failure means the
         // heal did not fix (or wrongly fixed) the lookup; a non-locator
         // failure (assertion value mismatch, app error, navigation) means
@@ -1379,7 +1387,9 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
           const info = title ? revertReasonByTitle.get(title) : undefined;
           revertedKeys.add(`${rel}|${h.line}`);
           revertReasonByKey.set(`${rel}|${h.line}`, info?.reason ?? 'locator');
-          if (info?.reason === 'non-locator') {
+          if (title && rerunTimedOut.has(title)) {
+            say('The run timeout was reached during the re-run, so the heal was reverted.');
+          } else if (info?.reason === 'non-locator') {
             say(`  ✗ heal reverted: the re-run still fails, but no longer for a locator reason${info.line ? ` (${info.line})` : ''}. `
               + `The heal may be correct; the remaining failure looks like a test or app problem. — ${rel}:${h.line} ${h.old}`);
           } else {
