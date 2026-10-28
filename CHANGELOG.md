@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Docs:** The README says `playwright` is a required peer dependency and `@playwright/test` is optional. Both stay at `>=1.49.0`.
+- **Fixed:** A text lookup that also sets `selector` counts matches inside that selector. A text lookup without `selector` is unchanged.
+
 ## 0.5.0 (2026-10-28)
 
 Playwright JS/TS is now one adapter behind a shared core. Contract version 1 is unchanged. The JSON Schemas in `schemas/` are the same bytes as 0.4.0. This version runs Playwright only.
@@ -15,7 +20,7 @@ Playwright JS/TS is now one adapter behind a shared core. Contract version 1 is 
 - **Note:** Absolute spec paths and spec paths that contain `..` are still refused as outside the project, as in 0.4.2.
 - **Fixed:** If the spec was deleted after heal wrote it, the audit warning says so. The audit field names are unchanged.
 - **Fixed:** If the verify re-run throws after an apply, heal restores the spec and then clears the unverified list, so a later signal does not restore it again. `unverifiedApplyCount` is the test guard for that list.
-- **Internal:** Playwright-specific parsing, reports, config loading, and the test runner live in the Playwright adapter. The registry contains `playwright-js` only. Spec mode still calls some Playwright helpers through the old module paths. `heal.ts` imports the Playwright adapter files directly. `parseReport` and `listTests` are on the adapter and are not used by the core yet.
+- **Internal:** Playwright-specific parsing, reports, config loading, and the test runner live in the Playwright adapter. The registry contains `playwright-js` only. The core lists and runs tests through that adapter. The old module paths re-export the adapter.
 
 ## 0.4.2 (2026-10-28)
 

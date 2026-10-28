@@ -37,8 +37,11 @@ function locatorFor(scope: ReturnType<typeof scopeFor>, query: ProbeQuery): Loca
         ? scope.getByRole(role, opts)
         : scope.getByRole(role);
     }
-    case 'text':
-      return query.exact ? scope.getByText(query.text, { exact: true }) : scope.getByText(query.text);
+    case 'text': {
+      // A selector limits the count to that subtree. Omitting it keeps getByText on the scope.
+      const target = query.selector ? scope.locator(query.selector) : scope;
+      return query.exact ? target.getByText(query.text, { exact: true }) : target.getByText(query.text);
+    }
     case 'label':
       return query.exact ? scope.getByLabel(query.text, { exact: true }) : scope.getByLabel(query.text);
     case 'placeholder':

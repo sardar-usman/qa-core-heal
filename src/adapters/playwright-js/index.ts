@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { Page } from 'playwright';
-import { describeFailedRun, runPlaywrightCli, toCliFileFilter } from '../../playwright-cli.js';
+import { describeFailedRun, runPlaywrightCli, toCliFileFilter } from './cli.js';
 import { playwrightVersion } from '../../playwright-version.js';
 import { escapeRegex } from '../../selectors.js';
 import {
@@ -8,13 +8,13 @@ import {
   runSelected,
   selectionArgs,
   listTests as listTestsImpl,
-} from '../../targeted.js';
-import { collectTests, parseJsonReport, traceFailureUrl, type TestOutcome } from '../../run.js';
+} from './runner.js';
+import { collectTests, parseJsonReport, traceFailureUrl, type TestOutcome } from './report.js';
 import { findPlaywrightConfig, resolvePlaywrightConfig, supportsTypeStripping, typeStrippingGateMessage } from './config.js';
 import { emitLocatorCall } from './emit.js';
 import type { CascadeLevel } from '../../selectors.js';
 import { locatorSignature as signatureOfCall, parseLocatorCalls, selectorSignature as signatureOf } from './parse-locators.js';
-import { classifyFailure, type FailureClass } from '../../run.js';
+import { classifyFailure, type FailureClass } from './report.js';
 import { countQuery } from './unique.js';
 import { resolveBaseUrl } from './base-url.js';
 import { buildLocator, scopeFor } from './build-locator.js';
@@ -41,11 +41,11 @@ import { playwrightAssertionGrammar, playwrightRouteGrammar } from './grammar.js
 
 /**
  * Playwright JS/TS. The only enabled adapter in 0.5.
- * The methods call the same functions the core called before this folder existed.
+ * Parsing, reports, config loading, and the test runner live in this folder.
  */
 
 /** A spec path inside `root`. A scratch copy keeps the project-relative path. */
-function fileInRoot(root: string, specPath: string, specRel?: string): string {
+export function fileInRoot(root: string, specPath: string, specRel?: string): string {
   if (path.isAbsolute(specPath)) {
     const rel = path.relative(root, specPath);
     if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) return specPath;

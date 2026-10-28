@@ -46,10 +46,45 @@ test('the Playwright JS adapter implements every interface member', () => {
 
 test('uniqueInTarget returns a count and treats a broken probe as zero', async () => {
   assert.equal(await playwrightJs.uniqueInTarget({}, { kind: 'css', selector: '#missing' }), 0);
+});
+
+test('assertionGrammar is expect, with soft and poll forms', () => {
   assert.equal(playwrightJs.assertionGrammar.assertionCallee, 'expect');
   assert.deepEqual([...playwrightJs.assertionGrammar.forms], ['soft', 'poll']);
+});
+
+test('route, cleanup, capabilities, and navigation stay on the adapter', () => {
   assert.equal(playwrightJs.routeCalls.method, 'goto');
   assert.deepEqual([...playwrightJs.cleanup.outputDirs], ['test-results', 'playwright-report', 'blob-report']);
   assert.deepEqual(playwrightJs.capabilities.frameworks, ['playwright-js']);
   assert.equal(playwrightJs.navigationError.source, 'page\\.goto:|net::|Navigation failed|NS_ERROR|Protocol error');
+});
+
+test('a text lookup uses selector when it is set and ignores nothing when it is omitted', async () => {
+  const calls = [];
+  const inner = {
+    getByText(text, opts) {
+      calls.push(['getByText', text, opts ?? null]);
+      return { count: async () => 1 };
+    },
+  };
+  const page = {
+    locator(sel) {
+      calls.push(['locator', sel]);
+      return inner;
+    },
+    getByText(text, opts) {
+      calls.push(['page.getByText', text, opts ?? null]);
+      return { count: async () => 4 };
+    },
+  };
+  const narrowed = await playwrightJs.uniqueInTarget(page, { kind: 'text', text: 'Login', selector: 'button' });
+  assert.equal(narrowed, 1);
+  assert.deepEqual(calls, [['locator', 'button'], ['getByText', 'Login', null]]);
+  const plain = await playwrightJs.uniqueInTarget(page, { kind: 'text', text: 'Login' });
+  assert.equal(plain, 4);
+  assert.deepEqual(calls.at(-1), ['page.getByText', 'Login', null]);
+  const exact = await playwrightJs.uniqueInTarget(page, { kind: 'text', text: 'Login', exact: true });
+  assert.equal(exact, 4);
+  assert.deepEqual(calls.at(-1), ['page.getByText', 'Login', { exact: true }]);
 });

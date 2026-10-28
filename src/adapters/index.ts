@@ -58,6 +58,17 @@ export function useAdapter(id: FrameworkId): FrameworkAdapter {
   return found;
 }
 
+/** Tests register a stub or a disabled adapter. Production does not call this. */
+export function registerAdapter(adapter: FrameworkAdapter): void {
+  registry.set(adapter.id, adapter);
+}
+
+/** Remove a test adapter and restore Playwright when it was the active one. */
+export function unregisterAdapter(id: FrameworkId): void {
+  registry.delete(id);
+  if (current.id === id) current = playwrightJs;
+}
+
 export type { FrameworkAdapter, FrameworkId } from './types.js';
 export type { LocatorArgs, LocatorCall, LocatorMethod } from './playwright-js/parse-locators.js';
 export { FRAMEWORK_IDS } from './types.js';
