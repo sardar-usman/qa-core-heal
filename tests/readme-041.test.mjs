@@ -24,8 +24,12 @@ test('the README documents the 0.4.1 behavior in plain places', () => {
   assert.match(readme, /broken\.spec\.ts/);
   assert.match(readme, /weakens-test/);
   assert.match(readme, /login page at \//);
-  assert.match(readme, /Not in 0\.4\.1/);
-  assert.match(readme, /"version": "0\.4\.1"/);
+  assert.match(readme, /Not in 0\.4\.2/);
+  assert.match(readme, /"version": "0\.4\.2"/);
+  assert.match(readme, /folder of the config file/);
+  assert.match(readme, /legacy-peer-deps/);
+  assert.match(readme, /one budget for the whole command/);
+  assert.match(changelog, /## 0\.4\.2 \(2026-10-28\)/);
   assert.match(readme, /playwrightConfig/);
   assert.match(readme, /runTimeout/);
   assert.match(readme, /qa-core-heal-out-/);

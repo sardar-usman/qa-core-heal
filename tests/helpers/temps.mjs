@@ -6,8 +6,9 @@ import path from 'node:path';
  * Records temp folders the tests create and removes them on the way out.
  *
  * Prefixes: `.tmp-test-` (projects inside the repo) and `qa-core-heal-`
- * (counters and markers in the system temp folder). A stable peer-version
- * cache is created with mkdirSync, not mkdtempSync, so this sweep leaves it.
+ * (counters and markers in the system temp folder). The peer-version
+ * cache is created with mkdirSync only when QA_CORE_HEAL_PEER_INSTALL=1,
+ * and that test removes it.
  */
 
 const watched = ['.tmp-test-', 'qa-core-heal-'];
@@ -45,13 +46,19 @@ export function sweepTemps() {
   }
 }
 
-export function chromiumProfiles() {
+function namesInSuite(prefix) {
   const root = suiteRoot ?? os.tmpdir();
   let names = [];
   try { names = fs.readdirSync(root); } catch { return []; }
-  return names
-    .filter((n) => n.startsWith('playwright_chromiumdev_profile-'))
-    .map((n) => path.join(root, n));
+  return names.filter((n) => n.startsWith(prefix)).map((n) => path.join(root, n));
+}
+
+export function chromiumProfiles() {
+  return namesInSuite('playwright_chromiumdev_profile-');
+}
+
+export function chromiumDotDirs() {
+  return namesInSuite('.org.chromium.Chromium.');
 }
 
 export function removeNewChromiumProfiles(before) {

@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
  */
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const { runPlaywrightCli, describeFailedRun, toCliFileFilter } = await import(path.join(repoRoot, 'dist', 'playwright-cli.js'));
+const { runPlaywrightCli, describeFailedRun, toCliFileFilter, startRunBudget } = await import(path.join(repoRoot, 'dist', 'playwright-cli.js'));
 
 test('the local @playwright/test CLI is resolved and run directly — no npx, no shell', async () => {
   // The direct path must NEVER print the npx-fallback note.
@@ -139,6 +139,44 @@ test('a forced spawn failure surfaces command + error code through the CLI', () 
     // The fallback path announces itself, exactly once.
     assert.ok(out.includes('using npx fallback: local Playwright CLI not resolved'), out);
     assert.equal(out.split('using npx fallback').length - 1, 1, out);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a run budget is shared, and a spent budget does not start another child', async () => {
+  const timeout = startRunBudget(500);
+  const first = await runPlaywrightCli(repoRoot, ['--version'], 1024 * 1024, undefined, timeout);
+  assert.equal(first.status, 0, first.stderr);
+  await new Promise((r) => setTimeout(r, 600));
+  const started = performance.now();
+  const second = await runPlaywrightCli(repoRoot, ['--version'], 1024 * 1024, undefined, timeout);
+  const elapsed = performance.now() - started;
+  assert.equal(second.timedOut, true);
+  assert.ok(elapsed < 400, `a spent budget took ${elapsed.toFixed(0)}ms`);
+});
+
+test('each scratch run samples the timeout again', { timeout: 60000 }, async () => {
+  const { scratchVerify } = await import(path.join(repoRoot, 'dist', 'scratch.js'));
+  const dir = fs.mkdtempSync(path.join(repoRoot, '.tmp-test-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'tests'));
+    fs.writeFileSync(path.join(dir, 'playwright.config.ts'),
+      "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ testDir: './tests' });\n");
+    fs.writeFileSync(path.join(dir, 'tests/a.spec.ts'), `import { test } from '@playwright/test';
+test('passes', async () => {});
+`);
+    let n = 0;
+    const out = await scratchVerify({
+      root: dir,
+      plan: [],
+      selectArgs: [toCliFileFilter('tests/a.spec.ts')],
+      runs: 2,
+      timeoutMs: () => (++n === 1 ? 60000 : 0),
+    });
+    assert.equal(n, 2);
+    assert.equal(out.state, 'timeout');
+    assert.equal(out.runs, 2);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

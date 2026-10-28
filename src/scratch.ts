@@ -37,7 +37,7 @@ export interface ScratchOptions {
   plan: HealPlanEntry[];
   /** The exact selection arguments of the targeted run. */
   selectArgs: string[];
-  timeoutMs?: number;
+  timeoutMs?: number | (() => number | undefined);
   /** How many times the changed test must pass. Default 1. The CLI default is 3. */
   runs?: number;
   /** A private Playwright output folder for the runs. */

@@ -65,19 +65,23 @@ test('--playwright-config is passed to Playwright as --config and the spec can h
   } finally { server.close(); rm(n.dir); }
 });
 
-test('an unsafe --playwright-config is ignored and is not passed to Playwright', async () => {
-  const server = await startServer(PAGE);
-  const n = nestedSpec(baseOf(server));
+test('an explicit --playwright-config that is refused fails the run', async () => {
+  const n = nestedSpec('http://127.0.0.1:9');
   try {
-    const rel = await runCli([n.specRel, '--dry-run', '--verbose', '--playwright-config', '../outside.ts'], n.dir);
-    assert.match(rel.stderr, /\[verbose\] ignored --playwright-config \.\.\/outside\.ts: it is absolute or it contains \.\./);
+    const rel = await runCli([n.specRel, '--dry-run', '--playwright-config', '../outside.ts'], n.dir);
+    assert.equal(rel.status, 1);
+    assert.match(rel.stderr, /Refused --playwright-config \.\.\/outside\.ts: it is absolute or it contains \.\./);
     assert.doesNotMatch(rel.stderr, /--config \.\.\/outside/);
 
     const absPath = path.join(n.dir, n.configRel);
     const abs = await runCli([n.specRel, '--dry-run', '--verbose', '--playwright-config', absPath], n.dir);
-    assert.match(abs.stderr, new RegExp(`\\[verbose\\] ignored --playwright-config ${absPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: it is absolute or it contains \\.\\.`));
-    assert.doesNotMatch(abs.stderr, /--config /);
-  } finally { server.close(); rm(n.dir); }
+    assert.equal(abs.status, 1);
+    assert.match(abs.stderr, new RegExp(`Refused --playwright-config ${absPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: it is absolute or it contains \\.\\.`));
+
+    const missing = await runCli([n.specRel, '--playwright-config', 'no-such.config.ts'], n.dir);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /Refused --playwright-config no-such\.config\.ts: the file is missing\./);
+  } finally { rm(n.dir); }
 });
 
 test('--playwright-config is refused together with --findings', async () => {

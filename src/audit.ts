@@ -17,6 +17,8 @@ export interface AuditEntry {
   reverted: boolean;
   /** Why the edit was undone: the re-run still failed, or a signal stopped the verify run. */
   revertReason?: 'locator' | 'non-locator' | 'interrupted';
+  /** Set when a signal arrived but the spec was no longer the bytes heal wrote. */
+  warning?: string;
 }
 
 /** Append one JSON line per applied heal. Creates the log directory if needed. */

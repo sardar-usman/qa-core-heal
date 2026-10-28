@@ -7,10 +7,9 @@ import path from 'node:path';
 import { baseOf, finding, repoRoot, startServer, writeFindings } from './helpers/contract.mjs';
 
 /**
- * Playwright is a peer dependency with no upper bound. Smoke 1.49.0 and
- * 1.64.1, the versions this package was tested with. The suite itself
- * stays on the devDependency, Playwright 1.60.0. The browser cache is
- * kept between runs.
+ * Playwright is a peer dependency with no upper bound. The range check
+ * always runs. The network install of 1.49.0 and 1.64.1 runs only when
+ * QA_CORE_HEAL_PEER_INSTALL=1, and that run removes its cache folder.
  */
 
 const RANGE = '>=1.49.0';
@@ -106,11 +105,18 @@ test('broken mail', async ({ page }) => {
   fs.rmSync(proj, { recursive: true, force: true });
 }
 
-test('the lowest and highest Playwright versions in the peer range can run a findings smoke and a scan smoke', { timeout: 15 * 60 * 1000 }, async () => {
+test('the lowest and highest Playwright versions in the peer range can run a findings smoke and a scan smoke', {
+  timeout: 15 * 60 * 1000,
+  skip: process.env.QA_CORE_HEAL_PEER_INSTALL === '1' ? false : 'set QA_CORE_HEAL_PEER_INSTALL=1 to run the network install',
+}, async () => {
+  const cacheRoot = path.join(os.tmpdir(), 'qa-core-heal-peer-cache');
   const server = await startServer('<html><body><label>Mail <input id="mail-x9" name="email" type="email" /></label></body></html>');
   try {
     const base = baseOf(server);
     await smoke(LOW, base);
     await smoke(HIGH, base);
-  } finally { server.close(); }
+  } finally {
+    server.close();
+    fs.rmSync(cacheRoot, { recursive: true, force: true });
+  }
 });

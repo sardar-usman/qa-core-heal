@@ -10,7 +10,7 @@ import { loadConfig } from './config.js';
 import { appendAuditLog, type AuditEntry } from './audit.js';
 import { findPlaywrightConfig, supportsTypeStripping, typeStrippingGateMessage } from './playwright-config.js';
 import { classifyFailure, collectTests, parseConsent, parseJsonReport, traceFailureUrl, type TestOutcome } from './run.js';
-import { describeFailedRun, runPlaywrightCli, toCliFileFilter, type PlaywrightRunResult } from './playwright-cli.js';
+import { describeFailedRun, runPlaywrightCli, startRunBudget, toCliFileFilter, type PlaywrightRunResult } from './playwright-cli.js';
 import { clearUnverifiedApplies, installSignalCleanup, trackOutputDir, trackUnverifiedApply, untrackOutputDir } from './process-guard.js';
 import { projectRootFor } from './project-root.js';
 import { buildCapabilities, ContractError, parseFindings, toolVersion } from './contract.js';
@@ -131,7 +131,7 @@ interface CliArgs {
   findings?: string;
   /** --results: where the heal results file is written. */
   results?: string;
-  /** --run-timeout: seconds before one child Playwright run is stopped (findings mode). */
+  /** --run-timeout: total milliseconds for every child Playwright run in this command. */
   runTimeoutMs?: number;
   /** --shadow-runs: scratch re-runs that must all pass (findings mode). Default 3. */
   shadowRuns?: number;
@@ -200,7 +200,7 @@ Flags:
       --test <title>             run and heal exactly one test of the spec file (a title, or "Describe › title")
       --findings <file>          read a qa-core heal findings file (contract version 1) instead of a spec path
       --results <file>           where --findings writes the heal results file (required with --findings)
-      --run-timeout <s>          seconds before one Playwright run is stopped (with --findings or --test)
+      --run-timeout <s>          total seconds for every Playwright run in one command (with --findings or --test)
       --shadow-runs <n>          scratch re-runs that must all pass before a proposal is verified (default 3, with --findings)
       --audit-log <path>         append applied heals to this JSONL file
       --no-color                 disable ANSI colors (the NO_COLOR env var is honored automatically)
@@ -522,18 +522,17 @@ async function runFindingsMode(cli: CliArgs, loaded: ReturnType<typeof loadConfi
   if (outcome.exitCode !== 0) process.exitCode = outcome.exitCode;
 }
 
-/** Seconds a single child Playwright run may take in findings mode, unless --run-timeout says otherwise. */
+/** Total milliseconds for every child Playwright run in one findings command, unless --run-timeout says otherwise. */
 const DEFAULT_RUN_TIMEOUT_MS = 10 * 60 * 1000;
 
-/** The relative --config path for Playwright, or null when the flag is absent or refused. */
+/** The relative --config path for Playwright, or null when the flag is absent. A refused value fails the run. */
 function playwrightConfigFor(cli: CliArgs, root: string): string | null {
   if (!cli.playwrightConfig) return null;
   const why = configIgnoreReason(process.cwd(), cli.playwrightConfig, root);
-  if (why) {
-    if (cli.verbose) console.error(`[verbose] ignored --playwright-config ${cli.playwrightConfig}: ${why}`);
-    return null;
-  }
-  return configArgFor(process.cwd(), cli.playwrightConfig, root);
+  if (why) fail(`Refused --playwright-config ${cli.playwrightConfig}: ${why}.`);
+  const rel = configArgFor(process.cwd(), cli.playwrightConfig, root);
+  if (!rel) fail(`Refused --playwright-config ${cli.playwrightConfig}: it is outside the project.`);
+  return rel;
 }
 
 function specOutputDir(name: string): string {
@@ -571,7 +570,9 @@ function rememberUnverified(plan: HealResult['plan'], heals: HealResult['healed'
   for (const entry of plan) {
     const entries = byFile.get(entry.file);
     if (!entries || entries.length === 0) continue;
-    trackUnverifiedApply({ file: entry.file, original: entry.src, auditPath, entries });
+    let written = entry.src;
+    try { written = fs.readFileSync(entry.file, 'utf8'); } catch { /* the scanned source is the fallback */ }
+    trackUnverifiedApply({ file: entry.file, original: entry.src, written, auditPath, entries });
   }
 }
 
@@ -782,6 +783,7 @@ async function main(): Promise<void> {
   };
 
   if (!cli.scan) {
+    const childTimeout = startRunBudget(cli.runTimeoutMs);
     let only: OnlyTest | undefined;
     if (cli.test !== undefined) {
       const target = cli.specPath ? path.resolve(cli.specPath) : '';
@@ -793,7 +795,7 @@ async function main(): Promise<void> {
       const res: Resolution = await resolveTarget({
         root: projectRootFor(target), file: target, title: wanted[wanted.length - 1]!, project: cli.project,
         config: playwrightConfigRel, outputDir: listOut,
-        match: matchTitle(cli.test), timeoutMs: cli.runTimeoutMs, observe: (run) => logChildRun(cli, run),
+        match: matchTitle(cli.test), timeoutMs: childTimeout, observe: (run) => logChildRun(cli, run),
       });
       endSpecOutput(listOut);
       const where = path.relative(process.cwd(), target) || target;
@@ -804,7 +806,7 @@ async function main(): Promise<void> {
     }
     await runFirstFlow({
       cli, specs, write, verify, say, runPass, printDiff, writeAudit,
-      displayTarget: cli.specPath, only, auditPath, playwrightConfigRel,
+      displayTarget: cli.specPath, only, auditPath, playwrightConfigRel, childTimeout,
     });
     return;
   }
@@ -1015,6 +1017,8 @@ interface RunFirstCtx {
   auditPath: string;
   /** Playwright --config path relative to the project root, when the flag was accepted. */
   playwrightConfigRel: string | null;
+  /** Samples the remaining --run-timeout budget. Undefined means no limit. */
+  childTimeout: () => number | undefined;
 }
 
 /**
@@ -1044,7 +1048,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   const run = await runPlaywrightCli(
     root,
     ['test', ...(ctx.only ? ctx.only.selectArgs : rels.map(toCliFileFilter)), '--reporter=json', ...traceArgs, ...childExtra('first')],
-    64 * 1024 * 1024, undefined, cli.runTimeoutMs,
+    64 * 1024 * 1024, undefined, ctx.childTimeout,
   );
   logChildRun(cli, run);
   if (run.timedOut) fail(`The test run timed out after ${(cli.runTimeoutMs ?? 0) / 1000} seconds.`);
@@ -1292,7 +1296,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     // With --test the re-run keeps the one-test selection. A heal can move
     // the declaration line, so the line is followed through the plan.
     const onlyArgs = (): string[] => withLine(ctx.only!.selectArgs, ctx.only!.line, ctx.only!.line - lineShift(result.plan, ctx.only!.file, ctx.only!.line));
-    const rerun = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [...fileArgs, '--grep', grep]), ...childExtra('rerun')], 32 * 1024 * 1024, undefined, cli.runTimeoutMs);
+    const rerun = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [...fileArgs, '--grep', grep]), ...childExtra('rerun')], 32 * 1024 * 1024, undefined, ctx.childTimeout);
     logChildRun(cli, rerun);
     rerunPassed = rerun.status === 0;
     if (rerunPassed) {
@@ -1301,7 +1305,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     } else {
       say('  ✗ re-run FAILED — verifying per test to isolate the failing heal(s)');
       for (const [i, t] of locatorTests.entries()) {
-        const one = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [fileArgOf(t), '--grep', escapeRegex(t.title)]), '--reporter=json', ...childExtra(`one-${i}`)], 32 * 1024 * 1024, undefined, cli.runTimeoutMs);
+        const one = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [fileArgOf(t), '--grep', escapeRegex(t.title)]), '--reporter=json', ...childExtra(`one-${i}`)], 32 * 1024 * 1024, undefined, ctx.childTimeout);
         logChildRun(cli, one);
         verifiedByTitle.set(t.title, one.status === 0);
         // Why is it STILL failing? A locator-classified failure means the

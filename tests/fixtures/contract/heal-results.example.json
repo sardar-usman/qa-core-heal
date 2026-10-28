@@ -1,7 +1,7 @@
 {
   "schema": "qa-core.heal-results",
   "schemaVersion": 1,
-  "tool": { "name": "qa-core-heal", "version": "0.4.1", "playwrightVersion": "1.60.0" },
+  "tool": { "name": "qa-core-heal", "version": "0.4.2", "playwrightVersion": "1.60.0" },
   "mode": "dry-run",
   "input": { "findingsSchemaVersion": 1, "findingsSha256": "0000000000000000000000000000000000000000000000000000000000000004", "findingCount": 3 },
   "ai": { "enabled": false, "provider": null, "model": null },

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.2 (2026-10-28)
+
+Hardening fixes from the 0.4.1 review. Contract version 1 is unchanged. The JSON Schemas in `schemas/` are the same bytes as 0.4.0. No CLI flag, exit code, or JSON field was removed or renamed. `features.runTimeout` stays true.
+
+- **Fixed:** When a Playwright config does not set `testDir`, heal looks in the folder of the config file. That is Playwright's own default.
+- **Fixed:** After a killed child run, heal removes `.org.chromium.Chromium.*` folders in the system temp directory that were created after that child started. Folders that were already there are left alone.
+- **Fixed:** An explicit `--playwright-config` value that heal refuses fails the run with a clear error and exit code 1. A findings `configPath` that is refused is still ignored, and `--verbose` still says why.
+- **Fixed:** On SIGINT, SIGTERM, or SIGHUP during `--apply` verification, heal restores the spec only when the file still contains exactly what heal wrote. If the file changed, heal leaves it and the audit entry includes a warning.
+- **Fixed:** A Playwright child is dropped from the tracked process groups when it exits. The final SIGKILL reads the process table again, so a process that started after the first snapshot is included. Groups that are already dead are not signaled.
+- **Fixed:** SIGHUP is trapped the same way as SIGINT and SIGTERM. The exit code is 129.
+- **Fixed:** `--run-timeout` is one time budget for every Playwright run in one heal command. The default in findings mode is still 10 minutes for the whole command.
+- **Fixed:** A findings spec that is outside the project, and a symlink that points outside the project, are still refused with `spec-not-found`. The message says which of those it is.
+- **Fixed:** The weakening guard refuses a change from `expect(...)` to `expect.soft(...)` or `expect.poll(...)`. It counts `test.fixme` and `test.describe.fixme` as skips. A regex literal no longer hides a later assertion, and an `expect` inside a template `${}` expression is seen.
+- **Fixed:** A child that is already a zombie does not make the stop wait the full grace period. Process state Z, from `/proc/<pid>/stat` or from `ps`, counts as dead.
+- **Fixed:** `clearUnverifiedApplies()` runs in a `finally` in the findings apply path, so a thrown re-run does not leave the spec tracked for a later signal.
+- **Changed:** The network install check for the peer Playwright versions runs only when `QA_CORE_HEAL_PEER_INSTALL=1`. When it runs, it removes its cache folder afterwards.
+- **Docs:** The README describes the default `testDir`, the total `--run-timeout` budget, and `npm install --legacy-peer-deps` for a Playwright prerelease. Code comments state the limit when both `/proc` and `ps` are missing: heal can signal only the direct child's process group. macOS always has `ps`.
+
 ## 0.4.1 (2026-10-27)
 
 Fixes from the 0.4.0 review and from a full run of 0.4.0 on SauceDemo. Contract version 1 is unchanged. The JSON Schemas in `schemas/` are the same bytes as 0.4.0.
