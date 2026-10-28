@@ -71,3 +71,7 @@ export function removeNewChromiumProfiles(before) {
 }
 
 process.on('exit', sweepTemps);
+
+// Every test file in this process shares one private temp directory, including
+// the suites that used to leave Chromium files in the system temp directory.
+installSuiteTmp();

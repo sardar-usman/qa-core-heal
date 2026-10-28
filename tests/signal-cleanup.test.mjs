@@ -219,13 +219,13 @@ test('a spec run timeout kills Playwright and removes the output folder', { time
   const server = await startServer('<html><body><input id="mail-x9" /></body></html>');
   const profiles = chromiumProfiles();
   const dir = makeProject(baseOf(server), { 'tests/a.spec.ts': HANG }, { timeout: 180000 });
-  const run = spawnCli(['tests/a.spec.ts', '--test', 'fills mail', '--run-timeout', '6'], dir);
+  const run = spawnCli(['tests/a.spec.ts', '--test', 'fills mail', '--run-timeout', '20'], dir);
   try {
     const outRoot = await waitFor(() => outputRootFrom(dir, run.child.pid), 'a Playwright child with a private output folder');
     const done = await run.closed;
     await sleep(400);
     assert.equal(done.status, 1, `${run.text().stdout}\n${run.text().stderr}`);
-    assert.match(run.text().stderr, /timed out after 6 seconds/);
+    assert.match(run.text().stderr, /timed out after 20 seconds/);
     assertStoppedClean(dir, outRoot);
   } finally {
     if (run.child.exitCode === null && !run.child.killed) {

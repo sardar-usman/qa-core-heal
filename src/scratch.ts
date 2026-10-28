@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { activeAdapter } from './adapters/index.js';
 import { renderHealPlan, type HealPlanEntry } from './heal.js';
-import { outputArgs, runSelected, type RunObserver } from './targeted.js';
+import { outputArgs, type RunObserver } from './targeted.js';
 import { weakeningReason } from './weaken.js';
 
 /**
@@ -21,7 +22,12 @@ import { weakeningReason } from './weaken.js';
 /** Largest project copy this check will make. A bigger project is reported as unverifiable. */
 export const MAX_COPY_BYTES = 256 * 1024 * 1024;
 
-const SKIP_DIRS = new Set(['node_modules', '.git', '.qa-core', 'test-results', 'playwright-report', 'blob-report']);
+/** Shared folders every adapter skips. The adapter adds its own output folders. */
+const BASE_SKIP = ['node_modules', '.git', '.qa-core'] as const;
+
+function skipDirs(): Set<string> {
+  return new Set<string>([...BASE_SKIP, ...activeAdapter().cleanup.outputDirs]);
+}
 
 export type ScratchOutcome = {
   state: 'passed' | 'failed' | 'timeout' | 'unavailable' | 'weakened';
@@ -51,16 +57,16 @@ export interface ScratchOptions {
  * own recursive copy refuses a destination inside its source, so this walks
  * the tree by hand. Symbolic links are copied as links.
  */
-function copyTree(src: string, dst: string, root: string, state = { bytes: 0 }): void {
+function copyTree(src: string, dst: string, root: string, state = { bytes: 0 }, skip: Set<string> = skipDirs()): void {
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    if (SKIP_DIRS.has(entry.name)) continue;
+    if (skip.has(entry.name)) continue;
     const from = path.join(src, entry.name);
     const to = path.join(dst, entry.name);
     if (entry.isSymbolicLink()) {
       fs.symlinkSync(fs.readlinkSync(from), to);
     } else if (entry.isDirectory()) {
       fs.mkdirSync(to);
-      copyTree(from, to, root, state);
+      copyTree(from, to, root, state, skip);
     } else if (entry.isFile()) {
       state.bytes += fs.statSync(from).size;
       if (state.bytes > MAX_COPY_BYTES) throw new Error('COPY_TOO_LARGE');
@@ -103,7 +109,12 @@ export async function scratchVerify(opts: ScratchOptions): Promise<ScratchOutcom
     let passed = 0;
     for (let i = 1; i <= runs; i++) {
       if (opts.outputDir) fs.rmSync(opts.outputDir, { recursive: true, force: true });
-      const one = await runSelected(scratch, opts.selectArgs, outputArgs(opts.outputDir), opts.timeoutMs, opts.observe);
+      const one = await activeAdapter().runOne(scratch, {
+        selectArgs: opts.selectArgs,
+        extraArgs: outputArgs(opts.outputDir),
+        timeoutMs: opts.timeoutMs,
+        observe: opts.observe,
+      }, 'shadow');
       if (one.kind === 'timeout') return { state: 'timeout', message: 'The re-run in the copy timed out.', runs: i, passed, failed: 0 };
       if (one.kind === 'error') return { state: 'unavailable', message: one.message, runs: i, passed, failed: 0 };
       if (one.status === 'expected' && one.run.status === 0) { passed++; continue; }

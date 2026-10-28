@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0 (2026-10-28)
+
+Playwright JS/TS is now one adapter behind a shared core. Contract version 1 is unchanged. The JSON Schemas in `schemas/` are the same bytes as 0.4.0. This version runs Playwright only.
+
+- **Added:** `--framework <id>` selects the adapter. Accepted values are `playwright-js`, `cypress-js`, `selenium-js`, `playwright-py`, and `selenium-py`. Only `playwright-js` runs. The other ids are recognised and refused with exit code 2, and nothing is written.
+- **Added:** Framework detection. A findings `project.configPath`, then project marker files. Two matches are refused until you pass `--framework`. No match uses `playwright-js` and prints nothing. `--verbose` prints one line.
+- **Added:** `capabilities` reports `features.frameworks` and `frameworkVersions`. `frameworkVersions["playwright-js"]` is the same value as `playwrightVersion`. Existing keys are unchanged.
+- **Changed:** A project that has both a Playwright config and another framework's markers now needs `--framework playwright-js`. A project whose only marker is Cypress or Selenium also needs `--framework playwright-js`. In 0.4.2 those projects ran as Playwright. They are now refused with exit code 2. `capabilities` is answered before detection, so it still answers with no `--framework` flag.
+- **Fixed:** The Chromium temp sweep removes new `.org.chromium.Chromium.*` files and folders. Entries that were already there, and entries a live process is using, stay. Without `/proc` the sweep removes nothing.
+- **Fixed:** Without `/proc`, heal reads `ps` once per stop loop and answers every pid from that table.
+- **Fixed:** In `--test` mode, a re-run that hits the run timeout is reported as a timeout and the heal is reverted.
+- **Fixed:** In findings mode, a finding that never started because the run timeout was already used up gets its own message. The refusal code stays `timeout`.
+- **Note:** Absolute spec paths and spec paths that contain `..` are still refused as outside the project, as in 0.4.2.
+- **Fixed:** If the spec was deleted after heal wrote it, the audit warning says so. The audit field names are unchanged.
+- **Fixed:** If the verify re-run throws after an apply, heal restores the spec and then clears the unverified list, so a later signal does not restore it again. `unverifiedApplyCount` is the test guard for that list.
+- **Internal:** Playwright-specific parsing, reports, config loading, and the test runner live in the Playwright adapter. The registry contains `playwright-js` only. Spec mode still calls some Playwright helpers through the old module paths. `heal.ts` imports the Playwright adapter files directly. `parseReport` and `listTests` are on the adapter and are not used by the core yet.
+
 ## 0.4.2 (2026-10-28)
 
 Hardening fixes from the 0.4.1 review. Contract version 1 is unchanged. The JSON Schemas in `schemas/` are the same bytes as 0.4.0. No CLI flag, exit code, or JSON field was removed or renamed. `features.runTimeout` stays true.

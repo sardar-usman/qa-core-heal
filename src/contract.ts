@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
-import path from 'node:path';
+import { registeredAdapters } from './adapters/index.js';
+import { playwrightVersion } from './playwright-version.js';
+
+export { playwrightVersion };
 
 /**
  * The qa-core contract between qa-core-flaky and qa-core-heal, version 1.
@@ -27,19 +30,6 @@ export function toolVersion(): string {
   return (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 }
 
-/** The installed Playwright version, resolved from a project root first. */
-export function playwrightVersion(root: string): string | null {
-  const attempts = [path.join(root, 'package.json'), import.meta.url];
-  for (const from of attempts) {
-    try {
-      const req = createRequire(from);
-      const v = (req('@playwright/test/package.json') as { version?: string }).version;
-      if (typeof v === 'string' && v.length > 0) return v;
-    } catch { /* try the next location */ }
-  }
-  return null;
-}
-
 export interface Capabilities {
   schema: typeof CAPABILITIES_SCHEMA;
   schemaVersion: 1;
@@ -54,17 +44,31 @@ export interface Capabilities {
     playwrightConfig: boolean;
     /** True when this build accepts --run-timeout and stops a run that exceeds it. */
     runTimeout: boolean;
+    /** Framework ids this build can run. */
+    frameworks: string[];
   };
+  /** Installed version of each framework this build can run. Null when it is not installed. */
+  frameworkVersions: Record<string, string | null>;
 }
 
 export function buildCapabilities(root: string): Capabilities {
+  const version = playwrightVersion(root);
   return {
     schema: CAPABILITIES_SCHEMA,
     schemaVersion: 1,
     tool: { name: TOOL_NAME, version: toolVersion() },
     contracts: { findings: [...SUPPORTED_FINDINGS_VERSIONS], results: [RESULTS_SCHEMA_VERSION] },
-    playwrightVersion: playwrightVersion(root),
-    features: { findings: true, targetedRun: true, ruleSuggestions: false, ai: false, playwrightConfig: true, runTimeout: true },
+    playwrightVersion: version,
+    features: {
+      findings: true,
+      targetedRun: true,
+      ruleSuggestions: false,
+      ai: false,
+      playwrightConfig: true,
+      runTimeout: true,
+      frameworks: registeredAdapters().map((adapter) => adapter.id),
+    },
+    frameworkVersions: { 'playwright-js': version },
   };
 }
 

@@ -1,10 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { chromium, type Browser, type ElementHandle, type Locator, type Page, type FrameLocator } from 'playwright';
-import { emitLocatorCall, resolve as resolveIntent, type CascadeLevel, type Scope } from './selectors.js';
+import { chromium, type Browser, type ElementHandle, type Locator, type Page } from 'playwright';
+import { emitLocatorCall, resolve as resolveIntent, type CascadeLevel } from './selectors.js';
 import { healResolve } from './heal-resolve.js';
 import { installEvalShim } from './eval-shim.js';
-import { resolvePlaywrightConfig } from './playwright-config.js';
+import { resolveBaseUrl } from './adapters/playwright-js/base-url.js';
+import { buildLocator, scopeFor } from './adapters/playwright-js/build-locator.js';
+import {
+  parseArgs, parseLocatorCalls, matchParen, ROLE_BOOL_OPTS,
+  type LocatorArgs, type LocatorCall, type LocatorMethod,
+} from './adapters/playwright-js/parse-locators.js';
+import { uniqueInTarget } from './adapters/playwright-js/unique.js';
 import {
   buildRoutePlan, routesForLocator, routeLabel, resolveRoute, stripAutoSuffixes, hasExplicitRoute,
   templateGotos, templateRouteSkipLine, type RouteOverride,
@@ -248,233 +254,6 @@ export function applyHealPlanExcluding(
   }
 }
 
-/* ─────────────────────────── parsing ─────────────────────────── */
-
-const LOCATOR_METHODS = [
-  'getByRole', 'getByLabel', 'getByPlaceholder', 'getByText',
-  'getByAltText', 'getByTitle', 'getByTestId', 'locator',
-] as const;
-type LocatorMethod = (typeof LOCATOR_METHODS)[number];
-
-interface LocatorArgs {
-  role?: string; name?: string; exact?: boolean;
-  label?: string; placeholder?: string; text?: string;
-  alt?: string; title?: string; testid?: string;
-  css?: string; xpath?: string;
-  /** The { hasText: "..." } filter on a locator() call, when present. */
-  hasText?: string;
-  /**
-   * Every getByRole option beyond name/exact, parsed to canonical values
-   * (checked/disabled/expanded/includeHidden/pressed/selected as booleans,
-   * level as a number). Part of the call's identity: checked:false means
-   * an UNCHECKED checkbox, not an unset option.
-   */
-  roleOpts?: Record<string, boolean | number>;
-}
-
-interface LocatorCall {
-  file: string;
-  line: number;      // 1-indexed line the call STARTS on
-  startCol: number;  // 0-indexed within the start line
-  /** Line the call's closing paren sits on: > line for a wrapped call. */
-  endLine: number;
-  endCol: number;    // exclusive, within endLine
-  /** The `page...getByX(...)` text, newlines collapsed for display; no trailing .first()/.click(). */
-  raw: string;
-  root: string;      // 'page' or 'this.page'
-  method: LocatorMethod;
-  level: CascadeLevel;
-  frameChain: string[];
-  args: LocatorArgs;
-  /** Rest of the END line after the call: the API chained on it (".fill(...)"). */
-  trailing: string;
-}
-
-/** Read a JS string literal starting at s[i] (a quote). Returns its value and end index. */
-function readString(s: string, i: number): { value: string; end: number } | null {
-  const quote = s[i];
-  if (quote !== '"' && quote !== "'" && quote !== '`') return null;
-  let out = '';
-  let j = i + 1;
-  while (j < s.length) {
-    const c = s[j];
-    if (c === '\\') {
-      const n = s[j + 1];
-      out += n === 'n' ? '\n' : n === 't' ? '\t' : n === 'r' ? '\r' : (n ?? '');
-      j += 2;
-      continue;
-    }
-    if (c === quote) return { value: out, end: j + 1 };
-    out += c;
-    j++;
-  }
-  return null;
-}
-
-/** Index of the ')' matching the '(' at `open`, skipping string literals. -1 if unbalanced. */
-function matchParen(s: string, open: number): number {
-  let depth = 0;
-  for (let j = open; j < s.length; j++) {
-    const c = s[j];
-    if (c === '"' || c === "'" || c === '`') {
-      const r = readString(s, j);
-      if (!r) return -1;
-      j = r.end - 1;
-      continue;
-    }
-    if (c === '(') depth++;
-    else if (c === ')') { depth--; if (depth === 0) return j; }
-  }
-  return -1;
-}
-
-/** First string literal anywhere in a fragment. */
-function firstString(s: string): string | null {
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === '"' || s[i] === "'" || s[i] === '`') {
-      const r = readString(s, i);
-      if (r) return r.value;
-    }
-  }
-  return null;
-}
-
-/** Value of a `<key>: "..."` string option, with or without a quoted key (JSON emits `"name":`). */
-function namedString(s: string, key: string): string | null {
-  const m = s.match(new RegExp(`["']?\\b${key}\\b["']?\\s*:\\s*`));
-  if (!m || m.index == null) return null;
-  const at = m.index + m[0].length;
-  const r = readString(s, at);
-  return r ? r.value : null;
-}
-
-function levelOf(method: LocatorMethod, args: LocatorArgs): CascadeLevel {
-  switch (method) {
-    case 'getByRole': return 'role';
-    case 'getByLabel': return 'label';
-    case 'getByPlaceholder': return 'placeholder';
-    case 'getByText': return 'text';
-    case 'getByAltText': return 'alt';
-    case 'getByTitle': return 'title';
-    case 'getByTestId': return 'testid';
-    case 'locator': return args.xpath ? 'xpath' : 'css';
-  }
-}
-
-/** getByRole boolean options beyond exact; a fixed list keeps signatures canonical. */
-const ROLE_BOOL_OPTS = ['checked', 'disabled', 'expanded', 'includeHidden', 'pressed', 'selected'] as const;
-
-function parseArgs(method: LocatorMethod, argsRaw: string): LocatorArgs {
-  const first = firstString(argsRaw);
-  switch (method) {
-    case 'getByRole': {
-      // exact:false is Playwright's default, canonically equal to absent;
-      // every OTHER boolean keeps its explicit value (checked:false is an
-      // assertion about state, not an omission).
-      const roleOpts: Record<string, boolean | number> = {};
-      for (const k of ROLE_BOOL_OPTS) {
-        const m = argsRaw.match(new RegExp(`["']?\\b${k}\\b["']?\\s*:\\s*(true|false)\\b`));
-        if (m) roleOpts[k] = m[1] === 'true';
-      }
-      const lm = argsRaw.match(/["']?\blevel\b["']?\s*:\s*(\d+)/);
-      if (lm) roleOpts.level = Number(lm[1]);
-      return {
-        role: first ?? '',
-        name: namedString(argsRaw, 'name') ?? undefined,
-        exact: /["']?\bexact\b["']?\s*:\s*true\b/.test(argsRaw),
-        roleOpts: Object.keys(roleOpts).length > 0 ? roleOpts : undefined,
-      };
-    }
-    case 'getByLabel': return { label: first ?? '' };
-    case 'getByPlaceholder': return { placeholder: first ?? '' };
-    case 'getByText': return { text: first ?? '' };
-    case 'getByAltText': return { alt: first ?? '' };
-    case 'getByTitle': return { title: first ?? '' };
-    case 'getByTestId': return { testid: first ?? '' };
-    case 'locator': {
-      const s = first ?? '';
-      const hasText = namedString(argsRaw, 'hasText') ?? undefined;
-      if (s.startsWith('xpath=')) return { xpath: s.slice('xpath='.length), hasText };
-      if (s.startsWith('//') || s.startsWith('./') || s.startsWith('(//')) return { xpath: s, hasText };
-      return { css: s, hasText };
-    }
-  }
-}
-
-/**
- * Extract every locator chain in a file: page[.frameLocator(...)].getByX(...)
- * / .locator(...). Scans the WHOLE source, not lines: a prettier-wrapped
- * call whose options object spans several lines (the real-world shape for
- * any getByRole with a long name + exact:true) is one call, parsed whole.
- * Missing those made run mode report a failing locator that exists
- * verbatim in the POM as "could not be matched to source".
- */
-function parseLocatorCalls(src: string, file: string): LocatorCall[] {
-  const calls: LocatorCall[] = [];
-  // Line-start offsets, for offset -> (1-indexed line, 0-indexed col).
-  const lineStarts: number[] = [0];
-  for (let i = 0; i < src.length; i++) {
-    if (src[i] === '\n') lineStarts.push(i + 1);
-  }
-  const posOf = (offset: number): { line: number; col: number } => {
-    let lo = 0;
-    let hi = lineStarts.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (lineStarts[mid]! <= offset) lo = mid;
-      else hi = mid - 1;
-    }
-    return { line: lo + 1, col: offset - lineStarts[lo]! };
-  };
-  const rootRe = /(?<![\w.$])(this\.page|page)\b/g;
-  let rm: RegExpExecArray | null;
-  while ((rm = rootRe.exec(src)) !== null) {
-    const root = rm[1]!;
-    let pos = rm.index + root.length;
-    const frameChain: string[] = [];
-    let matched: LocatorMethod | null = null;
-    let open = -1;
-    // Consume any .frameLocator("...") prefixes, then the terminal locator method.
-    for (;;) {
-      if (src.startsWith('.frameLocator(', pos)) {
-        const fo = pos + '.frameLocator'.length;
-        const fc = matchParen(src, fo);
-        if (fc < 0) break;
-        const inner = firstString(src.slice(fo + 1, fc));
-        if (inner != null) frameChain.push(inner);
-        pos = fc + 1;
-        continue;
-      }
-      for (const m of LOCATOR_METHODS) {
-        if (src.startsWith('.' + m + '(', pos)) { matched = m; open = pos + 1 + m.length; break; }
-      }
-      break;
-    }
-    if (!matched || open < 0) continue;
-    const close = matchParen(src, open);
-    if (close < 0) continue;
-    const argsRaw = src.slice(open + 1, close);
-    const args = parseArgs(matched, argsRaw);
-    const start = posOf(rm.index);
-    const end = posOf(close + 1);
-    const lineEnd = src.indexOf('\n', close + 1);
-    calls.push({
-      file,
-      line: start.line, startCol: start.col,
-      endLine: end.line, endCol: end.col,
-      // Collapse the wrapping for display and matching; the edit
-      // coordinates above, not this text, drive the write-back.
-      raw: src.slice(rm.index, close + 1).replace(/\s*\n\s*/g, ' '),
-      root, method: matched,
-      level: levelOf(matched, args), frameChain, args,
-      trailing: src.slice(close + 1, lineEnd < 0 ? src.length : lineEnd),
-    });
-    // Never re-scan inside the consumed call (a root token in a string
-    // literal argument is not a new chain).
-    rootRe.lastIndex = close + 1;
-  }
-  return calls;
-}
 
 /* ─────────────────────── file + url discovery ─────────────────────── */
 
@@ -612,94 +391,11 @@ function projectRootFor(specPath: string): string {
   }
 }
 
-/**
- * The base URL the spec targets, in priority order:
- *   1. an explicit override (--base-url flag or qa-core.config.json baseUrl)
- *   2. use.baseURL from the project's own playwright.config.ts/.js, actually
- *      imported (defineConfig and env vars evaluate; no text scraping)
- *   3. the first absolute URL in a page.goto() call in the scanned files
- *   4. an absolute page-object `url` property
- * Only when all of these fail does the CLI ask for --base-url.
- */
-async function resolveBaseUrl(
-  files: SourceFile[],
-  roots: string[],
-  baseUrl: string | undefined,
-  project?: string,
-  playwrightConfig?: string,
-): Promise<{ url: string | null; configStorageState: string | null }> {
-  let configStorageState: string | null = null;
-  let url: string | null = baseUrl ?? null;
-  const consider = async (dir: string, explicit?: string): Promise<void> => {
-    if (url && configStorageState) return;
-    const res = await resolvePlaywrightConfig(dir, project, explicit);
-    if (!res) return;
-    if (!configStorageState && res.storageState) configStorageState = res.storageState;
-    if (url) return;
-    if (res.baseUrl) { url = res.baseUrl; return; }
-    const name = path.basename(res.configPath);
-    if (res.loadError) {
-      console.error(`${name} failed to load (${res.loadError}); falling back to goto() scan / --base-url — probing quality is reduced without the config (routes, baseURL, and storage state may be missing)`);
-    } else if (res.disagreement) {
-      const list = res.disagreement.map((p) => `${p.name}: ${p.baseURL}`).join(', ');
-      console.error(`${name} defines projects with different baseURLs (${list}); pass --project <name> or --base-url`);
-    }
-  };
-  if (playwrightConfig) await consider(path.dirname(playwrightConfig), playwrightConfig);
-  for (const root of roots) {
-    await consider(root);
-  }
-  if (!url) {
-    for (const f of files) {
-      const g = f.src.match(/\.goto\(\s*["'`](https?:\/\/[^"'`]+)["'`]/);
-      if (g) { url = g[1]!; break; }
-    }
-  }
-  if (!url) {
-    for (const f of files) {
-      const u = f.src.match(/\burl\s*[:=]\s*["'`](https?:\/\/[^"'`]+)["'`]/);
-      if (u) { url = u[1]!; break; }
-    }
-  }
-  return { url, configStorageState };
-}
 
 /** Conventional storage-state locations, tried when nothing is declared. */
 const STORAGE_STATE_CONVENTIONS = ['.auth/state.json', 'playwright/.auth/user.json'];
 
 /* ─────────────────── live probing + confirmation ─────────────────── */
-
-function scopeFor(page: Page, frameChain: string[]): Scope {
-  let scope: Scope = page;
-  for (const f of frameChain) scope = (scope as Page | FrameLocator).frameLocator(f);
-  return scope;
-}
-
-/** Rebuild the actual Playwright locator so we can ask the live page if it still resolves. */
-function buildLocator(page: Page, call: LocatorCall) {
-  const scope = scopeFor(page, call.frameChain);
-  const a = call.args;
-  const role = (a.role ?? '') as Parameters<Page['getByRole']>[0];
-  switch (call.method) {
-    case 'getByRole': {
-      const opts: Record<string, unknown> = { ...(a.roleOpts ?? {}) };
-      if (a.name) {
-        opts.name = a.name;
-        if (a.exact) opts.exact = a.exact;
-      }
-      return Object.keys(opts).length > 0
-        ? scope.getByRole(role, opts as Parameters<Page['getByRole']>[1])
-        : scope.getByRole(role);
-    }
-    case 'getByLabel': return scope.getByLabel(a.label ?? '');
-    case 'getByPlaceholder': return scope.getByPlaceholder(a.placeholder ?? '');
-    case 'getByText': return scope.getByText(a.text ?? '');
-    case 'getByAltText': return scope.getByAltText(a.alt ?? '');
-    case 'getByTitle': return scope.getByTitle(a.title ?? '');
-    case 'getByTestId': return scope.getByTestId(a.testid ?? '');
-    case 'locator': return scope.locator(a.xpath ? `xpath=${a.xpath}` : (a.css ?? ''));
-  }
-}
 
 /** The human-readable identity the original locator carried, used to re-find and confirm. */
 function intentToken(call: LocatorCall): string {
@@ -2182,9 +1878,7 @@ export async function heal(opts: HealOptions): Promise<HealResult> {
           // resolves into iframes (frameChain), and a frame-resolved
           // element counts 0 against the top document.
           const scope = scopeFor(page, frameChain && frameChain.length > 0 ? frameChain : call.frameChain);
-          const unique = async (loc: Locator): Promise<boolean> => {
-            try { return (await loc.count()) === 1; } catch { return false; }
-          };
+          const unique = (loc: Locator): Promise<boolean> => uniqueInTarget(page, loc);
           // A stable id has NO generated segment: '#digest-checkbox-1f8a2e'
           // rotates per load even though 'digest-checkbox' is human — the
           // dynamic-id doctrine (a random id is never proposed) applies to

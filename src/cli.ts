@@ -13,6 +13,7 @@ import { classifyFailure, collectTests, parseConsent, parseJsonReport, traceFail
 import { describeFailedRun, runPlaywrightCli, startRunBudget, toCliFileFilter, type PlaywrightRunResult } from './playwright-cli.js';
 import { clearUnverifiedApplies, installSignalCleanup, trackOutputDir, trackUnverifiedApply, untrackOutputDir } from './process-guard.js';
 import { projectRootFor } from './project-root.js';
+import { detectFramework } from './adapters/detect.js';
 import { buildCapabilities, ContractError, parseFindings, toolVersion } from './contract.js';
 import { configArgFor, configIgnoreReason, lineShift, runFindingsFlow, withLine } from './findings-flow.js';
 import { matchTitle, outputArgs, resolveTarget, type Resolution } from './targeted.js';
@@ -137,6 +138,8 @@ interface CliArgs {
   shadowRuns?: number;
   /** --playwright-config: Playwright config for a spec run. Not the qa-core --config file. */
   playwrightConfig?: string;
+  /** --framework. Accepted ids are checked after parsing. Only playwright-js runs. */
+  framework?: string;
   /** --no-color flag, or the NO_COLOR env var. Output is colorless today;
    *  the flag is honored so that never silently changes. */
   noColor: boolean;
@@ -148,6 +151,12 @@ interface CliArgs {
  * to stdout as valid JSON (the human message stays on stderr).
  */
 const jsonErrorMode = process.argv.includes('--json');
+
+function applyFramework(cli: CliArgs, root: string, configPath: string | null): void {
+  const decision = detectFramework({ root, flag: cli.framework, configPath });
+  if (!decision.ok) fail(decision.message, 2);
+  if (cli.verbose) console.error(`[verbose] framework ${decision.id} (${decision.reason})`);
+}
 
 function fail(msg: string, exitCode: 1 | 2 = 1): never {
   if (jsonErrorMode) {
@@ -187,6 +196,7 @@ Flags:
       --debug                    implies --verbose; adds stack traces and raw child stdout/stderr
       --config <file>            use this qa-core config file instead of the default qa-core.config.json lookup
       --playwright-config <path> Playwright config for a spec run, passed through as --config. Same path rules as a findings configPath. Not with --findings
+      --framework <id>           framework to use. Supported now: playwright-js. Planned: cypress-js, selenium-js, playwright-py, selenium-py
       --base-url <url>           base URL of the app under test (overrides config and playwright.config)
       --project <name>           playwright project to take use.baseURL from when projects disagree
       --route <file>=<route>     override the inferred route for a spec or page-object file (repeatable)
@@ -225,6 +235,7 @@ function parseCliArgs(argv: string[]): CliArgs {
         'no-trace': { type: 'boolean' },
         config: { type: 'string' },
         'playwright-config': { type: 'string' },
+        framework: { type: 'string' },
         'base-url': { type: 'string' },
         project: { type: 'string' },
         'storage-state': { type: 'string' },
@@ -274,6 +285,7 @@ function parseCliArgs(argv: string[]): CliArgs {
   };
   out.configPath = v.config as string | undefined;
   out.playwrightConfig = v['playwright-config'] as string | undefined;
+  out.framework = v.framework as string | undefined;
   out.baseUrl = v['base-url'] as string | undefined;
   out.project = v.project as string | undefined;
   out.storageState = v['storage-state'] as string | undefined;
@@ -458,6 +470,9 @@ async function runFindingsMode(cli: CliArgs, loaded: ReturnType<typeof loadConfi
     if (e instanceof ContractError) fail(e.message, e.exitCode);
     throw e;
   }
+  // One decision for the whole command, before any test runs. A refusal
+  // writes no results file, the same way an unreadable findings file stops.
+  applyFramework(cli, process.cwd(), parsed.doc.project.configPath);
   if (!supportsTypeStripping() && !(cli.baseUrl ?? cfg.baseUrl ?? parsed.doc.project.baseUrl)) {
     const roots = new Set<string>([process.cwd()]);
     for (const f of parsed.doc.findings) roots.add(projectRootFor(path.resolve(f.file)));
@@ -596,6 +611,8 @@ async function main(): Promise<void> {
     console.log(toolVersion());
     return;
   }
+  // capabilities is answered before detection, as in 0.4.2. A project that
+  // also has Cypress or Selenium still gets this answer. No --framework is required.
   // The capabilities subcommand: the one word "capabilities" as the only
   // argument. A folder with that name is passed as ./capabilities.
   if (cli.specPath === 'capabilities') {
@@ -609,9 +626,11 @@ async function main(): Promise<void> {
       console.log(`  Playwright: ${caps.playwrightVersion ?? 'not found'}`);
       console.log('  spec mode Playwright config: --playwright-config');
       console.log('  run timeout: --run-timeout');
+      console.log(`  frameworks: ${caps.features.frameworks.join(', ')}`);
     }
     return;
   }
+  if (cli.findings === undefined) applyFramework(cli, process.cwd(), null);
   const loaded = loadConfig(cli.configPath);
   if (cli.findings !== undefined) {
     await runFindingsMode(cli, loaded);
@@ -1299,15 +1318,32 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     const rerun = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [...fileArgs, '--grep', grep]), ...childExtra('rerun')], 32 * 1024 * 1024, undefined, ctx.childTimeout);
     logChildRun(cli, rerun);
     rerunPassed = rerun.status === 0;
-    if (rerunPassed) {
+    if (ctx.only && rerun.timedOut) {
+      applyHealPlanExcluding(result.plan, () => true);
+      for (const h of result.healed) {
+        const rel = path.relative(process.cwd(), h.file).split(path.sep).join('/');
+        revertedKeys.add(`${rel}|${h.line}`);
+        revertReasonByKey.set(`${rel}|${h.line}`, 'locator');
+      }
+      say('The run timeout was reached during the re-run, so the heal was reverted.');
+      process.exitCode = 1;
+    } else if (rerunPassed) {
       say('  ✓ re-run passed');
       for (const t of locatorTests) verifiedByTitle.set(t.title, true);
     } else {
       say('  ✗ re-run FAILED — verifying per test to isolate the failing heal(s)');
+      const rerunTimedOut = new Set<string>();
       for (const [i, t] of locatorTests.entries()) {
         const one = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [fileArgOf(t), '--grep', escapeRegex(t.title)]), '--reporter=json', ...childExtra(`one-${i}`)], 32 * 1024 * 1024, undefined, ctx.childTimeout);
         logChildRun(cli, one);
         verifiedByTitle.set(t.title, one.status === 0);
+        // A per-test re-run that hits the budget is a timeout, not a
+        // failed assertion. The heal is still reverted below.
+        if (one.timedOut) {
+          rerunTimedOut.add(t.title);
+          revertReasonByTitle.set(t.title, { reason: 'locator' });
+          continue;
+        }
         // Why is it STILL failing? A locator-classified failure means the
         // heal did not fix (or wrongly fixed) the lookup; a non-locator
         // failure (assertion value mismatch, app error, navigation) means
@@ -1351,7 +1387,9 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
           const info = title ? revertReasonByTitle.get(title) : undefined;
           revertedKeys.add(`${rel}|${h.line}`);
           revertReasonByKey.set(`${rel}|${h.line}`, info?.reason ?? 'locator');
-          if (info?.reason === 'non-locator') {
+          if (title && rerunTimedOut.has(title)) {
+            say('The run timeout was reached during the re-run, so the heal was reverted.');
+          } else if (info?.reason === 'non-locator') {
             say(`  ✗ heal reverted: the re-run still fails, but no longer for a locator reason${info.line ? ` (${info.line})` : ''}. `
               + `The heal may be correct; the remaining failure looks like a test or app problem. — ${rel}:${h.line} ${h.old}`);
           } else {

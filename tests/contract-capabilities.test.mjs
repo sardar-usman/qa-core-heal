@@ -17,8 +17,20 @@ test('capabilities --json reports the tool version, both contract versions and t
     tool: { name: 'qa-core-heal', version: pkg.version },
     contracts: { findings: [1], results: [1] },
     playwrightVersion,
-    features: { findings: true, targetedRun: true, ruleSuggestions: false, ai: false, playwrightConfig: true, runTimeout: true },
+    features: {
+      findings: true,
+      targetedRun: true,
+      ruleSuggestions: false,
+      ai: false,
+      playwrightConfig: true,
+      runTimeout: true,
+      frameworks: ['playwright-js'],
+    },
+    frameworkVersions: { 'playwright-js': playwrightVersion },
   });
+  assert.equal(caps.frameworkVersions['playwright-js'], caps.playwrightVersion);
+  assert.deepEqual(Object.keys(caps), ['schema', 'schemaVersion', 'tool', 'contracts', 'playwrightVersion', 'features', 'frameworkVersions']);
+  assert.deepEqual(Object.keys(caps.features), ['findings', 'targetedRun', 'ruleSuggestions', 'ai', 'playwrightConfig', 'runTimeout', 'frameworks']);
   assert.equal(r.stdout.trim().split('\n').length > 1, true, 'pretty printed, one object');
 });
 
@@ -31,6 +43,7 @@ test('capabilities prints readable text without --json', async () => {
   assert.match(r.stdout, /spec mode Playwright config: --playwright-config/);
   assert.match(r.stdout, /run timeout: --run-timeout/);
   assert.match(r.stdout, new RegExp(`Playwright: ${playwrightVersion.replace(/\./g, '\\.')}`));
+  assert.match(r.stdout, /frameworks: playwright-js\n$/);
 });
 
 test('capabilities runs nothing: no test, no browser, no file written', async () => {
