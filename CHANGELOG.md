@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0 (2026-10-28)
+
+Playwright JS/TS is now one adapter behind a shared core. Contract version 1 is unchanged. The JSON Schemas in `schemas/` are the same bytes as 0.4.0. This version runs Playwright only.
+
+- **Added:** `--framework <id>` selects the adapter. Accepted values are `playwright-js`, `cypress-js`, `selenium-js`, `playwright-py`, and `selenium-py`. Only `playwright-js` runs. The other ids are recognised and refused with exit code 2, and nothing is written.
+- **Added:** Framework detection. A findings `project.configPath`, then project marker files. Two matches are refused until you pass `--framework`. No match uses `playwright-js` and prints nothing. `--verbose` prints one line.
+- **Added:** `capabilities` reports `features.frameworks` and `frameworkVersions`. `frameworkVersions["playwright-js"]` is the same value as `playwrightVersion`. Existing keys are unchanged.
+- **Changed:** A project that has both a Playwright config and another framework's markers now needs `--framework playwright-js`.
+- **Fixed:** The Chromium temp sweep removes new `.org.chromium.Chromium.*` files and folders. Entries that were already there, and entries a live process is using, stay. Without `/proc` the sweep removes nothing.
+- **Fixed:** Without `/proc`, heal reads `ps` once per stop loop and answers every pid from that table.
+- **Fixed:** In `--test` mode, a re-run that hits the run timeout is reported as a timeout and the heal is reverted.
+- **Fixed:** In findings mode, a finding that never started because the run timeout was already used up gets its own message. The refusal code stays `timeout`.
+- **Fixed:** A spec path with `..` is resolved before heal decides it is outside the project. A missing file inside the project says it was not found.
+- **Fixed:** If the spec was deleted after heal wrote it, the audit warning says so. The audit field names are unchanged.
+- **Internal:** Playwright-specific parsing, reports, config loading, and the test runner live in the Playwright adapter. The registry contains `playwright-js` only.
+
 ## 0.4.2 (2026-10-28)
 
 Hardening fixes from the 0.4.1 review. Contract version 1 is unchanged. The JSON Schemas in `schemas/` are the same bytes as 0.4.0. No CLI flag, exit code, or JSON field was removed or renamed. `features.runTimeout` stays true.

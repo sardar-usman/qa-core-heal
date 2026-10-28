@@ -179,6 +179,7 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--debug` | implies `--verbose`; adds stack traces and raw child stdout/stderr |
 | `--config <file>` | use this qa-core config file instead of the default lookup; missing or invalid errors with the full story |
 | `--playwright-config <path>` | Playwright config for a spec run, passed through as `--config`. Same path rules as a findings `configPath`. Not with `--findings` |
+| `--framework <id>` | framework to use. Accepted values: `playwright-js`, `cypress-js`, `selenium-js`, `playwright-py`, `selenium-py`. Only `playwright-js` runs in this version. The flag overrides detection |
 | `--base-url <url>` | override base URL resolution (config → goto scan) |
 | `--project <name>` | pick a Playwright project when their baseURLs disagree |
 | `--route <file>=<route>` | override route inference per file (repeatable) |
@@ -198,6 +199,20 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--shadow-runs <n>` | scratch re-runs that must all pass before a findings proposal is verified (default 3, with `--findings`) |
 
 **The `--json` contract (schemaVersion 1).** The payload always carries `schemaVersion: 1`, a `verdicts` array (one entry per probed locator and per non-locator failure, each with `spec`, `testTitle`, `classification` (`locator` / `non-locator`), `message`, `healApplied`, `before`, `after`, `verified`), and a `summary` of `{ heals, refusals, nonLocator, errors }`, alongside the original per-locator fields. Errors also emit valid JSON with the failure story in `error`. schemaVersion 1 is the compatibility contract: existing fields will not change meaning or disappear within it; additions may appear. Exit codes are unchanged by `--json`.
+
+## Frameworks
+
+Version 0.5 runs Playwright tests written in JavaScript or TypeScript. That adapter id is `playwright-js`.
+
+Detection looks at files only. It does not run a framework, a package manager, or Python. The order is:
+
+1. `--framework` wins, including when two frameworks are present.
+2. In a findings file, `project.configPath` names the framework when the file name is recognised.
+3. Otherwise heal looks at the project root for `playwright.config.*`, `cypress.config.*`, `selenium-webdriver` in `package.json` dependencies or devDependencies, and Python config files that import `playwright` or `selenium`.
+
+When nothing matches, heal uses `playwright-js` and prints nothing about it. When two frameworks match and you do not pass `--framework`, heal stops with exit code 2, names what matched, and writes nothing. When the only match is a framework this version does not run, heal stops with exit code 2 and writes nothing. `--verbose` prints one line, `[verbose] framework <id> (<reason>)`.
+
+Cypress, Selenium, and Python adapters are planned. This version does not run them.
 
 ## The Findings and Results Contract
 
@@ -249,22 +264,23 @@ It prints one JSON object. `contracts.findings` and `contracts.results` are arra
 {
   "schema": "qa-core.heal-capabilities",
   "schemaVersion": 1,
-  "tool": { "name": "qa-core-heal", "version": "0.4.2" },
+  "tool": { "name": "qa-core-heal", "version": "0.5.0" },
   "contracts": { "findings": [1], "results": [1] },
   "playwrightVersion": "1.60.0",
-  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true }
+  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true, "frameworks": ["playwright-js"] },
+  "frameworkVersions": { "playwright-js": "1.60.0" }
 }
 ```
 
-`playwrightVersion` is the version found for the current folder, or `null` when none is found. `features.runTimeout` is true when this build accepts `--run-timeout`. Without `--json` the same facts print as plain text. The word `capabilities` is read as the subcommand only when it is the only argument (with or without `--json`). A spec file or folder with that name is still reachable as `./capabilities`.
+`playwrightVersion` is the version found for the current folder, or `null` when none is found. `features.frameworks` lists the adapters this build can run. `frameworkVersions` repeats `playwrightVersion` under `playwright-js`. `features.runTimeout` is true when this build accepts `--run-timeout`. Without `--json` the same facts print as plain text, with one extra line for the frameworks. The word `capabilities` is read as the subcommand only when it is the only argument (with or without `--json`). A spec file or folder with that name is still reachable as `./capabilities`.
 
-`--run-timeout` is one budget for the whole command. Listing the test, the first run, every scratch run, and the re-run after `--apply` all share it. When the time is used up, the current run is stopped and a later run is refused with `timeout`. In findings mode the default is now 10 minutes for the whole command. In 0.4.1 it was 10 minutes for each Playwright run. A long findings run that finished before may now stop with a `timeout` refusal. Raise the limit with `--run-timeout`.
+`--run-timeout` is one budget for the whole command. Listing the test, the first run, every scratch run, and the re-run after `--apply` all share it. When the time is used up, the current run is stopped. In `--test` mode the run fails with "The test run timed out", or, when the budget runs out during the re-run, the heal is reverted and the message says the run timeout was reached during the re-run. In findings mode a run that already started is refused with "The test run timed out before it finished." A later finding that never started is refused with "The run timeout was used up before this finding started. No test was run." Both refusals use the code `timeout`. In findings mode the default is 10 minutes for the whole command, not for each finding. A long findings file can refuse the later findings. Raise the limit with `--run-timeout`. In 0.4.1 the default was 10 minutes for each Playwright run.
 
-**Paths in a findings file.** The `file` of each finding is relative to the folder where you run qa-core-heal, or to the folder of `project.configPath`. When `project.configPath` is set and the file is not found from either of those, heal also looks in that config's `testDir` (when the config does not set `testDir`, Playwright's own default is the folder of the config file). Absolute paths and paths that leave the project are refused with `spec-not-found`, and the message says the file is outside the project. A symlink that points outside the project is refused with the same code, and the message says it is a symlink. The real location of the spec is checked against the project folder, so a `..` in `project.configPath` or a symbolic link cannot bring in a spec from outside it. A hard link inside the project that names a spec outside the project is not caught, because a hard link and a normal file look the same. Do not point a hard link at a spec outside the project. An explicit `--dry-run` is accepted with `--findings` and is the default anyway. `--findings` runs the test named in each finding, so it is never combined with `--test`.
+**Paths in a findings file.** The `file` of each finding is relative to the folder where you run qa-core-heal, or to the folder of `project.configPath`. When `project.configPath` is set and the file is not found from either of those, heal also looks in that config's `testDir` (when the config does not set `testDir`, Playwright's own default is the folder of the config file). Absolute paths and paths that leave the project are refused with `spec-not-found`, and the message says the file is outside the project. A path that contains `..` is resolved first. If it resolves back inside the project and the file is missing, the message says the file was not found inside the project folder. The refusal code is still `spec-not-found`. A symlink that points outside the project is refused with the same code, and the message says it is a symlink. The real location of the spec is checked against the project folder, so a `..` in `project.configPath` or a symbolic link cannot bring in a spec from outside it. A hard link inside the project that names a spec outside the project is not caught, because a hard link and a normal file look the same. Do not point a hard link at a spec outside the project. An explicit `--dry-run` is accepted with `--findings` and is the default anyway. `--findings` runs the test named in each finding, so it is never combined with `--test`.
 
 **The Playwright config.** `project.configPath` is passed to Playwright as `--config` for the test list, the first run, the scratch check and the re-run after an apply, so a config that lives in a folder below the project root (for example `demo/saucedemo/playwright.config.ts`) is used. A `configPath` that does not exist, or that points outside the project, is ignored and Playwright finds its own config as before. With `--verbose`, heal prints one line saying why: `[verbose] ignored configPath <path>: <why>`. In spec mode (no findings file), pass `--playwright-config <path>`. It uses the same path rules and is passed through as `--config`. An explicit value that those rules refuse fails the run with a clear error. `--config` itself still names the qa-core config file.
 
-**Separate output folders.** Every Playwright call in findings mode, and every Playwright call in spec mode, writes to its own temporary `--output` folder (`qa-core-heal-out-*` in the system temp directory). Heal removes that folder when the run finishes, when `--run-timeout` stops it, and when heal is stopped with SIGINT, SIGTERM, or SIGHUP. Those stops also kill the Playwright process group and the browser processes it started in their own group. The exit code is 130 for SIGINT, 143 for SIGTERM, and 129 for SIGHUP. After a killed child, heal also removes `.org.chromium.Chromium.*` folders in the system temp directory that were created after that child started. Folders that were already there are left alone. Two runs of qa-core-heal in the same project at the same time do not delete each other's traces.
+**Separate output folders.** Every Playwright call in findings mode, and every Playwright call in spec mode, writes to its own temporary `--output` folder (`qa-core-heal-out-*` in the system temp directory). Heal removes that folder when the run finishes, when `--run-timeout` stops it, and when heal is stopped with SIGINT, SIGTERM, or SIGHUP. Those stops also kill the Playwright process group and the browser processes it started in their own group. The exit code is 130 for SIGINT, 143 for SIGTERM, and 129 for SIGHUP. After a killed child, heal also removes `.org.chromium.Chromium.*` files and folders in the system temp directory that were created after that child started. Files and folders that were already there are left alone. An entry a live process is using, including one that has a file open inside it, is left alone. Without `/proc`, heal cannot tell which entries are in use, so it skips this sweep. Two runs of qa-core-heal in the same project at the same time do not delete each other's traces.
 
 **Run one test.** `--test` works without a findings file too:
 
