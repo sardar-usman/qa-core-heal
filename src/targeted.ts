@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { TestSelection } from './adapters/types.js';
 import { escapeRegex } from './selectors.js';
 import { runPlaywrightCli, toCliFileFilter, type PlaywrightRunResult } from './playwright-cli.js';
 import { collectTests, parseJsonReport, stripAnsi, type TestOutcome } from './run.js';
@@ -120,8 +121,12 @@ export interface TargetSpec {
 export type Resolution =
   | {
       kind: 'resolved';
-      /** The exact selection arguments, for the run and for any re-run. */
-      selectArgs: string[];
+      /** The test the adapter runs. The adapter builds the runner arguments. */
+      selection: TestSelection;
+      /** The grep title. Null is not used here: a resolved test always has one. */
+      grepTitle: string;
+      project: string | null;
+      config: string | null;
       test: ListedTest;
       /** Declaration lines of every test in the file, ascending. */
       startLines: number[];
@@ -149,7 +154,10 @@ export async function resolveTarget(spec: TargetSpec): Promise<Resolution> {
   if (found.length === 0) return { kind: 'not-found' };
   if (found.length > 1) return { kind: 'ambiguous', count: found.length };
   const test = found[0]!;
-  const selectArgs = selectionArgs(spec.root, spec.file, spec.project ?? test.project, test.line > 0 ? test.line : null, spec.title, spec.config);
+  const project = spec.project ?? test.project ?? null;
+  const config = spec.config ?? null;
+  const line = test.line > 0 ? test.line : 0;
+  const selectArgs = selectionArgs(spec.root, spec.file, project, line > 0 ? line : null, spec.title, config);
   // The exact run filter must list exactly one test. A line shared by
   // several tests (a loop) or a title that is part of another title shows
   // up here, before anything has run.
@@ -158,7 +166,20 @@ export async function resolveTarget(spec: TargetSpec): Promise<Resolution> {
   if (exact.tests.length === 0) return { kind: 'not-found' };
   if (exact.tests.length !== 1) return { kind: 'ambiguous', count: exact.tests.length };
   const startLines = [...new Set(all.tests.map((t) => t.line).filter((l) => l > 0))].sort((a, b) => a - b);
-  return { kind: 'resolved', selectArgs, test, startLines };
+  return {
+    kind: 'resolved',
+    selection: {
+      specPath: spec.file,
+      specRel: path.relative(spec.root, spec.file).split(path.sep).join('/'),
+      titlePath: test.titlePath,
+      line,
+    },
+    grepTitle: spec.title,
+    project,
+    config,
+    test,
+    startLines,
+  };
 }
 
 /** The match function for a finding: same file (checked by the caller), same title path, same project. */

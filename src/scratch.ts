@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { activeAdapter } from './adapters/index.js';
+import type { TestSelection } from './adapters/types.js';
 import { renderHealPlan, type HealPlanEntry } from './heal.js';
-import { outputArgs, type RunObserver } from './targeted.js';
+import type { RunObserver } from './targeted.js';
 import { weakeningReason } from './weaken.js';
 
 /**
@@ -41,8 +42,12 @@ export type ScratchOutcome = {
 export interface ScratchOptions {
   root: string;
   plan: HealPlanEntry[];
-  /** The exact selection arguments of the targeted run. */
-  selectArgs: string[];
+  /** The test to run. The adapter builds the runner arguments. */
+  selection: TestSelection;
+  /** Grep title. Null means the run is not filtered by title. */
+  grepTitle?: string | null;
+  project?: string | null;
+  config?: string | null;
   timeoutMs?: number | (() => number | undefined);
   /** How many times the changed test must pass. Default 1. The CLI default is 3. */
   runs?: number;
@@ -110,8 +115,11 @@ export async function scratchVerify(opts: ScratchOptions): Promise<ScratchOutcom
     for (let i = 1; i <= runs; i++) {
       if (opts.outputDir) fs.rmSync(opts.outputDir, { recursive: true, force: true });
       const one = await activeAdapter().runOne(scratch, {
-        selectArgs: opts.selectArgs,
-        extraArgs: outputArgs(opts.outputDir),
+        selection: opts.selection,
+        grepTitle: opts.grepTitle,
+        project: opts.project,
+        config: opts.config,
+        outputDir: opts.outputDir,
         timeoutMs: opts.timeoutMs,
         observe: opts.observe,
       }, 'shadow');
@@ -122,7 +130,7 @@ export async function scratchVerify(opts: ScratchOptions): Promise<ScratchOutcom
         return { state: 'failed', message: 'The test passed only on a retry in a scratch copy, which is not enough to propose the change.', runs: i, passed, failed: 1 };
       }
       if (one.status === 'skipped') return { state: 'unavailable', message: 'The test was skipped in the scratch copy.', runs: i, passed, failed: 0 };
-      const line = one.test.message.split('\n').find((l) => l.trim()) ?? 'no message';
+      const line = one.test.errorText.split('\n').find((l) => l.trim()) ?? 'no message';
       return {
         state: 'failed',
         message: `The test did not pass every shadow run (${passed} of ${runs} passed): ${line}`,

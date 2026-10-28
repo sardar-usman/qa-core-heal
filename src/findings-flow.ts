@@ -17,9 +17,9 @@ import { startRunBudget } from './playwright-cli.js';
 import { clearUnverifiedApplies, trackOutputDir, trackUnverifiedApply, untrackOutputDir } from './process-guard.js';
 import { scratchVerify } from './scratch.js';
 import {
-  matchFinding, outputArgs, realPathOf, resolveTarget, type RunObserver,
+  matchFinding, realPathOf, resolveTarget, type RunObserver,
 } from './targeted.js';
-import { stripAnsi, traceFailureUrl } from './run.js';
+import { stripAnsi } from './run.js';
 
 /**
  * The findings flow: read the handoff decisions of qa-core-flaky and write
@@ -569,8 +569,11 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     }
 
     const first = await activeAdapter().runOne(root, {
-      selectArgs: res.selectArgs,
-      extraArgs: outputArgs(path.join(outRoot, 'first')),
+      selection: res.selection,
+      grepTitle: res.grepTitle,
+      project: res.project,
+      config: res.config,
+      outputDir: path.join(outRoot, 'first'),
       noTrace: o.noTrace,
       timeoutMs,
       observe: o.observe,
@@ -586,11 +589,11 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
 
     // The test failed. Is it a locator failure?
     const test = first.test;
-    const failure = activeAdapter().classifyFailure(test.message);
+    const failure = activeAdapter().classifyFailure(test.errorText);
     if (failure.kind === 'other') {
       // Source code frames show neighbouring lines (often a page.goto), so
       // they are removed before looking for a navigation or network error.
-      const noFrames = stripAnsi(test.message).replace(/^[ \t]*>?[ \t]*\d+ \|.*$/gm, '');
+      const noFrames = stripAnsi(test.errorText).replace(/^[ \t]*>?[ \t]*\d+ \|.*$/gm, '');
       if (activeAdapter().navigationError.test(noFrames)) {
         return refusedEntry(f, 'navigation-or-network', `The test failed on a navigation or network step, which a test change cannot fix: ${scrub(failure.summary, root)}`);
       }
@@ -599,7 +602,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     if (!failure.selector) {
       return plainEntry(f, 'not-locator', 'The test failed on a locator, but heal could not read the failing selector from the message.');
     }
-    const url = !o.noTrace && test.tracePath ? traceFailureUrl(test.tracePath) : null;
+    const url = !o.noTrace && test.tracePath ? activeAdapter().pageSource({ tracePath: test.tracePath }) : null;
     const next = res.startLines.find((l) => l > test.line);
     const target: HealTarget = {
       selector: failure.selector,
@@ -647,9 +650,10 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
 
     // 4. The scratch check. No candidate is shown without it.
     const declShift = lineShift(healed.plan, specAbs, test.line);
-    const scratchArgs = withLine(res.selectArgs, test.line, test.line - declShift);
+    const shiftedLine = test.line > 0 ? test.line - declShift : 0;
+    const shifted = { ...res.selection, line: shiftedLine };
     const check = await scratchVerify({
-      root, plan: healed.plan, selectArgs: scratchArgs, timeoutMs,
+      root, plan: healed.plan, selection: shifted, grepTitle: res.grepTitle, project: res.project, config: res.config, timeoutMs,
       runs: o.shadowRuns ?? DEFAULT_SHADOW_RUNS,
       outputDir: path.join(outRoot, 'scratch'), observe: o.observe,
     });
@@ -708,8 +712,11 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
           throw error;
         }
         const again = await activeAdapter().runOne(root, {
-          selectArgs: withLine(res.selectArgs, test.line, test.line - declShift),
-          extraArgs: outputArgs(path.join(outRoot, 'rerun')),
+          selection: shifted,
+          grepTitle: res.grepTitle,
+          project: res.project,
+          config: res.config,
+          outputDir: path.join(outRoot, 'rerun'),
           timeoutMs,
           observe: o.observe,
         }, 'rerun');
