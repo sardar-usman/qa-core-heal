@@ -4,9 +4,12 @@
  * Both builds run, one after the other, on the same absolute path.
  * The script exits non-zero when a difference is not in the list below.
  *
- * Normalisations for this core change:
+ * Normalisations against 0.5.0:
  *   - results generatedAt and audit timestamp values
  *   - the temporary output folder id
+ *   - the version string 0.6.0 versus 0.5.0
+ *   - features.frameworks, frameworkVersions, and the frameworks text line
+ *   - the --framework values in --help
  */
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -20,6 +23,9 @@ const baselineCli = ensureGoldenBaseline();
 const NORMALISATIONS = [
   'results generatedAt and audit timestamp values',
   'temporary output folder id (qa-core-heal-out-*)',
+  'version string 0.6.0 versus 0.5.0',
+  'features.frameworks, frameworkVersions, and the frameworks text line',
+  'the --framework values in --help',
 ];
 
 const SUITES = [
@@ -111,15 +117,38 @@ function cleanArtifacts(dir) {
   }
 }
 
+const FRAMEWORK_HELP = '      --framework <id>           framework to use. Supported now: playwright-js. Planned: cypress-js, selenium-js, playwright-py, selenium-py\n';
+
 function scrubText(text) {
   return text
+    .replaceAll('0.6.0', '0.5.0')
     .replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt": "TIME"')
     .replace(/"timestamp":\s*"[^"]*"/g, '"timestamp": "TIME"')
-    .replace(/qa-core-heal-out-[A-Za-z0-9_-]+/g, 'qa-core-heal-out-ID');
+    .replace(/qa-core-heal-out-[A-Za-z0-9_-]+/g, 'qa-core-heal-out-ID')
+    .replace(/^ {6}--framework <id>.*\n/gm, FRAMEWORK_HELP)
+    .replace(/^ {2}frameworks:.*\n/gm, '  frameworks: playwright-js\n');
+}
+
+function scrubJsonKeys(text) {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return text;
+  try {
+    const obj = JSON.parse(trimmed);
+    if (obj && typeof obj === 'object' && obj.features && Array.isArray(obj.features.frameworks)) {
+      obj.features.frameworks = ['playwright-js'];
+    }
+    if (obj && typeof obj === 'object' && obj.frameworkVersions && typeof obj.frameworkVersions === 'object') {
+      obj.frameworkVersions = { 'playwright-js': obj.frameworkVersions['playwright-js'] ?? null };
+    }
+    const newline = text.endsWith('\n') ? '\n' : '';
+    return `${JSON.stringify(obj, null, 2)}${newline}`;
+  } catch {
+    return text;
+  }
 }
 
 function normalize(text) {
-  return scrubText(text);
+  return scrubJsonKeys(scrubText(text));
 }
 
 function runCli(cli, args, cwd) {

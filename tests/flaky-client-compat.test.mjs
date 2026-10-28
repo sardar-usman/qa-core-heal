@@ -15,6 +15,7 @@ function run(cli, args, cwd) {
 
 function scrub(text) {
   return text
+    .replaceAll('0.6.0', '0.4.2')
     .replaceAll('0.5.0', '0.4.2')
     .replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt": "TIME"')
     .replace(/"timestamp":\s*"[^"]*"/g, '"timestamp": "TIME"');
@@ -55,7 +56,7 @@ test('flaky client shapes match 0.4.2, and capabilities keeps the keys flaky rea
         const caps = JSON.parse(head.stdout);
         assert.equal(caps.features.runTimeout, true);
         assert.ok(caps.contracts.findings.includes(1));
-        assert.deepEqual(caps.features.frameworks, ['playwright-js']);
+        assert.deepEqual(caps.features.frameworks, ['playwright-js', 'cypress-js']);
         assert.equal(caps.frameworkVersions['playwright-js'], caps.playwrightVersion);
         const oldCaps = JSON.parse(oldRun.stdout);
         delete caps.features.frameworks;
