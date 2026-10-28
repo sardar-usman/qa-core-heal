@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
-import path from 'node:path';
 import { registeredAdapters } from './adapters/index.js';
+import { playwrightVersion } from './playwright-version.js';
+
+export { playwrightVersion };
 
 /**
  * The qa-core contract between qa-core-flaky and qa-core-heal, version 1.
@@ -26,19 +28,6 @@ export const RESULTS_SCHEMA_VERSION = 1;
 
 export function toolVersion(): string {
   return (createRequire(import.meta.url)('../package.json') as { version: string }).version;
-}
-
-/** The installed Playwright version, resolved from a project root first. */
-export function playwrightVersion(root: string): string | null {
-  const attempts = [path.join(root, 'package.json'), import.meta.url];
-  for (const from of attempts) {
-    try {
-      const req = createRequire(from);
-      const v = (req('@playwright/test/package.json') as { version?: string }).version;
-      if (typeof v === 'string' && v.length > 0) return v;
-    } catch { /* try the next location */ }
-  }
-  return null;
 }
 
 export interface Capabilities {

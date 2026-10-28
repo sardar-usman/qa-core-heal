@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { playwrightVersion } from '../../contract.js';
+import { playwrightVersion } from '../../playwright-version.js';
 import { findPlaywrightConfig, resolvePlaywrightConfig } from './config.js';
 import { emitLocatorCall } from './emit.js';
 import type { CascadeLevel } from '../../selectors.js';
