@@ -272,7 +272,7 @@ interface LocatorArgs {
   roleOpts?: Record<string, boolean | number>;
 }
 
-interface LocatorCall {
+export interface LocatorCall {
   file: string;
   line: number;      // 1-indexed line the call STARTS on
   startCol: number;  // 0-indexed within the start line
@@ -409,7 +409,7 @@ function parseArgs(method: LocatorMethod, argsRaw: string): LocatorArgs {
  * Missing those made run mode report a failing locator that exists
  * verbatim in the POM as "could not be matched to source".
  */
-function parseLocatorCalls(src: string, file: string): LocatorCall[] {
+export function parseLocatorCalls(src: string, file: string): LocatorCall[] {
   const calls: LocatorCall[] = [];
   // Line-start offsets, for offset -> (1-indexed line, 0-indexed col).
   const lineStarts: number[] = [0];
