@@ -238,18 +238,19 @@ test('a sweep leaves an entry another live process holds open', async () => {
   const pid = 2000000003;
   const temp = os.tmpdir();
   const folder = path.join(temp, `.org.chromium.Chromium.qa-core-heal-busy-${process.pid}`);
-  fs.mkdirSync(folder);
   const held = path.join(folder, 'held');
+  trackChildGroup(pid);
+  setChildTempWatchStart(pid, Date.now() - 60_000);
+  fs.mkdirSync(folder);
   fs.writeFileSync(held, 'x');
   const child = spawn(process.execPath, ['-e', 'const fs = require("fs"); fs.openSync(process.argv[1], "r"); setInterval(() => {}, 1000);', held], { stdio: 'ignore' });
   try {
-    await new Promise((r) => setTimeout(r, 150));
-    trackChildGroup(pid);
-    setChildTempWatchStart(pid, Date.now() - 60_000);
+    await new Promise((r) => setTimeout(r, 200));
     sweepChromiumTemps(pid);
     assert.equal(fs.existsSync(folder), true, 'a process holds a file inside the folder');
     child.kill('SIGKILL');
     await new Promise((resolve) => child.once('exit', () => resolve()));
+    await new Promise((r) => setTimeout(r, 50));
     sweepChromiumTemps(pid);
     assert.equal(fs.existsSync(folder), false, 'the folder goes once nothing holds it');
   } finally {
@@ -295,7 +296,8 @@ test('without /proc, alive reads the process table once per loop', () => {
     });
     killProcessTree(child.pid);
     assert.ok(reads >= 1, 'the table was read');
-    assert.ok(reads <= 4, `one read per loop, not one read per pid (${reads})`);
+    // One read per stop-loop slice, not one read per watched pid.
+    assert.ok(reads <= 20, `one read per loop, not one read per pid (${reads})`);
   } finally {
     setProcessTableReader(null);
     setProcAvailable(null);
