@@ -163,14 +163,51 @@ test('project.configPath names each framework', async () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('selenium-webdriver in package.json is selenium-js and is refused', async () => {
+test('selenium-webdriver in package.json is refused for a run, and capabilities still answers', async () => {
   const dir = tempDir();
   try {
     write(dir, 'package.json', JSON.stringify({ devDependencies: { 'selenium-webdriver': '4.0.0' } }));
-    const r = await runCli(['capabilities'], dir);
-    assert.equal(r.status, 2);
-    assert.match(r.stderr, /selenium-js is planned and is not supported yet\. Nothing was run\./);
+    const plain = await runCli(['capabilities'], dir);
+    const json = await runCli(['capabilities', '--json'], dir);
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.equal(json.status, 0, json.stderr);
+    assert.match(plain.stdout, /frameworks: playwright-js/);
+    assert.equal(JSON.parse(json.stdout).features.runTimeout, true);
+    assert.equal(plain.stderr, '');
+    const run = await runCli(['tests/nope.spec.ts', '--dry-run'], dir);
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /selenium-js is planned and is not supported yet\. Nothing was run\./);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('capabilities answers in a two-framework project and in a Cypress-only project', async () => {
+  const both = tempDir();
+  const cypress = tempDir();
+  try {
+    write(both, 'playwright.config.ts', 'export default {};\n');
+    write(both, 'cypress.config.js', 'module.exports = {};\n');
+    write(cypress, 'cypress.config.js', 'module.exports = {};\n');
+    for (const dir of [both, cypress]) {
+      for (const args of [['capabilities'], ['capabilities', '--json']]) {
+        const r = await runCli(args, dir);
+        assert.equal(r.status, 0, `${args.join(' ')} in ${dir}: ${r.stderr}`);
+        assert.doesNotMatch(r.stderr, /More than one framework|not supported yet/);
+        if (args.includes('--json')) {
+          const caps = JSON.parse(r.stdout);
+          assert.equal(caps.features.runTimeout, true);
+          assert.ok(caps.contracts.findings.includes(1));
+        } else {
+          assert.match(r.stdout, /findings contract versions: 1/);
+        }
+      }
+    }
+    const refused = await runCli(['tests/nope.spec.ts'], both);
+    assert.equal(refused.status, 2);
+    assert.match(refused.stderr, /More than one framework was found/);
+  } finally {
+    fs.rmSync(both, { recursive: true, force: true });
+    fs.rmSync(cypress, { recursive: true, force: true });
+  }
 });
 
 test('detection never spawns a process', async () => {

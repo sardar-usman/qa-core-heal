@@ -611,7 +611,8 @@ async function main(): Promise<void> {
     console.log(toolVersion());
     return;
   }
-  if (cli.findings === undefined) applyFramework(cli, process.cwd(), null);
+  // capabilities is answered before detection, as in 0.4.2. A project that
+  // also has Cypress or Selenium still gets this answer. No --framework is required.
   // The capabilities subcommand: the one word "capabilities" as the only
   // argument. A folder with that name is passed as ./capabilities.
   if (cli.specPath === 'capabilities') {
@@ -629,6 +630,7 @@ async function main(): Promise<void> {
     }
     return;
   }
+  if (cli.findings === undefined) applyFramework(cli, process.cwd(), null);
   const loaded = loadConfig(cli.configPath);
   if (cli.findings !== undefined) {
     await runFindingsMode(cli, loaded);

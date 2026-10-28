@@ -210,7 +210,7 @@ Detection looks at files only. It does not run a framework, a package manager, o
 2. In a findings file, `project.configPath` names the framework when the file name is recognised.
 3. Otherwise heal looks at the project root for `playwright.config.*`, `cypress.config.*`, `selenium-webdriver` in `package.json` dependencies or devDependencies, and Python config files that import `playwright` or `selenium`.
 
-When nothing matches, heal uses `playwright-js` and prints nothing about it. When two frameworks match and you do not pass `--framework`, heal stops with exit code 2, names what matched, and writes nothing. When the only match is a framework this version does not run, heal stops with exit code 2 and writes nothing. `--verbose` prints one line, `[verbose] framework <id> (<reason>)`.
+When nothing matches, heal uses `playwright-js` and prints nothing about it. When two frameworks match and you do not pass `--framework`, heal stops with exit code 2, names what matched, and writes nothing. When the only match is a framework this version does not run, heal stops with exit code 2 and writes nothing. `capabilities` and `capabilities --json` are answered before that check, with no `--framework` flag, the same way 0.4.2 always answered. `--verbose` prints one line, `[verbose] framework <id> (<reason>)`.
 
 Cypress, Selenium, and Python adapters are planned. This version does not run them.
 
