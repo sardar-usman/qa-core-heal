@@ -45,9 +45,11 @@ test('a single Playwright config selects playwright-js and prints nothing withou
     const r = await runCli(['capabilities'], dir);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stderr, '');
-    const verbose = await runCli(['capabilities', '--verbose'], dir);
-    assert.equal(verbose.status, 0);
-    assert.match(verbose.stderr, /^\[verbose\] framework playwright-js \(playwright\.config\.ts\)\n$/);
+    const capsVerbose = await runCli(['capabilities', '--verbose'], dir);
+    assert.equal(capsVerbose.status, 0);
+    assert.equal(capsVerbose.stderr, '');
+    const verbose = await runCli(['--dry-run', '--verbose'], dir);
+    assert.match(verbose.stderr, /\[verbose\] framework playwright-js \(playwright\.config\.ts\)/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -55,11 +57,13 @@ test('no framework match falls back to playwright-js with the same output', asyn
   const dir = tempDir();
   try {
     const quiet = await runCli(['capabilities'], dir);
-    const verbose = await runCli(['capabilities', '--verbose'], dir);
+    const capsVerbose = await runCli(['capabilities', '--verbose'], dir);
     assert.equal(quiet.status, 0);
     assert.equal(quiet.stderr, '');
-    assert.equal(verbose.stdout, quiet.stdout);
-    assert.match(verbose.stderr, /^\[verbose\] framework playwright-js \(fallback\)\n$/);
+    assert.equal(capsVerbose.stdout, quiet.stdout);
+    assert.equal(capsVerbose.stderr, '');
+    const verbose = await runCli(['--dry-run', '--verbose'], dir);
+    assert.match(verbose.stderr, /\[verbose\] framework playwright-js \(fallback\)/);
     assert.equal(detectFramework({ root: dir }).reason, 'fallback');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -86,8 +90,10 @@ test('the framework flag overrides two matches', async () => {
   try {
     write(dir, 'playwright.config.ts', 'export default {};\n');
     write(dir, 'cypress.config.js', 'module.exports = {};\n');
-    const r = await runCli(['capabilities', '--framework', 'playwright-js', '--verbose'], dir);
-    assert.equal(r.status, 0, r.stderr);
+    const caps = await runCli(['capabilities', '--framework', 'playwright-js', '--verbose'], dir);
+    assert.equal(caps.status, 0, caps.stderr);
+    assert.equal(caps.stderr, '');
+    const r = await runCli(['--dry-run', '--framework', 'playwright-js', '--verbose'], dir);
     assert.match(r.stderr, /\[verbose\] framework playwright-js \(flag\)/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
