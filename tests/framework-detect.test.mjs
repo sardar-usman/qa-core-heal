@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { repoRoot, runCli } from './helpers/contract.mjs';
 
 const { detectFramework } = await import(path.join(repoRoot, 'dist', 'adapters', 'detect.js'));

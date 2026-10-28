@@ -625,6 +625,7 @@ async function main(): Promise<void> {
       console.log(`  Playwright: ${caps.playwrightVersion ?? 'not found'}`);
       console.log('  spec mode Playwright config: --playwright-config');
       console.log('  run timeout: --run-timeout');
+      console.log('  frameworks: playwright-js');
     }
     return;
   }

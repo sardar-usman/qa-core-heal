@@ -54,17 +54,31 @@ export interface Capabilities {
     playwrightConfig: boolean;
     /** True when this build accepts --run-timeout and stops a run that exceeds it. */
     runTimeout: boolean;
+    /** Framework ids this build can run. */
+    frameworks: string[];
   };
+  /** Installed version of each framework this build can run. Null when it is not installed. */
+  frameworkVersions: Record<string, string | null>;
 }
 
 export function buildCapabilities(root: string): Capabilities {
+  const version = playwrightVersion(root);
   return {
     schema: CAPABILITIES_SCHEMA,
     schemaVersion: 1,
     tool: { name: TOOL_NAME, version: toolVersion() },
     contracts: { findings: [...SUPPORTED_FINDINGS_VERSIONS], results: [RESULTS_SCHEMA_VERSION] },
-    playwrightVersion: playwrightVersion(root),
-    features: { findings: true, targetedRun: true, ruleSuggestions: false, ai: false, playwrightConfig: true, runTimeout: true },
+    playwrightVersion: version,
+    features: {
+      findings: true,
+      targetedRun: true,
+      ruleSuggestions: false,
+      ai: false,
+      playwrightConfig: true,
+      runTimeout: true,
+      frameworks: ['playwright-js'],
+    },
+    frameworkVersions: { 'playwright-js': version },
   };
 }
 
