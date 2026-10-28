@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const {
-  killProcessTree, setProcessTableReader, setChildTempWatchStart, sweepChromiumTemps,
+  killProcessTree, setProcessTableReader, setProcAvailable, setChildTempWatchStart, sweepChromiumTemps,
   trackChildGroup, untrackChildGroup, trackUnverifiedApply, cleanupChildrenAndOutputs,
   watchChildGroup, trackedChildPids,
 } = await import(path.join(repoRoot, 'dist', 'process-guard.js'));
@@ -211,6 +211,115 @@ test('a killed child sweep removes only new Chromium temp folders in the OS temp
     for (const dir of [older, newer, other, outside, path.join(temp, `.org.chromium.Chromium.qa-core-heal-future-${process.pid}`)]) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  }
+});
+
+test('a killed child sweep removes a new Chromium temp file and a new folder', () => {
+  const pid = 2000000002;
+  const temp = os.tmpdir();
+  const folder = path.join(temp, `.org.chromium.Chromium.qa-core-heal-dir-${process.pid}`);
+  const file = path.join(temp, `.org.chromium.Chromium.qa-core-heal-file-${process.pid}`);
+  try {
+    trackChildGroup(pid);
+    setChildTempWatchStart(pid, Date.now() - 60_000);
+    fs.mkdirSync(folder);
+    fs.writeFileSync(file, '');
+    sweepChromiumTemps(pid);
+    assert.equal(fs.existsSync(folder), false, 'new folder');
+    assert.equal(fs.existsSync(file), false, 'new file');
+  } finally {
+    untrackChildGroup(pid);
+    fs.rmSync(folder, { recursive: true, force: true });
+    fs.rmSync(file, { force: true });
+  }
+});
+
+test('a sweep leaves an entry another live process holds open', async () => {
+  const pid = 2000000003;
+  const temp = os.tmpdir();
+  const folder = path.join(temp, `.org.chromium.Chromium.qa-core-heal-busy-${process.pid}`);
+  fs.mkdirSync(folder);
+  const held = path.join(folder, 'held');
+  fs.writeFileSync(held, 'x');
+  const child = spawn(process.execPath, ['-e', 'const fs = require("fs"); fs.openSync(process.argv[1], "r"); setInterval(() => {}, 1000);', held], { stdio: 'ignore' });
+  try {
+    await new Promise((r) => setTimeout(r, 150));
+    trackChildGroup(pid);
+    setChildTempWatchStart(pid, Date.now() - 60_000);
+    sweepChromiumTemps(pid);
+    assert.equal(fs.existsSync(folder), true, 'a process holds a file inside the folder');
+    child.kill('SIGKILL');
+    await new Promise((resolve) => child.once('exit', () => resolve()));
+    sweepChromiumTemps(pid);
+    assert.equal(fs.existsSync(folder), false, 'the folder goes once nothing holds it');
+  } finally {
+    if (child.exitCode === null) {
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+    }
+    untrackChildGroup(pid);
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('without /proc the sweep removes nothing', () => {
+  const pid = 2000000004;
+  const temp = os.tmpdir();
+  const folder = path.join(temp, `.org.chromium.Chromium.qa-core-heal-noproc-${process.pid}`);
+  try {
+    trackChildGroup(pid);
+    setChildTempWatchStart(pid, Date.now() - 60_000);
+    fs.mkdirSync(folder);
+    setProcAvailable(false);
+    sweepChromiumTemps(pid);
+    assert.equal(fs.existsSync(folder), true);
+  } finally {
+    setProcAvailable(null);
+    untrackChildGroup(pid);
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('without /proc, alive reads the process table once per loop', () => {
+  let reads = 0;
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  try {
+    setProcAvailable(false);
+    const extras = [child.pid + 1000, child.pid + 1001, child.pid + 1002, child.pid + 1003];
+    setProcessTableReader(() => {
+      reads += 1;
+      return [
+        { pid: process.pid, ppid: 1, pgrp: process.pid, stat: 'S' },
+        { pid: child.pid, ppid: process.pid, pgrp: child.pid, stat: 'S' },
+        ...extras.map((pid) => ({ pid, ppid: child.pid, pgrp: pid, stat: 'S' })),
+      ];
+    });
+    killProcessTree(child.pid);
+    assert.ok(reads >= 1, 'the table was read');
+    assert.ok(reads <= 4, `one read per loop, not one read per pid (${reads})`);
+  } finally {
+    setProcessTableReader(null);
+    setProcAvailable(null);
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
+  }
+});
+
+test('a deleted spec gets its own audit warning and is not restored', () => {
+  const dir = fs.mkdtempSync(path.join(repoRoot, '.tmp-test-'));
+  const file = path.join(dir, 'a.spec.ts');
+  const audit = path.join(dir, 'audit.jsonl');
+  try {
+    fs.writeFileSync(file, 'healed\n');
+    trackUnverifiedApply({
+      file, original: 'original\n', written: 'healed\n', auditPath: audit, entries: [auditEntry('a.spec.ts')],
+    });
+    fs.rmSync(file);
+    cleanupChildrenAndOutputs();
+    assert.equal(fs.existsSync(file), false);
+    const line = JSON.parse(fs.readFileSync(audit, 'utf8'));
+    assert.equal(line.reverted, false);
+    assert.match(line.warning, /The spec was deleted after heal wrote it, so heal did not restore it/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

@@ -22,7 +22,7 @@ import { appendAuditLog, type AuditEntry } from './audit.js';
  * image, for example).
  */
 
-export interface ProcessRow { pid: number; ppid: number; pgrp: number }
+export interface ProcessRow { pid: number; ppid: number; pgrp: number; stat?: string }
 
 /**
  * How long to wait after SIGTERM before SIGKILL.
@@ -40,6 +40,48 @@ let tableReader: (() => ProcessRow[] | null) | null = null;
 
 export function setProcessTableReader(reader: (() => ProcessRow[] | null) | null): void {
   tableReader = reader;
+}
+
+/**
+ * Test hook. Null uses the real host. False forces the no-/proc path so a
+ * test can answer every pid from one table read.
+ */
+let procForced: boolean | null = null;
+export function setProcAvailable(value: boolean | null): void {
+  procForced = value;
+  statSnapshot = null;
+}
+
+function procAvailable(): boolean {
+  return procForced ?? HAS_PROC;
+}
+
+/** One stat table for the current alive() loop. Null means "read it on the next question". */
+let statSnapshot: Map<number, string> | null = null;
+
+function readStatSnapshot(): Map<number, string> {
+  const map = new Map<number, string>();
+  if (tableReader) {
+    const rows = tableReader() ?? [];
+    for (const row of rows) map.set(row.pid, row.stat ?? 'R');
+    return map;
+  }
+  try {
+    const run = spawnSync('ps', ['-A', '-o', 'pid=,stat='], { encoding: 'utf8' });
+    if (run.status !== 0 || !run.stdout) return map;
+    for (const line of run.stdout.split('\n')) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 2) continue;
+      const pid = Number(parts[0]);
+      if (!Number.isInteger(pid)) continue;
+      map.set(pid, parts.slice(1).join(' '));
+    }
+  } catch { /* an empty table answers every pid as not a zombie */ }
+  return map;
+}
+
+function refreshStatSnapshot(): void {
+  statSnapshot = procAvailable() ? null : readStatSnapshot();
 }
 
 function readProcFile(pid: number): ProcessRow | null {
@@ -66,20 +108,12 @@ function readProcState(pid: number): string | null {
   }
 }
 
-function psIsZombie(pid: number): boolean {
-  try {
-    const run = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
-    if (run.status !== 0 || !run.stdout) return false;
-    return run.stdout.trim().startsWith('Z');
-  } catch {
-    return false;
-  }
-}
-
 /** True for a zombie. kill(pid, 0) is true for a zombie, so it is not enough. */
 function isZombie(pid: number): boolean {
-  if (HAS_PROC) return readProcState(pid) === 'Z';
-  return psIsZombie(pid);
+  if (procAvailable()) return readProcState(pid) === 'Z';
+  if (!statSnapshot) statSnapshot = readStatSnapshot();
+  const stat = statSnapshot.get(pid);
+  return stat != null && stat.startsWith('Z');
 }
 
 function readProcTable(): ProcessRow[] | null {
@@ -215,9 +249,12 @@ export function killProcessTree(pid: number): void {
     signalIds(first.groups, first.direct, 'SIGTERM');
     const deadline = Date.now() + STOP_GRACE_MS;
     while (Date.now() < deadline) {
+      refreshStatSnapshot();
       if (first.watched.every((p) => !alive(p))) break;
+      statSnapshot = null;
       nap(50);
     }
+    refreshStatSnapshot();
     const again = loadProcessTable();
     const second = again ? treeOf(pid, again) : first;
     const table = again ?? rows;
@@ -268,7 +305,13 @@ export function clearUnverifiedApplies(): void {
   unverified.length = 0;
 }
 
+/** How many applied files are still waiting for verification. Tests use this. */
+export function unverifiedApplyCount(): number {
+  return unverified.length;
+}
+
 const SPEC_CHANGED_WARNING = 'The spec changed after heal wrote it, so heal left the file as it is.';
+const SPEC_DELETED_WARNING = 'The spec was deleted after heal wrote it, so heal did not restore it.';
 
 /** Put each unverified file back and append an audit line that it was interrupted and reverted. */
 function restoreUnverifiedApplies(): void {
@@ -279,10 +322,11 @@ function restoreUnverifiedApplies(): void {
     if (current !== null && current === p.written) {
       try { fs.writeFileSync(p.file, p.original); } catch { /* already gone */ }
     } else {
+      const deleted = current === null && !fs.existsSync(p.file);
       for (const entry of p.entries) {
         entry.reverted = false;
         delete entry.revertReason;
-        entry.warning = SPEC_CHANGED_WARNING;
+        entry.warning = deleted ? SPEC_DELETED_WARNING : SPEC_CHANGED_WARNING;
       }
     }
     try { appendAuditLog(p.auditPath, p.entries); } catch { /* best effort */ }
@@ -305,7 +349,7 @@ interface ChromiumWatch {
 
 const tempWatches = new Map<number, ChromiumWatch>();
 
-function chromiumTempDirs(tempDir: string): string[] {
+function chromiumTempEntries(tempDir: string): string[] {
   let names: string[] = [];
   try { names = fs.readdirSync(tempDir); } catch { return []; }
   const out: string[] = [];
@@ -313,7 +357,8 @@ function chromiumTempDirs(tempDir: string): string[] {
     if (!name.startsWith(CHROMIUM_TEMP_PREFIX)) continue;
     const full = path.join(tempDir, name);
     try {
-      if (fs.lstatSync(full).isDirectory()) out.push(full);
+      const st = fs.lstatSync(full);
+      if (st.isDirectory() || st.isFile()) out.push(full);
     } catch { /* gone */ }
   }
   return out;
@@ -321,7 +366,7 @@ function chromiumTempDirs(tempDir: string): string[] {
 
 function rememberChromiumTemps(pid: number, startedAtMs = Date.now()): void {
   const tempDir = os.tmpdir();
-  tempWatches.set(pid, { tempDir, startedAtMs, before: new Set(chromiumTempDirs(tempDir)) });
+  tempWatches.set(pid, { tempDir, startedAtMs, before: new Set(chromiumTempEntries(tempDir)) });
 }
 
 /** Test hook: pretend the child started at this wall-clock time. */
@@ -335,47 +380,56 @@ function sameDirectory(a: string, b: string): boolean {
   catch { return path.resolve(a) === path.resolve(b); }
 }
 
-/** True when a live process (not a zombie) is using this directory as its cwd. */
-function directoryBusy(dir: string): boolean {
-  if (!HAS_PROC) return false;
+/** True when a live process uses this path as its cwd or holds a file open inside it. */
+function entryBusy(entry: string): boolean {
+  if (!procAvailable()) return true;
   let names: string[];
   try { names = fs.readdirSync('/proc'); } catch { return true; }
-  const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
+  const prefix = entry.endsWith(path.sep) ? entry : entry + path.sep;
   for (const name of names) {
     if (!/^\d+$/.test(name)) continue;
     const procPid = Number(name);
+    if (!alive(procPid)) continue;
     let cwd = '';
-    try { cwd = fs.readlinkSync(`/proc/${procPid}/cwd`); } catch { continue; }
-    if (cwd !== dir && !cwd.startsWith(prefix)) continue;
-    if (alive(procPid)) return true;
+    try { cwd = fs.readlinkSync(`/proc/${procPid}/cwd`); } catch { cwd = ''; }
+    if (cwd === entry || (cwd !== '' && cwd.startsWith(prefix))) return true;
+    let fds: string[] = [];
+    try { fds = fs.readdirSync(`/proc/${procPid}/fd`); } catch { fds = []; }
+    for (const fd of fds) {
+      let target = '';
+      try { target = fs.readlinkSync(`/proc/${procPid}/fd/${fd}`); } catch { continue; }
+      if (target === entry || target.startsWith(prefix)) return true;
+    }
   }
   return false;
 }
 
 /**
- * Remove `.org.chromium.Chromium.*` directories in the OS temp directory
- * that appeared after this child started. Directories that were already
- * there, directories outside the temp directory, and directories a live
- * process is using are left alone.
+ * Remove `.org.chromium.Chromium.*` files and directories in the OS temp
+ * directory that appeared after this child started. Entries that were
+ * already there, entries outside the temp directory, and entries a live
+ * process is using are left alone. Without /proc the sweep cannot tell
+ * which entries are in use, so it removes nothing.
  */
 export function sweepChromiumTemps(pid: number): void {
+  if (!procAvailable()) return;
   const watch = tempWatches.get(pid);
   if (!watch) return;
   if (!sameDirectory(watch.tempDir, os.tmpdir())) return;
-  for (const dir of chromiumTempDirs(watch.tempDir)) {
-    if (watch.before.has(dir)) continue;
+  for (const entry of chromiumTempEntries(watch.tempDir)) {
+    if (watch.before.has(entry)) continue;
     let born = 0;
     try {
-      const st = fs.lstatSync(dir);
-      if (!st.isDirectory()) continue;
+      const st = fs.lstatSync(entry);
+      if (!st.isDirectory() && !st.isFile()) continue;
       born = st.birthtimeMs > 0 ? st.birthtimeMs : st.ctimeMs;
     } catch { continue; }
     if (born + 1000 < watch.startedAtMs) continue;
-    if (directoryBusy(dir)) continue;
-    try { fs.rmSync(dir, { recursive: true, force: true }); }
+    if (entryBusy(entry)) continue;
+    try { fs.rmSync(entry, { recursive: true, force: true }); }
     catch {
       nap(50);
-      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* in use or already gone */ }
+      try { fs.rmSync(entry, { recursive: true, force: true }); } catch { /* in use or already gone */ }
     }
   }
 }
