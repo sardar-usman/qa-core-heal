@@ -108,10 +108,23 @@ test('the framework flag overrides a non-Playwright match by refusing', async ()
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('an empty --framework value is a usage error', async () => {
+  const dir = tempDir();
+  try {
+    const r = await runCli(['--dry-run', '--framework', ''], dir);
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /Unknown framework ""/);
+    assert.doesNotMatch(r.stderr, /\[verbose\] framework/);
+    const blank = detectFramework({ root: dir, flag: '   ' });
+    assert.equal(blank.ok, false);
+    assert.match(blank.message, /Unknown framework ""/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('an unknown framework value is a usage error and lists the accepted values', async () => {
   const dir = tempDir();
   try {
-    const r = await runCli(['capabilities', '--framework', 'webdriver'], dir);
+    const r = await runCli(['--dry-run', '--framework', 'webdriver'], dir);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /Unknown framework "webdriver"/);
     assert.match(r.stderr, /Accepted values: playwright-js, cypress-js, selenium-js, playwright-py, selenium-py/);

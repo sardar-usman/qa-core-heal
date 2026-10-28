@@ -127,8 +127,8 @@ function decide(hits: DetectHit[]): Detection {
  * adapter is playwright-js. On failure nothing is selected and nothing is run.
  */
 export function detectFramework(input: { root: string; flag?: string; configPath?: string | null }): Detection {
-  const flag = input.flag?.trim();
-  if (flag) {
+  if (input.flag !== undefined) {
+    const flag = input.flag.trim();
     if (!FRAMEWORK_IDS.includes(flag as FrameworkId)) {
       return { ok: false, message: `Unknown framework "${flag}". Accepted values: ${ACCEPTED}.` };
     }
