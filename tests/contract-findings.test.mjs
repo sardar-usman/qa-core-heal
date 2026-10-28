@@ -9,7 +9,7 @@ import {
   assertValid, baseOf, finding, findingsDoc, makeProject, pkg, readJsonFile, rm, runCli, startServer,
   validateFindings, validateResults, writeFindings,
 } from './helpers/contract.mjs';
-import { chromiumProfiles, installSuiteTmp, removeNewChromiumProfiles, sweepTemps } from './helpers/temps.mjs';
+import { chromiumDotDirs, chromiumProfiles, installSuiteTmp, removeNewChromiumProfiles, sweepTemps } from './helpers/temps.mjs';
 
 installSuiteTmp();
 
@@ -490,12 +490,35 @@ test('refusal spec-not-found: a missing file, a missing test, and a path outside
       assert.equal(e.status, 'refused');
       assert.equal(e.refusal.code, 'spec-not-found');
     }
+    assert.match(results.results[0].explanation, /not found inside the project folder/);
+    assert.match(results.results[2].explanation, /outside the project/);
+    assert.doesNotMatch(results.results[2].explanation, /symlink/);
+    assert.match(results.results[3].explanation, /outside the project/);
     assert.deepEqual(countOf(s.counter), []);
   } finally { s.done(); }
 });
 
+test('a symlink that points outside the project says symlink', async () => {
+  const s = await setup(HEALABLE_BODY);
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-out-spec-'));
+  fs.writeFileSync(path.join(outside, 'x.spec.ts'), 'export {};\n');
+  try {
+    fs.symlinkSync(path.join(outside, 'x.spec.ts'), path.join(s.dir, 'tests', 'out.spec.ts'));
+    const { results } = await runFindings(s, [finding({ file: 'tests/out.spec.ts' })]);
+    const e = only(results);
+    assert.equal(e.status, 'refused');
+    assert.equal(e.refusal.code, 'spec-not-found');
+    assert.match(e.explanation, /symlink/);
+    assert.match(e.explanation, /outside the project/);
+  } finally {
+    s.done();
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test('refusal timeout: a run that goes past --run-timeout is stopped', async () => {
   const profiles = chromiumProfiles();
+  const dots = chromiumDotDirs();
   const s = await setup(`test('fills mail', async ({ page }) => { log('fills mail'); await new Promise((r) => setTimeout(r, 120000)); });`, { timeout: 200000 });
   try {
     const before = s.spec();
@@ -510,6 +533,7 @@ test('refusal timeout: a run that goes past --run-timeout is stopped', async () 
     for (const out of outs) assert.equal(fs.existsSync(out), false, out);
     removeNewChromiumProfiles(profiles);
     assert.deepEqual(chromiumProfiles().filter((p) => !profiles.includes(p)), [], 'no Chromium profile left by the timed out run');
+    assert.deepEqual(chromiumDotDirs().filter((p) => !dots.includes(p)), [], 'no Chromium temp folder left by the timed out run');
     // The workers of the stopped run are stopped too. A worker has the project folder as its
     // working directory. /proc is read on Linux only; the check is skipped elsewhere.
     if (fs.existsSync('/proc/self/cwd')) {

@@ -13,6 +13,7 @@ import {
 } from './contract.js';
 import { projectRootFor } from './project-root.js';
 import { resolvePlaywrightConfig } from './playwright-config.js';
+import { startRunBudget } from './playwright-cli.js';
 import { clearUnverifiedApplies, trackOutputDir, trackUnverifiedApply, untrackOutputDir } from './process-guard.js';
 import { scratchVerify } from './scratch.js';
 import {
@@ -213,8 +214,9 @@ function isInside(parent: string, child: string): boolean {
  */
 /**
  * The config's test directory, when configPath is safe and the directory
- * stays inside the project. Playwright's own default is `tests` when the
- * config does not set testDir. Null when the config cannot be used.
+ * stays inside the project. When the config does not set testDir,
+ * Playwright's own default is the folder that contains the config file.
+ * Null when the config cannot be used.
  */
 export async function testDirBase(cwd: string, configPath: string | null | undefined): Promise<string | null> {
   if (!configPath || configArgFor(cwd, configPath, cwd) === null) return null;
@@ -222,7 +224,7 @@ export async function testDirBase(cwd: string, configPath: string | null | undef
   let relDir: string;
   try {
     const res = await resolvePlaywrightConfig(path.dirname(abs), undefined, abs);
-    relDir = res?.testDir && res.testDir.length > 0 ? res.testDir : 'tests';
+    relDir = res?.testDir && res.testDir.length > 0 ? res.testDir : '.';
   } catch {
     return null;
   }
@@ -236,6 +238,60 @@ export async function testDirBase(cwd: string, configPath: string | null | undef
   } catch {
     return null;
   }
+}
+
+/** True when a symlink on this path resolves outside the project, or is broken. */
+function symlinkEscapes(abs: string, fence: string): boolean {
+  const root = path.parse(abs).root;
+  const rel = path.relative(root, abs);
+  if (!rel) return false;
+  let cur = root;
+  for (const part of rel.split(path.sep)) {
+    if (!part) continue;
+    cur = path.join(cur, part);
+    let st: fs.Stats;
+    try { st = fs.lstatSync(cur); } catch { return false; }
+    if (!st.isSymbolicLink()) continue;
+    try {
+      if (!isInside(fence, fs.realpathSync(cur))) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+export type SpecMiss = 'missing' | 'outside' | 'symlink';
+
+/**
+ * Why resolveSpecPath returned null. A path with `..` or an absolute path
+ * is outside the project. A symlink whose target is outside the project
+ * is a symlink. A path that simply is not there is missing.
+ */
+export function specMissReason(file: string, candidates: string[], projectDir: string): SpecMiss {
+  if (isUnsafeRelative(file) || /^[A-Za-z]:/.test(file)) return 'outside';
+  let fence: string;
+  try { fence = fs.realpathSync(projectDir); } catch { return 'missing'; }
+  let sawSymlink = false;
+  let sawOutside = false;
+  for (const base of candidates) {
+    const abs = path.resolve(base, file);
+    if (symlinkEscapes(abs, fence)) { sawSymlink = true; continue; }
+    try {
+      const real = fs.realpathSync(abs);
+      if (!fs.statSync(real).isFile()) continue;
+      if (!isInside(fence, real)) sawOutside = true;
+    } catch { /* not there */ }
+  }
+  if (sawSymlink) return 'symlink';
+  if (sawOutside) return 'outside';
+  return 'missing';
+}
+
+function specNotFoundMessage(file: string, reason: SpecMiss): string {
+  if (reason === 'symlink') return `The spec file ${file} is a symlink that points outside the project. No test was run.`;
+  if (reason === 'outside') return `The spec file ${file} is outside the project. No test was run.`;
+  return `The spec file ${file} was not found inside the project folder. No test was run.`;
 }
 
 export function resolveSpecPath(file: string, candidates: string[], projectDir: string = candidates[0]!): string | null {
@@ -352,7 +408,9 @@ function trackAppliedForSignal(plan: HealPlanEntry[], locators: LocatorReport[],
       });
     }
     if (audit.length === 0) continue;
-    trackUnverifiedApply({ file: entry.file, original: entry.src, auditPath, entries: audit });
+    let written = entry.src;
+    try { written = fs.readFileSync(entry.file, 'utf8'); } catch { /* the scanned source is the fallback */ }
+    trackUnverifiedApply({ file: entry.file, original: entry.src, written, auditPath, entries: audit });
   }
 }
 
@@ -368,6 +426,7 @@ export function lineShift(plan: HealPlanEntry[], file: string, declLine: number)
 
 export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsFlowOutcome> {
   const { doc, say } = o;
+  const timeoutMs = startRunBudget(o.runTimeoutMs);
   const entries: HealResultEntry[] = [];
   const baseDirs = bases(o.cwd, doc);
   const patchDir = path.join(path.dirname(o.resultsPath), '.qa-core', 'heal', 'patches');
@@ -429,11 +488,15 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     // A findings file from qa-core-flaky names the spec relative to
     // Playwright's testDir. Try that only after the project root and the
     // config folder missed, and only inside the same fence.
+    const tried = [...baseDirs];
     if (!specAbs && doc.project.configPath) {
       const td = await testDirBase(o.cwd, doc.project.configPath);
-      if (td) specAbs = resolveSpecPath(f.file, [td], o.cwd);
+      if (td) {
+        tried.push(td);
+        specAbs = resolveSpecPath(f.file, [td], o.cwd);
+      }
     }
-    if (!specAbs) return refusedEntry(f, 'spec-not-found', `The spec file ${f.file} was not found inside the project folder. No test was run.`);
+    if (!specAbs) return refusedEntry(f, 'spec-not-found', specNotFoundMessage(f.file, specMissReason(f.file, tried, o.cwd)));
     const root = projectRootFor(specAbs);
     noteIgnoredConfig(root);
     pwVersion ??= playwrightVersion(root);
@@ -445,7 +508,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     const res = await resolveTarget({
       root, file: specAbs, title, project, config, outputDir: path.join(outRoot, 'list'),
       match: matchFinding(f.titlePath, project, f.file),
-      timeoutMs: o.runTimeoutMs, observe: o.observe,
+      timeoutMs, observe: o.observe,
     });
     if (res.kind === 'not-found') {
       let linkNote = '';
@@ -465,7 +528,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
         : plainEntry(f, 'error', scrub(res.message, root));
     }
 
-    const first = await runSelected(root, res.selectArgs, [...outputArgs(path.join(outRoot, 'first')), ...(o.noTrace ? [] : ['--trace', 'retain-on-failure'])], o.runTimeoutMs, o.observe);
+    const first = await runSelected(root, res.selectArgs, [...outputArgs(path.join(outRoot, 'first')), ...(o.noTrace ? [] : ['--trace', 'retain-on-failure'])], timeoutMs, o.observe);
     if (first.kind === 'timeout') return refusedEntry(f, 'timeout', 'The test run timed out before it finished.');
     if (first.kind === 'error') return plainEntry(f, 'error', scrub(first.message, root));
     if (first.status === 'skipped') return plainEntry(f, 'error', 'The test is skipped, so heal could not run it.');
@@ -540,7 +603,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     const declShift = lineShift(healed.plan, specAbs, test.line);
     const scratchArgs = withLine(res.selectArgs, test.line, test.line - declShift);
     const check = await scratchVerify({
-      root, plan: healed.plan, selectArgs: scratchArgs, timeoutMs: o.runTimeoutMs,
+      root, plan: healed.plan, selectArgs: scratchArgs, timeoutMs,
       runs: o.shadowRuns ?? DEFAULT_SHADOW_RUNS,
       outputDir: path.join(outRoot, 'scratch'), observe: o.observe,
     });
@@ -592,13 +655,16 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     applyHealPlan(healed.plan);
     if (o.verify) {
       trackAppliedForSignal(healed.plan, healed.locators, o.auditPath, o.cwd);
-      const again = await runSelected(root, withLine(res.selectArgs, test.line, test.line - declShift), outputArgs(path.join(outRoot, 'rerun')), o.runTimeoutMs, o.observe);
-      // The rerun finished, so a later signal must not restore the file again.
-      clearUnverifiedApplies();
-      if (again.kind !== 'ran' || again.status !== 'expected') {
-        applyHealPlanExcluding(healed.plan, () => true);
-        reverted = true;
-        return refusedEntry(f, 'verification-failed', 'The change was written and the test was run again, but it did not pass, so the change was undone. The files are back to how they were.');
+      try {
+        const again = await runSelected(root, withLine(res.selectArgs, test.line, test.line - declShift), outputArgs(path.join(outRoot, 'rerun')), timeoutMs, o.observe);
+        if (again.kind !== 'ran' || again.status !== 'expected') {
+          applyHealPlanExcluding(healed.plan, () => true);
+          reverted = true;
+          return refusedEntry(f, 'verification-failed', 'The change was written and the test was run again, but it did not pass, so the change was undone. The files are back to how they were.');
+        }
+      } finally {
+        // The rerun finished, or it threw. A later signal must not restore the file.
+        clearUnverifiedApplies();
       }
     }
     return { ...entry, status: 'applied', explanation: clip(`${core} It was applied because --apply was given.`, 600) };

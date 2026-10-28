@@ -136,6 +136,28 @@ test('a spec reached through a symbolic link folder that points out of the proje
   });
 });
 
+test('testDirBase uses the config folder when testDir is unset', async () => {
+  const { testDirBase } = await import(path.join(repoRoot, 'dist', 'findings-flow.js'));
+  const dir = fs.mkdtempSync(path.join(repoRoot, '.tmp-test-'));
+  const custom = path.join(dir, 'suite');
+  fs.mkdirSync(path.join(dir, 'tests'));
+  fs.mkdirSync(custom);
+  const config = path.join(dir, 'playwright.config.ts');
+  fs.writeFileSync(config, "import { defineConfig } from '@playwright/test';\nexport default defineConfig({});\n");
+  try {
+    assert.equal(await testDirBase(dir, 'playwright.config.ts'), fs.realpathSync(dir));
+    fs.writeFileSync(config, "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ testDir: './suite' });\n");
+    assert.equal(await testDirBase(dir, 'playwright.config.ts'), fs.realpathSync(custom));
+  } finally { rm(dir); }
+});
+
+test('clearUnverifiedApplies runs in a finally on the findings apply path', () => {
+  const src = fs.readFileSync(path.join(repoRoot, 'src', 'findings-flow.ts'), 'utf8');
+  const at = src.indexOf('clearUnverifiedApplies()');
+  assert.ok(at > 0);
+  assert.match(src.slice(Math.max(0, at - 180), at), /finally\s*\{[^}]*$/);
+});
+
 test('a findings file is resolved against testDir when it is not found from the project root', async () => {
   const n = await nested();
   try {

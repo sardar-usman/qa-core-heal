@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { killProcessTree, trackChildGroup, untrackChildGroup } from './process-guard.js';
+import { killProcessTree, untrackChildGroup, watchChildGroup } from './process-guard.js';
 import { escapeRegex } from './selectors.js';
 
 /**
@@ -60,8 +60,25 @@ interface ChildSpec {
   cwd: string;
   maxBuffer: number;
   env?: NodeJS.ProcessEnv;
-  timeoutMs?: number;
+  timeoutMs?: number | (() => number | undefined);
   shell?: boolean;
+}
+
+/** One budget for every child run in a single heal command. Undefined means no limit. */
+export function startRunBudget(totalMs: number | undefined): () => number | undefined {
+  if (totalMs === undefined) return () => undefined;
+  const start = performance.now();
+  return () => {
+    const left = totalMs - (performance.now() - start);
+    return left > 0 ? left : 0;
+  };
+}
+
+function sampleTimeout(timeoutMs?: number | (() => number | undefined)): number | undefined {
+  if (timeoutMs === undefined) return undefined;
+  const n = typeof timeoutMs === 'function' ? timeoutMs() : timeoutMs;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return undefined;
+  return n <= 0 ? 0 : n;
 }
 
 /**
@@ -71,6 +88,15 @@ interface ChildSpec {
  * so those signals are delivered while the child is still running.
  */
 function runChild(spec: ChildSpec): Promise<PlaywrightRunResult> {
+  const timeoutMs = sampleTimeout(spec.timeoutMs);
+  const command = [spec.command, ...spec.args].join(' ');
+  if (timeoutMs === 0) {
+    return Promise.resolve({
+      status: null, stdout: '', stderr: '', command,
+      error: Object.assign(new Error('spawn ETIMEDOUT'), { code: 'ETIMEDOUT' }),
+      timedOut: true,
+    });
+  }
   return new Promise((resolve) => {
     let settled = false;
     let stdout = '';
@@ -85,7 +111,8 @@ function runChild(spec: ChildSpec): Promise<PlaywrightRunResult> {
       detached: process.platform !== 'win32',
     });
     const pid = child.pid;
-    if (pid && process.platform !== 'win32') trackChildGroup(pid);
+    // Drop the group on 'exit', not 'close', so a reused pid is not tracked.
+    watchChildGroup(child);
     const stopGroup = (): void => {
       if (!pid || process.platform === 'win32') {
         try { child.kill('SIGKILL'); } catch { /* already gone */ }
@@ -105,8 +132,8 @@ function runChild(spec: ChildSpec): Promise<PlaywrightRunResult> {
     };
     child.stdout?.on('data', (chunk: Buffer) => take('stdout', chunk));
     child.stderr?.on('data', (chunk: Buffer) => take('stderr', chunk));
-    const timer = spec.timeoutMs !== undefined
-      ? setTimeout(() => { timedOut = true; stopGroup(); }, spec.timeoutMs)
+    const timer = timeoutMs !== undefined
+      ? setTimeout(() => { timedOut = true; stopGroup(); }, timeoutMs)
       : undefined;
     const finish = (status: number | null, error?: Error): void => {
       if (settled) return;
@@ -118,7 +145,7 @@ function runChild(spec: ChildSpec): Promise<PlaywrightRunResult> {
       if (timedOut && !err) err = Object.assign(new Error('spawn ETIMEDOUT'), { code: 'ETIMEDOUT' });
       resolve({
         status, stdout, stderr,
-        command: [spec.command, ...spec.args].join(' '),
+        command,
         ...(err ? { error: err } : {}),
         ...(timedOut ? { timedOut: true } : {}),
       });
@@ -133,8 +160,11 @@ export function runPlaywrightCli(
   args: string[],
   maxBuffer: number,
   env?: NodeJS.ProcessEnv,
-  /** Optional wall-clock limit for the child. Unset means no limit, as before. */
-  timeoutMs?: number,
+  /**
+   * Optional limit for the child. A function is sampled when the child
+   * starts, so one budget can cover every run. Unset means no limit.
+   */
+  timeoutMs?: number | (() => number | undefined),
 ): Promise<PlaywrightRunResult> {
   const base = { cwd: root, maxBuffer, env, timeoutMs };
   let cliJs: string | null = null;

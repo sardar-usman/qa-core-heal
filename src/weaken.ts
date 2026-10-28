@@ -5,7 +5,10 @@
  * with a looser check. A locator-only rewrite is not a weakening: the
  * subject of expect() is ignored, and the matcher and its arguments must
  * stay as strict as they were. An expect hidden in a comment or a string,
- * a removed expect.soft or expect.poll, and an added test.skip count too.
+ * a removed expect.soft or expect.poll, a swap from expect() to
+ * expect.soft() or expect.poll(), and an added test.skip or test.fixme
+ * count too. Regex literals and the text of a template literal are not
+ * code. An expect inside a template ${} expression is code.
  */
 
 interface ExpectAssertion {
@@ -16,27 +19,129 @@ interface ExpectAssertion {
   form: '' | '.soft' | '.poll';
 }
 
-/** Move past a comment or a string. Returns i when src[i] is real code. */
-function skipNoise(src: string, i: number): number {
-  if (src.startsWith('//', i)) {
-    const nl = src.indexOf('\n', i + 2);
-    return nl < 0 ? src.length : nl + 1;
-  }
-  if (src.startsWith('/*', i)) {
-    const end = src.indexOf('*/', i + 2);
-    return end < 0 ? src.length : end + 2;
-  }
-  const c = src[i];
-  if (c === '"' || c === "'" || c === '`') {
-    let j = i + 1;
-    while (j < src.length) {
-      if (src[j] === '\\') { j += 2; continue; }
-      if (src[j] === c) return j + 1;
-      j++;
+const REGEX_BEFORE = new Set([
+  'return', 'throw', 'case', 'typeof', 'void', 'delete', 'await', 'yield',
+  'else', 'do', 'in', 'of', 'instanceof', 'new', 'extends',
+]);
+
+/** True when the '/' at slashAt begins a regex literal, not a division. */
+function regexCanStart(src: string, slashAt: number): boolean {
+  let j = slashAt - 1;
+  while (j >= 0) {
+    if (/\s/.test(src[j]!)) { j--; continue; }
+    if (src[j] === '/' && src[j - 1] === '*') {
+      const start = src.lastIndexOf('/*', j - 2);
+      if (start < 0) return false;
+      j = start - 1;
+      continue;
     }
-    return j;
+    break;
+  }
+  if (j < 0) return true;
+  const c = src[j]!;
+  if ('([{:;,=!?&|~^*%<>'.includes(c)) return true;
+  if ((c === '+' || c === '-') && src[j - 1] === c) return false;
+  if (c === '+' || c === '-') return true;
+  if (c === ')' || c === ']' || c === '}' || c === '"' || c === "'" || c === '`') return false;
+  if (/[0-9]/.test(c)) return false;
+  if (/[A-Za-z0-9_$]/.test(c)) {
+    let k = j;
+    while (k >= 0 && /[A-Za-z0-9_$]/.test(src[k]!)) k--;
+    const word = src.slice(k + 1, j + 1);
+    return REGEX_BEFORE.has(word);
+  }
+  return false;
+}
+
+/** Index after a regex that starts at i, or i when this '/' is not a regex. */
+function endOfRegex(src: string, i: number): number {
+  let j = i + 1;
+  let inClass = false;
+  while (j < src.length) {
+    const c = src[j]!;
+    if (c === '\n') return i;
+    if (c === '\\') { j += 2; continue; }
+    if (c === '[' && !inClass) inClass = true;
+    else if (c === ']' && inClass) inClass = false;
+    else if (c === '/' && !inClass) {
+      j++;
+      while (j < src.length && /[dgimsuvy]/.test(src[j]!)) j++;
+      return j;
+    }
+    j++;
   }
   return i;
+}
+
+function endOfQuoted(src: string, i: number): number {
+  const q = src[i]!;
+  let j = i + 1;
+  while (j < src.length) {
+    if (src[j] === '\\') { j += 2; continue; }
+    if (src[j] === q) return j + 1;
+    j++;
+  }
+  return j;
+}
+
+/**
+ * Walks source so callers only see real code.
+ * Comments, strings, and regex literals are hidden. The text of a template
+ * literal is hidden, and a ${} expression inside it is real code.
+ */
+class Code {
+  /** 'tpl' is template text. A number is the brace depth of a ${} expression. */
+  private readonly stack: Array<'tpl' | number> = [];
+
+  constructor(private readonly src: string, public i = 0) {}
+
+  get done(): boolean { return this.i >= this.src.length; }
+
+  get ch(): string { return this.src[this.i] ?? ''; }
+
+  /** Advance past noise at i. Returns false when i is real code. */
+  skipNoise(): boolean {
+    if (this.done) return false;
+    const src = this.src;
+    const top = this.stack[this.stack.length - 1];
+    if (top === 'tpl') {
+      const before = this.i;
+      if (src[this.i] === '\\') this.i += 2;
+      else if (src[this.i] === '`') { this.stack.pop(); this.i++; }
+      else if (src.startsWith('${', this.i)) { this.stack.push(0); this.i += 2; }
+      else this.i++;
+      if (this.i <= before) this.i = before + 1;
+      return true;
+    }
+    const i = this.i;
+    if (src.startsWith('//', i)) {
+      const nl = src.indexOf('\n', i + 2);
+      this.i = nl < 0 ? src.length : nl + 1;
+      return true;
+    }
+    if (src.startsWith('/*', i)) {
+      const end = src.indexOf('*/', i + 2);
+      this.i = end < 0 ? src.length : end + 2;
+      return true;
+    }
+    const c = src[i]!;
+    if (c === '"' || c === "'") { this.i = endOfQuoted(src, i); return true; }
+    if (c === '`') { this.stack.push('tpl'); this.i++; return true; }
+    if (c === '/' && regexCanStart(src, i)) {
+      const end = endOfRegex(src, i);
+      if (end > i) { this.i = end; return true; }
+    }
+    if (typeof top === 'number') {
+      if (c === '{') { this.stack[this.stack.length - 1] = top + 1; this.i++; return true; }
+      if (c === '}') {
+        if (top === 0) this.stack.pop();
+        else this.stack[this.stack.length - 1] = top - 1;
+        this.i++;
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
 const RANK: Record<string, number> = {
@@ -57,25 +162,19 @@ function skipWs(src: string, i: number): number {
   return i;
 }
 
-/** Index of the ')' that closes the '(' at openAt, or -1. Strings are skipped. */
+/** Index of the ')' that closes the '(' at openAt, or -1. Noise is skipped. */
 function skipBalanced(src: string, openAt: number): number {
+  const code = new Code(src, openAt);
   let depth = 0;
-  for (let i = openAt; i < src.length; i++) {
-    const c = src[i]!;
-    if (c === '"' || c === "'" || c === '`') {
-      i++;
-      while (i < src.length) {
-        if (src[i] === '\\') { i += 2; continue; }
-        if (src[i] === c) break;
-        i++;
-      }
-      continue;
-    }
+  while (!code.done) {
+    if (code.skipNoise()) continue;
+    const c = code.ch;
     if (c === '(') depth++;
     else if (c === ')') {
       depth--;
-      if (depth === 0) return i;
+      if (depth === 0) return code.i;
     }
+    code.i++;
   }
   return -1;
 }
@@ -115,18 +214,18 @@ function atWord(src: string, i: number, word: string): boolean {
 
 function parseExpects(src: string): ExpectAssertion[] {
   const out: ExpectAssertion[] = [];
-  let i = 0;
-  while (i < src.length) {
-    const skipped = skipNoise(src, i);
-    if (skipped > i) { i = skipped; continue; }
-    if (!atWord(src, i, 'expect')) { i++; continue; }
+  const code = new Code(src);
+  while (!code.done) {
+    if (code.skipNoise()) continue;
+    const i = code.i;
+    if (!atWord(src, i, 'expect')) { code.i++; continue; }
     const head = src.slice(i);
     const mm = head.match(/^expect(?:\s*\.\s*(soft|poll))?\s*\(/);
-    if (!mm) { i++; continue; }
+    if (!mm) { code.i++; continue; }
     const form: ExpectAssertion['form'] = mm[1] === 'poll' ? '.poll' : mm[1] === 'soft' ? '.soft' : '';
     const open = i + mm[0].length - 1;
     const subjectEnd = skipBalanced(src, open);
-    if (subjectEnd < 0) { i++; continue; }
+    if (subjectEnd < 0) { code.i++; continue; }
     let j = skipWs(src, subjectEnd + 1);
     let neg = false;
     if (src.startsWith('.not', j) && !/[A-Za-z0-9_]/.test(src[j + 4] ?? '')) {
@@ -135,37 +234,47 @@ function parseExpects(src: string): ExpectAssertion[] {
     }
     const call = src.slice(j);
     const matcher = call.match(/^\.\s*(to[A-Za-z]+)\s*\(/);
-    if (!matcher) { i = subjectEnd + 1; continue; }
+    if (!matcher) { code.i = subjectEnd + 1; continue; }
     const argOpen = j + matcher[0].length - 1;
     const argEnd = skipBalanced(src, argOpen);
-    if (argEnd < 0) { i = subjectEnd + 1; continue; }
+    if (argEnd < 0) { code.i = subjectEnd + 1; continue; }
     out.push({ neg, matcher: matcher[1]!, form, args: src.slice(argOpen + 1, argEnd) });
-    i = argEnd + 1;
+    code.i = argEnd + 1;
   }
   return out;
 }
 
 function assertSigs(src: string): string[] {
   const out: string[] = [];
-  let i = 0;
-  while (i < src.length) {
-    const skipped = skipNoise(src, i);
-    if (skipped > i) { i = skipped; continue; }
-    if (!atWord(src, i, 'assert')) { i++; continue; }
+  const code = new Code(src);
+  while (!code.done) {
+    if (code.skipNoise()) continue;
+    const i = code.i;
+    if (!atWord(src, i, 'assert')) { code.i++; continue; }
     const head = src.slice(i);
     const mm = head.match(/^assert(?:\.[A-Za-z]+)?\s*\(/);
-    if (!mm) { i++; continue; }
+    if (!mm) { code.i++; continue; }
     const open = i + mm[0].length - 1;
     const end = skipBalanced(src, open);
-    if (end < 0) { i++; continue; }
+    if (end < 0) { code.i++; continue; }
     out.push(norm(src.slice(i, end + 1)));
-    i = end + 1;
+    code.i = end + 1;
   }
   return out;
 }
 
-function same(a: ExpectAssertion, b: ExpectAssertion): boolean {
+function sameBody(a: ExpectAssertion, b: ExpectAssertion): boolean {
   return a.neg === b.neg && a.matcher === b.matcher && norm(a.args) === norm(b.args);
+}
+
+/**
+ * True when `after` still has this assertion at the same strength or a
+ * stricter form. Plain expect() is stricter than expect.soft or expect.poll.
+ */
+function covers(before: ExpectAssertion, after: ExpectAssertion): boolean {
+  if (!sameBody(before, after)) return false;
+  if (before.form === after.form) return true;
+  return after.form === '' && before.form !== '';
 }
 
 function fmt(a: ExpectAssertion): string {
@@ -176,24 +285,27 @@ function fmt(a: ExpectAssertion): string {
 
 function skipCount(src: string): number {
   let n = 0;
-  let i = 0;
-  while (i < src.length) {
-    const skipped = skipNoise(src, i);
-    if (skipped > i) { i = skipped; continue; }
+  const code = new Code(src);
+  while (!code.done) {
+    if (code.skipNoise()) continue;
+    const i = code.i;
     const head = src.slice(i);
-    const mm = head.match(/^test(?:\s*\.\s*describe)?\s*\.\s*skip\b/);
+    const mm = head.match(/^test(?:\s*\.\s*describe)?\s*\.\s*(?:skip|fixme)\b/);
     if (mm && (i === 0 || !/[A-Za-z0-9_]/.test(src[i - 1]!))) {
       n++;
-      i += mm[0].length;
+      code.i = i + mm[0].length;
       continue;
     }
-    i++;
+    code.i++;
   }
   return n;
 }
 
 /** True when `after` checks less than `before` did. */
 function isLooser(before: ExpectAssertion, after: ExpectAssertion): boolean {
+  if (sameBody(before, after) && before.form !== after.form) {
+    if (!(after.form === '' && before.form !== '')) return true;
+  }
   if (before.neg && !after.neg && before.matcher === after.matcher) return true;
   if (rankOf(after.matcher) < rankOf(before.matcher)) return true;
   if (before.matcher !== after.matcher) return false;
@@ -225,7 +337,7 @@ export function weakeningReason(before: string, after: string): string | null {
   const a = parseExpects(after);
   const used = new Array<boolean>(a.length).fill(false);
   for (const exp of b) {
-    const idx = a.findIndex((x, i) => !used[i] && same(exp, x));
+    const idx = a.findIndex((x, i) => !used[i] && covers(exp, x));
     if (idx >= 0) { used[idx] = true; continue; }
     const loose = a.findIndex((x, i) => !used[i] && isLooser(exp, x));
     if (loose >= 0) {

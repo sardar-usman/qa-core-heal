@@ -25,11 +25,12 @@ function render() {
     '<button type="submit">Run search</button></form>';
   document.querySelector('[name="search_field"]').value = val;
 }
-// 200 ms is longer than a slow evaluate and shorter than the 250 ms
-// confirmation settle, so a re-render still happens between attempts and
-// the 150 ms quiet settle can finish between renders. 30 ms was tight
-// enough that these two tests failed when the machine was busy.
-render(); setInterval(render, 200);
+// The page replaces its DOM on an interval. 500 ms leaves room for the
+// 150 ms mutation-quiet settle when the full suite runs in parallel.
+// 200 ms was enough on a quiet machine and too tight on CI: the probe
+// sometimes read the input before its accessible name was ready and
+// refused a nameless textbox.
+render(); setInterval(render, 500);
 </script></body></html>`;
 
 const CHURN_PANEL = `<!doctype html><html><body><div id="root"></div><script>
@@ -37,7 +38,7 @@ function render() {
   document.getElementById('root').innerHTML =
     '<h1>Lookup panel</h1><input type="search" id="global-lookup" aria-label="Global lookup" />';
 }
-render(); setInterval(render, 200);
+render(); setInterval(render, 500);
 </script></body></html>`;
 
 function startServer(html) {

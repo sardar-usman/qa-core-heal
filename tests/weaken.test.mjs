@@ -59,7 +59,7 @@ test('a locator-only rewrite is not a weakening, and a looser or missing asserti
   );
 });
 
-test('a hidden or skipped assertion is a weakening', () => {
+test('the six hidden or skipped assertion cases are a weakening', () => {
   const expectLine = "await expect(page.locator('#a')).toBeVisible();\n";
   assert.match(weakeningReason(expectLine, `// ${expectLine}`), /removes an assertion/);
   assert.match(weakeningReason(expectLine, `/* ${expectLine.trim()} */\n`), /removes an assertion/);
@@ -81,6 +81,65 @@ test('a hidden or skipped assertion is a weakening', () => {
       "test.skip('t', async ({ page }) => {\n  await expect(page.locator('#a')).toBeVisible();\n});\n",
     ),
     /skips a test/,
+  );
+});
+
+test('swapping expect for expect.soft or expect.poll is a weakening', () => {
+  const before = "await expect(page.locator('#a')).toBeVisible();\n";
+  assert.match(
+    weakeningReason(before, "await expect.soft(page.locator('#a')).toBeVisible();\n"),
+    /loosens an assertion: expect\(\.\.\.\)\.toBeVisible\(\) becomes expect\.soft/,
+  );
+  assert.match(
+    weakeningReason(before, "await expect.poll(page.locator('#a')).toBeVisible();\n"),
+    /loosens an assertion: expect\(\.\.\.\)\.toBeVisible\(\) becomes expect\.poll/,
+  );
+  assert.match(
+    weakeningReason(
+      "await expect.soft(page.locator('#a')).toBeVisible();\n",
+      "await expect.poll(page.locator('#a')).toBeVisible();\n",
+    ),
+    /loosens an assertion/,
+  );
+  assert.equal(
+    weakeningReason("await expect.soft(page.locator('#a')).toBeVisible();\n", before),
+    null,
+  );
+});
+
+test('an added test.fixme or test.describe.fixme skips a test', () => {
+  const body = "test('t', async () => {\n  await expect(page.locator('#a')).toBeVisible();\n});\n";
+  assert.match(weakeningReason(body, body.replace("test('t'", "test.fixme('t'")), /skips a test/);
+  assert.match(
+    weakeningReason(
+      "test.describe('d', () => {\n  test('t', async () => {\n    await expect(page.locator('#a')).toBeVisible();\n  });\n});\n",
+      "test.describe.fixme('d', () => {\n  test('t', async () => {\n    await expect(page.locator('#a')).toBeVisible();\n  });\n});\n",
+    ),
+    /skips a test/,
+  );
+  assert.equal(weakeningReason(body, body), null);
+});
+
+test('a regex literal does not hide a later expect, and a template expression counts', () => {
+  const withRe = "const re = /it's/;\nawait expect(page.locator('#a')).toBeVisible();\n";
+  assert.match(
+    weakeningReason(withRe, "const re = /it's/;\nawait page.locator('#a').click();\n"),
+    /removes an assertion/,
+  );
+  const klass = "const re = /['\"]/;\nawait expect(page.locator('#a')).toBeVisible();\n";
+  assert.match(weakeningReason(klass, "const re = /['\"]/;\n"), /removes an assertion/);
+  const div = "const n = a / b;\nawait expect(page.locator('#a')).toBeVisible();\n";
+  assert.match(weakeningReason(div, "const n = a / b;\n"), /removes an assertion/);
+  const interp = 'const s = `hello ${expect(page.locator(\'#a\')).toBeVisible()}`;\n';
+  assert.match(weakeningReason(interp, 'const s = `hello ${1}`;\n'), /removes an assertion/);
+  const nested = 'const s = `a ${`b ${expect(page.locator(\'#a\')).toBeVisible()}`}`;\n';
+  assert.match(weakeningReason(nested, 'const s = `a ${1}`;\n'), /removes an assertion/);
+  assert.equal(
+    weakeningReason(
+      'const s = `expect(page.locator(\'#a\')).toBeVisible()`;\n',
+      'const s = `gone`;\n',
+    ),
+    null,
   );
 });
 

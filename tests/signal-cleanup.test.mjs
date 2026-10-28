@@ -44,9 +44,9 @@ function spawnCli(args, cwd) {
 }
 
 async function waitFor(fn, label, ms = 60000) {
-  const start = Date.now();
+  const start = performance.now();
   let last = '';
-  while (Date.now() - start < ms) {
+  while (performance.now() - start < ms) {
     const v = fn();
     if (v) return v;
     last = typeof v === 'string' ? v : '';

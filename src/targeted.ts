@@ -58,7 +58,7 @@ export function outputArgs(dir?: string): string[] {
 }
 
 /** Run `playwright test --list` with the given selection arguments. */
-export async function listTests(root: string, selectArgs: string[], timeoutMs?: number, observe?: RunObserver, outputDir?: string): Promise<ListOutcome> {
+export async function listTests(root: string, selectArgs: string[], timeoutMs?: number | (() => number | undefined), observe?: RunObserver, outputDir?: string): Promise<ListOutcome> {
   const run = await runPlaywrightCli(root, ['test', '--list', '--reporter=json', ...selectArgs, ...outputArgs(outputDir)], BUFFER, undefined, timeoutMs);
   observe?.(run);
   if (run.timedOut) return { ok: false, tests: [], timedOut: true, error: 'Listing the tests timed out.' };
@@ -109,7 +109,7 @@ export interface TargetSpec {
   title: string;
   /** Playwright project name; empty or null means no project filter. */
   project?: string | null;
-  timeoutMs?: number;
+  timeoutMs?: number | (() => number | undefined);
   observe?: RunObserver;
   /** Config file for every Playwright call, relative to `root`. Unset means Playwright finds its own. */
   config?: string | null;
@@ -200,7 +200,7 @@ function testStatuses(report: { suites?: RawRunSuite[] }): string[] {
  * Run the selected test once, from a project root, and require that exactly
  * one test ran.
  */
-export async function runSelected(root: string, selectArgs: string[], extraArgs: string[], timeoutMs?: number, observe?: RunObserver): Promise<OneRun> {
+export async function runSelected(root: string, selectArgs: string[], extraArgs: string[], timeoutMs?: number | (() => number | undefined), observe?: RunObserver): Promise<OneRun> {
   const run = await runPlaywrightCli(root, ['test', ...selectArgs, '--reporter=json', ...extraArgs], BUFFER, undefined, timeoutMs);
   observe?.(run);
   if (run.timedOut) return { kind: 'timeout', run };
