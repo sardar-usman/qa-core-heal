@@ -301,21 +301,19 @@ export function specMissReason(file: string, candidates: string[], projectDir: s
   try { fence = fs.realpathSync(projectDir); } catch { return 'missing'; }
   let sawSymlink = false;
   let sawOutside = false;
-  let sawInside = false;
   for (const base of candidates) {
     const abs = path.resolve(base, file);
     if (symlinkEscapes(abs, fence)) { sawSymlink = true; continue; }
     try {
       const real = fs.realpathSync(abs);
       if (!fs.statSync(real).isFile()) continue;
-      if (isInside(fence, real)) sawInside = true;
-      else sawOutside = true;
+      if (!isInside(fence, real)) sawOutside = true;
     } catch {
-      if (pathInsideFence(abs, fence)) sawInside = true;
-      else sawOutside = true;
+      // A missing file whose resolved path is still inside the project is
+      // not an escape. Another base that does escape still counts.
+      if (!pathInsideFence(abs, fence)) sawOutside = true;
     }
   }
-  if (sawInside) return 'missing';
   if (sawSymlink) return 'symlink';
   if (sawOutside) return 'outside';
   return 'missing';
