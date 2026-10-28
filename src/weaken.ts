@@ -1,3 +1,5 @@
+import { activeAdapter } from './adapters/index.js';
+
 /**
  * The weakening guard.
  *
@@ -213,14 +215,17 @@ function atWord(src: string, i: number, word: string): boolean {
 }
 
 function parseExpects(src: string): ExpectAssertion[] {
+  const grammar = activeAdapter().assertionGrammar;
+  const forms = grammar.forms.join('|');
+  const callRe = new RegExp(`^${grammar.assertionCallee}(?:\\s*\\.\\s*(${forms}))?\\s*\\(`);
   const out: ExpectAssertion[] = [];
   const code = new Code(src);
   while (!code.done) {
     if (code.skipNoise()) continue;
     const i = code.i;
-    if (!atWord(src, i, 'expect')) { code.i++; continue; }
+    if (!atWord(src, i, grammar.assertionCallee)) { code.i++; continue; }
     const head = src.slice(i);
-    const mm = head.match(/^expect(?:\s*\.\s*(soft|poll))?\s*\(/);
+    const mm = head.match(callRe);
     if (!mm) { code.i++; continue; }
     const form: ExpectAssertion['form'] = mm[1] === 'poll' ? '.poll' : mm[1] === 'soft' ? '.soft' : '';
     const open = i + mm[0].length - 1;
@@ -245,14 +250,16 @@ function parseExpects(src: string): ExpectAssertion[] {
 }
 
 function assertSigs(src: string): string[] {
+  const callee = activeAdapter().assertionGrammar.assertCallee;
+  const callRe = new RegExp(`^${callee}(?:\\.[A-Za-z]+)?\\s*\\(`);
   const out: string[] = [];
   const code = new Code(src);
   while (!code.done) {
     if (code.skipNoise()) continue;
     const i = code.i;
-    if (!atWord(src, i, 'assert')) { code.i++; continue; }
+    if (!atWord(src, i, callee)) { code.i++; continue; }
     const head = src.slice(i);
-    const mm = head.match(/^assert(?:\.[A-Za-z]+)?\s*\(/);
+    const mm = head.match(callRe);
     if (!mm) { code.i++; continue; }
     const open = i + mm[0].length - 1;
     const end = skipBalanced(src, open);
@@ -284,13 +291,14 @@ function fmt(a: ExpectAssertion): string {
 }
 
 function skipCount(src: string): number {
+  const skipCall = activeAdapter().assertionGrammar.skipCall;
   let n = 0;
   const code = new Code(src);
   while (!code.done) {
     if (code.skipNoise()) continue;
     const i = code.i;
     const head = src.slice(i);
-    const mm = head.match(/^test(?:\s*\.\s*describe)?\s*\.\s*(?:skip|fixme)\b/);
+    const mm = head.match(skipCall);
     if (mm && (i === 0 || !/[A-Za-z0-9_]/.test(src[i - 1]!))) {
       n++;
       code.i = i + mm[0].length;

@@ -1,3 +1,5 @@
+import { activeAdapter } from './adapters/index.js';
+
 /**
  * Per-locator page context (routes).
  *
@@ -78,9 +80,14 @@ function readString(src: string, i: number): { value: string; end: number } | nu
  * These are not routes: joining one with a base URL percent-encodes the
  * `${` and probes a page that does not exist.
  */
+/** A fresh regex each call. A shared global regex would keep lastIndex between files. */
+function navigationRe(): RegExp {
+  return new RegExp(`\\.${activeAdapter().routeCalls.method}\\(\\s*`, 'g');
+}
+
 export function templateGotos(src: string): TemplateGoto[] {
   const out: TemplateGoto[] = [];
-  const re = /\.goto\(\s*/g;
+  const re = navigationRe();
   let m: RegExpExecArray | null;
   while ((m = re.exec(src)) !== null) {
     const argAt = m.index + m[0].length;
@@ -105,7 +112,7 @@ export function templateRouteSkipLine(file: string, line: number, raw: string): 
  */
 export function parseGotos(src: string): GotoCall[] {
   const out: GotoCall[] = [];
-  const re = /\.goto\(\s*/g;
+  const re = navigationRe();
   let m: RegExpExecArray | null;
   while ((m = re.exec(src)) !== null) {
     const argAt = m.index + m[0].length;
