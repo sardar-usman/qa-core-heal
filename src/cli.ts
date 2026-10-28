@@ -131,7 +131,7 @@ interface CliArgs {
   findings?: string;
   /** --results: where the heal results file is written. */
   results?: string;
-  /** --run-timeout: total milliseconds for every child Playwright run in this command. */
+  /** --run-timeout: total milliseconds for every child Playwright run in this command. In findings mode the default is 10 minutes for the whole command, not for each run. */
   runTimeoutMs?: number;
   /** --shadow-runs: scratch re-runs that must all pass (findings mode). Default 3. */
   shadowRuns?: number;
@@ -200,7 +200,7 @@ Flags:
       --test <title>             run and heal exactly one test of the spec file (a title, or "Describe › title")
       --findings <file>          read a qa-core heal findings file (contract version 1) instead of a spec path
       --results <file>           where --findings writes the heal results file (required with --findings)
-      --run-timeout <s>          total seconds for every Playwright run in one command (with --findings or --test)
+      --run-timeout <s>          total seconds for every Playwright run in one command (with --findings or --test). In findings mode the default is 10 minutes for the whole command, not for each run. Raise it with this flag
       --shadow-runs <n>          scratch re-runs that must all pass before a proposal is verified (default 3, with --findings)
       --audit-log <path>         append applied heals to this JSONL file
       --no-color                 disable ANSI colors (the NO_COLOR env var is honored automatically)
@@ -522,7 +522,7 @@ async function runFindingsMode(cli: CliArgs, loaded: ReturnType<typeof loadConfi
   if (outcome.exitCode !== 0) process.exitCode = outcome.exitCode;
 }
 
-/** Total milliseconds for every child Playwright run in one findings command, unless --run-timeout says otherwise. */
+/** Total milliseconds for every child Playwright run in one findings command. The default is 10 minutes for the whole command. In 0.4.1 it was 10 minutes for each run. `--run-timeout` replaces it. */
 const DEFAULT_RUN_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** The relative --config path for Playwright, or null when the flag is absent. A refused value fails the run. */
