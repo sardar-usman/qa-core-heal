@@ -12,7 +12,7 @@ import { escapeRegex } from '../../selectors.js';
  * backslashes are wrong separators AND "\1" is a backreference. Empirical
  * findings (pinned by tests): backslash filters match 0 tests, raw
  * bracket dirs ("tests/[id]/…") match 0 (char class), raw paren dirs
- * ("(group)") match 0 (regex group) — while regex-ESCAPED forward-slash
+ * ("(group)") match 0 (regex group), while regex-ESCAPED forward-slash
  * filters match all of them, and escaping is harmless on ordinary paths.
  * Internal fs work keeps native separators; ONLY what crosses into the
  * Playwright child goes through this.
@@ -31,7 +31,7 @@ export function toCliFileFilter(p: string): string {
  * spaces lose their grouping); and it depends on PATH at all. Instead
  * the LOCAL @playwright/test CLI entry is resolved from the project root
  * and run with our own node executable: argv passes through verbatim on
- * every platform — no shim, no shell, no PATH. npx (via a shell on
+ * every platform, no shim, no shell, no PATH. npx (via a shell on
  * Windows) remains only as a fallback when resolution fails. Env, when
  * given, travels via the spawn options object, never a "VAR=value cmd"
  * prefix string; the JSON report is read from the child's stdout, so no

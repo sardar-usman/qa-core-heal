@@ -5,7 +5,7 @@ import zlib from 'node:zlib';
  * Run-first healing support: parse a Playwright JSON report, decide per
  * failure whether healing can even help (locator identity failures only),
  * extract the failing selector, and recover the page URL at failure time
- * from the test's trace. Everything here is deterministic and offline —
+ * from the test's trace. Everything here is deterministic and offline , 
  * the CLI orchestrates, this module only interprets artifacts.
  */
 
@@ -47,18 +47,18 @@ function firstLine(msg: string): string {
  * Classification is EVIDENCE-based, never message-shape-based. Locator
  * failure = anything carrying locator evidence: a strict mode violation, an
  * explicit element(s)-not-found, a `locator.<action>:` / `expect.<matcher>:`
- * prefix, or a call-log "waiting for locator/getBy..." line — regardless of
+ * prefix, or a call-log "waiting for locator/getBy..." line, regardless of
  * the top-level message (a test timeout, a "Target page, context or browser
  * has been closed" after teardown, anything). A count/existence matcher
  * (toHaveCount, toBeVisible, toBeAttached, toBeInViewport) that failed with
  * ZERO elements found is locator evidence too: nothing matched. The one
  * earlier gate: when the locator RESOLVED to a real element (one or more),
- * the failure is about the element's state or count, not its identity —
+ * the failure is about the element's state or count, not its identity , 
  * that stays non-locator even with a call log.
  *
  * Non-locator: found-element assertion mismatches, count mismatches with
  * actual > 0, pointer-interception timeouts (the target resolved; an
- * overlay is eating the input — possibly a real UX defect), navigation/
+ * overlay is eating the input, possibly a real UX defect), navigation/
  * network errors, thrown app errors, and timeouts with no pending locator
  * action.
  */
@@ -90,8 +90,8 @@ export function classifyFailure(rawMessage: string): FailureClass {
       return { kind: 'locator', selector: info?.selector ?? null, ...(info?.chained ? { chained: true } : {}) };
     }
   }
-  // Pointer interception: the target RESOLVED and is actionable — the
-  // locator is healthy, never a heal candidate — but another element sits
+  // Pointer interception: the target RESOLVED and is actionable, the
+  // locator is healthy, never a heal candidate, but another element sits
   // on top of it and eats the input. That may be a genuine UX defect (an
   // overlay blocking real users), so the verdict says so and names the
   // interceptor from the call log. Checked before the resolved-to gate
@@ -143,7 +143,7 @@ function skipString(s: string, i: number): number {
  * options objects survive ("getByRole('textbox', { name: 'X' })").
  * A CHAINED rendering ("locator('select').locator('option')") is
  * followed through every link: `selector` is the full chain text and
- * `chained` is set — truncating to the base call would structurally
+ * `chained` is set, truncating to the base call would structurally
  * match the base literal in source and probe the wrong thing.
  */
 export function extractSelectorInfo(msg: string): { selector: string; chained: boolean } | null {
@@ -168,7 +168,7 @@ export function extractSelectorInfo(msg: string): { selector: string; chained: b
   // Follow every rendered link. The rendered vocabulary is closed
   // (audited against the Playwright Locator API, each shape captured
   // empirically from real error messages):
-  //   CHAIN LINKS — the base alone is NOT the target; matching it is the
+  //   CHAIN LINKS, the base alone is NOT the target; matching it is the
   //   false-intact trap:
   //     .locator/.getBy…      sub-locator inside the base
   //     .filter               narrows the base by extra conditions
@@ -179,7 +179,7 @@ export function extractSelectorInfo(msg: string): { selector: string; chained: b
   //                           .frameLocator(sel) call renders as
   //                           .locator(sel).contentFrame() and never
   //                           appears under its own name
-  //   PASS-THROUGHS — the base IS the target and stays matchable:
+  //   PASS-THROUGHS, the base IS the target and stays matchable:
   //     .first/.last/.nth     positional wrappers
   //     .describe             cosmetic; dropped from renderings entirely
   //                           (handled anyway in case that changes)
@@ -251,7 +251,7 @@ function readZip(zipPath: string): Map<string, Buffer> {
 /**
  * The page URL at failure time: the last MAIN-frame snapshot URL recorded
  * in the test's trace (the trace ends where the test failed). Child iframe
- * snapshots — a feedback widget, an ad frame — are never the page, and can
+ * snapshots, a feedback widget, an ad frame, are never the page, and can
  * easily be the LAST snapshot recorded, so isMainFrame is checked
  * explicitly (a missing flag, from older trace formats, counts as main).
  * Non-http URLs (about:blank, chrome-error://...) are skipped. Null when
@@ -288,7 +288,7 @@ export function traceFailureUrl(zipPath: string): string | null {
 
 /**
  * Extract the JSON report object from a Playwright stdout that may carry
- * arbitrary prefix noise — configs print while loading (dotenv's tip line
+ * arbitrary prefix noise, configs print while loading (dotenv's tip line
  * even contains a "{", so a naive indexOf slice lands mid-noise). Tries
  * each "{" position until one parses as an object with the report shape.
  */

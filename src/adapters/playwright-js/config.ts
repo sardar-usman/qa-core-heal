@@ -49,7 +49,7 @@ export function supportsTypeStripping(version: string = process.versions.node): 
 }
 
 /**
- * Between 22.6–22.17 and 23.0–23.5 type stripping exists but sits behind
+ * Between 22.6 to 22.17 and 23.0 to 23.5 type stripping exists but sits behind
  * --experimental-strip-types; from 22.18 / 23.6 it is on by default and the
  * flag is unnecessary.
  */
@@ -70,7 +70,7 @@ export function typeStrippingGateMessage(version: string = process.versions.node
  * The ESM-forcing retry hook: serves .ts files as stripped ES modules
  * regardless of the package's "type" field. Some Nodes treat a .ts file in
  * a typeless/commonjs package as CJS, where its import statements throw
- * "Cannot use import statement outside a module" — exactly what
+ * "Cannot use import statement outside a module", exactly what
  * Playwright's own loader tolerates and we must too.
  *
  * After stripping, every named import is rewritten to a namespace import
@@ -78,7 +78,7 @@ export function typeStrippingGateMessage(version: string = process.versions.node
  * elide type-only import SPECIFIERS written without the `import type`
  * keyword ("import { defineConfig, ReporterDescription } from ..."), so
  * the stripped module would request a named export that does not exist at
- * runtime. Destructuring a missing export yields undefined — harmless,
+ * runtime. Destructuring a missing export yields undefined, harmless,
  * because a type identifier is unused after stripping.
  */
 const HOOK_SOURCE = `
@@ -89,7 +89,7 @@ import { fileURLToPath } from 'node:url';
 // The hooks THREAD emits its own warnings (Node 25: stripTypeScriptTypes
 // carries an ExperimentalWarning on first use here), and its stderr relay
 // can bypass or race the main thread's line filter. Only OUR hook and
-// Node's module machinery run on this thread — user code never does — so
+// Node's module machinery run on this thread, user code never does, so
 // filtering the loader-noise families at this thread's source is safe and
 // keeps the conservative guarantee (user warnings live on other threads).
 {
@@ -140,7 +140,7 @@ export async function load(url, context, nextLoad) {
   // ESM-syntax .js in a typeless/commonjs package: Node parses it as CJS
   // and dies on the first import statement, while Playwright's own
   // transpiling loader tolerates it. PROJECT files only (never
-  // node_modules), and only when the source actually looks ESM — a
+  // node_modules), and only when the source actually looks ESM, a
   // genuinely-CJS helper imported by the same config must stay CJS.
   if (u.protocol === 'file:' && u.pathname.endsWith('.js') && !u.pathname.includes('/node_modules/')) {
     const src = fs.readFileSync(fileURLToPath(url), 'utf8');
@@ -167,7 +167,7 @@ export const HOOK_URL = 'data:text/javascript,' + encodeURIComponent(HOOK_SOURCE
  *     require("dotenv").config() work exactly as they do under Playwright;
  *   - .env next to the config is loaded as a fallback WITHOUT overriding
  *     env vars that are already set (most configs load dotenv themselves,
- *     which the require shim makes work — this covers the ones that rely
+ *     which the require shim makes work, this covers the ones that rely
  *     on Playwright-adjacent tooling to have loaded it).
  *
  * Genuinely-CJS configs (.cjs, or .js with no import/export syntax in a
