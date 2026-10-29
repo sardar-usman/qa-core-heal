@@ -260,6 +260,11 @@ export const playwrightJs: FrameworkAdapter = {
     return countQuery(probePage, query);
   },
 
+  async confirmSameElement(locator: unknown, token: string) {
+    const { confirmSameElement } = await import('../../heal.js');
+    return confirmSameElement(locator as import('playwright').Locator, token);
+  },
+
   pageSource(input): string | null {
     if (input.tracePath) return traceFailureUrl(input.tracePath);
     return null;

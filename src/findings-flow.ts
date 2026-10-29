@@ -577,6 +577,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
       noTrace: o.noTrace,
       timeoutMs,
       observe: o.observe,
+      preview: !o.apply,
     }, 'first');
     if (first.kind === 'timeout') return refusedEntry(f, 'timeout', 'The test run timed out before it finished.');
     if (first.kind === 'error') return plainEntry(f, 'error', scrub(first.message, root));
@@ -602,7 +603,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
     if (!failure.selector) {
       return plainEntry(f, 'not-locator', 'The test failed on a locator, but heal could not read the failing selector from the message.');
     }
-    const url = !o.noTrace && test.tracePath ? activeAdapter().pageSource({ tracePath: test.tracePath }) : null;
+    const url = !o.noTrace ? activeAdapter().pageSource({ tracePath: test.tracePath, capturePath: test.capturePath }) : null;
     const next = res.startLines.find((l) => l > test.line);
     const target: HealTarget = {
       selector: failure.selector,

@@ -1,5 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { runCypressFixture } from './run-cypress-evals.mjs';
+import { runSeleniumFixture } from './run-selenium-evals.mjs';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -1135,7 +1138,7 @@ function totalsOf(results) {
   };
 }
 
-function renderMarkdown(results, totals) {
+function renderMarkdown(results, totals, cypress = null, selenium = null) {
   const lines = [];
   lines.push('# qa-core-heal eval results');
   lines.push('');
@@ -1166,6 +1169,30 @@ function renderMarkdown(results, totals) {
     lines.push(...allNotes);
     lines.push('');
   }
+  if (cypress) {
+    lines.push('## Cypress');
+    lines.push('');
+    lines.push('Local fixture pages. These rows are not part of the Playwright table above.');
+    lines.push('');
+    lines.push('| Case | Expected | Refusal code | Result |');
+    lines.push('|---|---|---|---|');
+    for (const item of cypress.cases) {
+      lines.push(`| ${item.name} | ${item.expect} | ${item.code ?? ''} | ${item.ok ? 'ok' : 'failed'} |`);
+    }
+    lines.push('');
+  }
+  if (selenium) {
+    lines.push('## Selenium');
+    lines.push('');
+    lines.push('Local fixture pages, driven by Mocha and selenium-webdriver. These rows are not part of the Playwright table above.');
+    lines.push('');
+    lines.push('| Case | Expected | Refusal code | Result |');
+    lines.push('|---|---|---|---|');
+    for (const item of selenium.cases) {
+      lines.push(`| ${item.name} | ${item.expect} | ${item.code ?? ''} | ${item.ok ? 'ok' : 'failed'} |`);
+    }
+    lines.push('');
+  }
   return lines.join('\n') + '\n';
 }
 
@@ -1188,13 +1215,52 @@ for (const suite of selected) {
 }
 
 const totals = totalsOf(results);
+
+function playwrightChrome() {
+  const root = path.join(os.homedir(), '.cache', 'ms-playwright');
+  if (!fs.existsSync(root)) return '';
+  for (const name of fs.readdirSync(root)) {
+    const candidate = path.join(root, name, 'chrome-linux64', 'chrome');
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return '';
+}
+
+let cypress = null;
+let selenium = null;
+if (!only) {
+  const cypressPkg = process.env.QA_CORE_HEAL_CYPRESS_PACKAGE || path.join(packageDir, 'node_modules', 'cypress');
+  if (fs.existsSync(path.join(cypressPkg, 'package.json'))) {
+    console.log('=== cypress-saucedemo-style ===');
+    cypress = await runCypressFixture({ repoRoot: packageDir, cli: cliJs, cypressPkg });
+    console.log(`    cypress cases ${cypress.cases.filter((item) => item.ok).length}/${cypress.cases.length}`);
+    if (cypress.failures.length > 0) console.error(cypress.failures.join('\n'));
+  }
+  const seleniumPkg = process.env.QA_CORE_HEAL_NODE_MODULES
+    ? path.join(process.env.QA_CORE_HEAL_NODE_MODULES, 'selenium-webdriver')
+    : path.join(packageDir, 'node_modules', 'selenium-webdriver');
+  const mochaPkg = process.env.QA_CORE_HEAL_NODE_MODULES
+    ? path.join(process.env.QA_CORE_HEAL_NODE_MODULES, 'mocha')
+    : path.join(packageDir, 'node_modules', 'mocha');
+  if (fs.existsSync(path.join(seleniumPkg, 'package.json')) && fs.existsSync(path.join(mochaPkg, 'package.json'))) {
+    console.log('=== selenium-saucedemo-style ===');
+    selenium = await runSeleniumFixture({
+      cli: cliJs,
+      seleniumPkg,
+      mochaPkg,
+      chrome: process.env.QA_CORE_HEAL_CHROME || playwrightChrome(),
+    });
+    console.log(`    selenium cases ${selenium.cases.filter((item) => item.ok).length}/${selenium.cases.length}`);
+    if (selenium.failures.length > 0) console.error(selenium.failures.join('\n'));
+  }
+}
 if (only) {
   console.log('\nSingle-suite run: results.json / RESULTS.md not rewritten.');
 } else {
-  const payload = { playwrightVersion, suites: results, totals };
+  const payload = { playwrightVersion, suites: results, totals, ...(cypress ? { cypress } : {}), ...(selenium ? { selenium } : {}) };
   fs.writeFileSync(path.join(evalsDir, 'results.json'), JSON.stringify(payload, null, 2) + '\n');
-  fs.writeFileSync(path.join(evalsDir, 'RESULTS.md'), renderMarkdown(results, totals));
+  fs.writeFileSync(path.join(evalsDir, 'RESULTS.md'), renderMarkdown(results, totals, cypress, selenium));
   console.log('\nWrote evals/results.json and evals/RESULTS.md');
 }
-const anyWrong = totals.wrongHeals > 0 || totals.misses > 0 || results.some((r) => !r.finalOk || r.notes.some((n) => n.startsWith('FIXTURE') || n.startsWith('WRONG') || n.startsWith('YES-INVARIANCE')));
+const anyWrong = totals.wrongHeals > 0 || totals.misses > 0 || results.some((r) => !r.finalOk || r.notes.some((n) => n.startsWith('FIXTURE') || n.startsWith('WRONG') || n.startsWith('YES-INVARIANCE'))) || (cypress?.failures.length > 0) || (selenium?.failures.length > 0);
 process.exitCode = anyWrong ? 1 : 0;

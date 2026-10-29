@@ -1,0 +1,10 @@
+{
+  "name": "saucedemo-cypress",
+  "private": true,
+  "scripts": {
+    "heal": "qa-core-heal cypress/e2e/login.cy.js --dry-run"
+  },
+  "devDependencies": {
+    "cypress": "16.2.1"
+  }
+}

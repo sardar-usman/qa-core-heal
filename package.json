@@ -1,10 +1,13 @@
 {
   "name": "qa-core-heal",
-  "version": "0.5.0",
-  "description": "Deterministic selector healing for Playwright specs. No LLM, no API key.",
+  "version": "0.7.0",
+  "description": "Deterministic selector healing for Playwright, Cypress, and Selenium specs. No LLM, no API key.",
   "keywords": [
     "playwright",
     "playwright-test",
+    "cypress",
+    "selenium",
+    "mocha",
     "self-healing",
     "self-healing-tests",
     "locator",

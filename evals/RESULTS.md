@@ -29,3 +29,30 @@ Expected refusals (no identity left to heal from) count as correct behavior.
 Misses (expected heal, got refusal): 0
 Cascade level agreement (informational): 72/72 correct heals landed on the predicted level.
 
+## Cypress
+
+Local fixture pages. These rows are not part of the Playwright table above.
+
+| Case | Expected | Refusal code | Result |
+|---|---|---|---|
+| test id typo | healed |  | ok |
+| renamed text | healed |  | ok |
+| ambiguous match | refused | ambiguous-match | ok |
+| moved element | healed |  | ok |
+| real defect | refused | possible-real-bug | ok |
+| iframe | refused | no-safe-pattern | ok |
+
+## Selenium
+
+Local fixture pages, driven by Mocha and selenium-webdriver. These rows are not part of the Playwright table above.
+
+| Case | Expected | Refusal code | Result |
+|---|---|---|---|
+| test id typo | healed |  | ok |
+| renamed text | healed |  | ok |
+| ambiguous | refused | ambiguous-match | ok |
+| moved | healed |  | ok |
+| real defect | refused | possible-real-bug | ok |
+| iframe | refused | no-safe-pattern | ok |
+| wait timeout | healed |  | ok |
+

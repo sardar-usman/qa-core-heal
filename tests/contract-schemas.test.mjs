@@ -68,6 +68,6 @@ test('the package ships the schemas', () => {
   assert.ok(fs.existsSync(path.join(repoRoot, 'schemas', 'README.md')));
 });
 
-test('the package version is 0.5.0', () => {
-  assert.equal(pkg.version, '0.5.0');
+test('the package version is 0.7.0', () => {
+  assert.equal(pkg.version, '0.7.0');
 });

@@ -15,11 +15,13 @@ const MEMBERS = [
   'assertionGrammar', 'routeCalls', 'cleanup', 'capabilities',
 ];
 
-test('the registry lists only the Playwright JS adapter', () => {
+test('the registry lists Playwright, Cypress, and Selenium, in that order', () => {
   const ids = registeredAdapters().map((a) => a.id);
-  assert.deepEqual(ids, ['playwright-js']);
+  assert.deepEqual(ids, ['playwright-js', 'cypress-js', 'selenium-js']);
   assert.equal(getAdapter('playwright-js'), playwrightJs);
-  assert.equal(getAdapter('cypress-js'), null);
+  assert.equal(getAdapter('cypress-js')?.id, 'cypress-js');
+  assert.equal(getAdapter('cypress-js')?.enabled, true);
+  assert.equal(getAdapter('selenium-js')?.enabled, true);
 });
 
 test('the Playwright JS adapter implements every interface member', () => {
