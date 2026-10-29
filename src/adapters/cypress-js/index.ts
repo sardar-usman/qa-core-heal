@@ -175,7 +175,7 @@ export const cypressJs: FrameworkAdapter = {
 
   async confirmSameElement(locator: unknown, token: string) {
     const { confirmSameElement } = await import('../../heal.js');
-    return confirmSameElement(locator as import('playwright').Locator, token);
+    return confirmSameElement(locator as import('playwright').Locator, token, { inPageTimers: false });
   },
 
   pageSource(input): string | null {

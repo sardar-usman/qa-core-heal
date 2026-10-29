@@ -95,6 +95,26 @@ test('documented Cypress commands are not treated as custom commands', () => {
   assert.equal(calls.some((call) => /Custom command/.test(call.unsafe ?? '')), false);
 });
 
+test('confirmSameElement finishes when the page has JavaScript disabled', async () => {
+  const { getAdapter } = await import(path.join(repoRoot, 'dist', 'adapters', 'index.js'));
+  const cypressJs = getAdapter('cypress-js');
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.setContent('<button id="login" data-test="login-button">Login</button><button id="cancel">Cancel</button>');
+    const started = Date.now();
+    const match = await cypressJs.confirmSameElement(page.locator('#login'), 'login');
+    const miss = await cypressJs.confirmSameElement(page.locator('#cancel'), 'login-button');
+    assert.ok(Date.now() - started < 8000, `took ${Date.now() - started}ms`);
+    assert.equal(match.confirmed, true);
+    assert.equal(miss.confirmed, false);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('confirmSameElement accepts the element that carries the token', async () => {
   const { getAdapter } = await import(path.join(repoRoot, 'dist', 'adapters', 'index.js'));
   const cypressJs = getAdapter('cypress-js');
