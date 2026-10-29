@@ -18,7 +18,8 @@ export interface MochaTest {
 export interface MochaReport {
   stats?: { tests?: number; failures?: number };
   tests?: MochaTest[];
-  failures?: number;
+  /** Mocha's JSON reporter stores failed tests and failed hooks here, not a count. */
+  failures?: MochaTest[];
   message?: string;
 }
 
@@ -29,6 +30,24 @@ export function readMochaReport(file: string): MochaReport | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A `before` hook failure is not a test: Mocha leaves `tests` empty and
+ * writes the error on `failures`. The first line is what heal should show.
+ * https://mochajs.org/#json
+ */
+export function hookFailureText(report: MochaReport): string {
+  const failures = Array.isArray(report.failures) ? report.failures : [];
+  const lines = failures.map((test) => {
+    const err = test.err ?? {};
+    const message = 'message' in err ? String(err.message ?? '') : '';
+    const stack = 'stack' in err ? String(err.stack ?? '').split('\n')[0] ?? '' : '';
+    const detail = (message || stack).replace(/\s+/g, ' ').trim().slice(0, 500);
+    const title = test.fullTitle || test.title || 'hook';
+    return detail ? `${title}: ${detail}` : title;
+  }).filter(Boolean);
+  return lines.slice(0, 2).join(' | ');
 }
 
 export function testsFromMocha(report: MochaReport, specPath: string, captureDir: string): NeutralTestResult[] {

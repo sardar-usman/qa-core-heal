@@ -5,9 +5,9 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { killProcessTree, trackOutputDir, untrackChildGroup, watchChildGroup } from '../../process-guard.js';
 import type { ChildRun } from '../types.js';
-import { fgrepTextFor, injectMochaOnly } from './list-tests.js';
+import { grepPatternFor } from './list-tests.js';
 import { hasRemoteSession } from './parse.js';
-import { readMochaReport, type MochaReport } from './report.js';
+import { hookFailureText, readMochaReport, type MochaReport } from './report.js';
 import { MOCHA_MIN, SELENIUM_MIN, mochaVersion, seleniumVersion, versionAtLeast } from './version.js';
 
 /**
@@ -45,35 +45,6 @@ const path = require('node:path');
 const { createRequire } = require('node:module');
 const dir = process.env.QA_CORE_HEAL_CAPTURE;
 const root = process.env.QA_CORE_HEAL_PROJECT;
-const Module = require('node:module');
-const origLoad = Module._load;
-const loaded = [];
-Module._load = function (request, parent, isMain) {
-  loaded.push(String(request));
-  return origLoad.apply(this, arguments);
-};
-process.on('exit', () => {
-  try {
-    if (!dir) return;
-    fs.mkdirSync(dir, { recursive: true });
-    const interesting = loaded.filter((item) => /test|login|mocharc|spec/.test(item)).slice(0, 30);
-    fs.writeFileSync(path.join(dir, 'loaded.txt'), interesting.join('\\n'));
-  } catch { /* ignore */ }
-});
-if (dir) {
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-    let specPeek = '';
-    try {
-      const testDir = path.join(process.cwd(), 'test');
-      const names = fs.existsSync(testDir) ? fs.readdirSync(testDir) : [];
-      const login = path.join(testDir, 'login.test.js');
-      const lines = fs.existsSync(login) ? fs.readFileSync(login, 'utf8').split('\\n').filter((line) => /\\b(it|describe)\\b/.test(line)) : ['missing'];
-      specPeek = names.join(',') + ' :: ' + lines.join(' | ');
-    } catch (err) { specPeek = String(err); }
-    fs.writeFileSync(path.join(dir, 'argv.json'), JSON.stringify({ specPeek, argv: process.argv.slice(1) }));
-  } catch { /* the failure text can say the hook did not write */ }
-}
 if (dir && root) {
   try {
     const { WebDriver } = createRequire(path.join(root, 'package.json'))('selenium-webdriver');
@@ -134,11 +105,12 @@ function copyTree(src: string, dst: string): void {
 }
 
 function grepFor(source: string, titlePath: string[] | undefined, title: string | null | undefined, line?: number): string | null {
-  const parsed = fgrepTextFor(source, title, line);
+  const parsed = grepPatternFor(source, title, line);
   if (parsed) return parsed;
   const parts = (titlePath ?? []).filter((part) => part.length > 0);
   const text = parts.length > 0 ? parts.join(' ') : (title ?? '');
-  return text || null;
+  if (!text) return null;
+  return `^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
 }
 
 function sameFile(reported: string, expected: string, cwd: string): boolean {
@@ -205,27 +177,13 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     // with `.mocharc` `spec` and can miss the file when it sits under a dot directory.
     // https://mochajs.org/#configuring-mocha-nodejs
     const args = [mochaBin, specArg, '--reporter', 'json', '--reporter-option', `output=${resultFile}`, '--retries', '0', '--require', hook];
-    let specSource = fs.existsSync(scratchSpec) ? fs.readFileSync(scratchSpec, 'utf8') : specText;
-    let only = false;
-    if (request.title && request.line && request.line > 0 && fs.existsSync(scratchSpec)) {
-      const edited = injectMochaOnly(specSource, request.title, request.line);
-      if (edited.injected) {
-        fs.writeFileSync(scratchSpec, edited.source);
-        specSource = edited.source;
-        only = true;
-      }
-    }
-    // `.only` in the scratch copy selects one test. `--fgrep` is the fallback when the
-    // title is not a string literal on a known line.
-    // https://mochajs.org/#exclusive-tests
-    // https://mochajs.org/#-fgrep-string-f-string
-    const grep = only ? null : grepFor(specSource, request.titlePath, request.title, request.line);
-    if (only) {
-      // One absolute file, ignoring `.mocharc`, so a hidden parent directory cannot
-      // drop the spec from the merged list. `.only` still limits that file to one test.
-      args[1] = scratchSpec;
-      args.push('--no-config', '--timeout', '20000');
-    } else if (grep) args.push('--fgrep', grep);
+    const specSource = fs.existsSync(scratchSpec) ? fs.readFileSync(scratchSpec, 'utf8') : specText;
+    // `--grep` is matched against the full title. A positional spec is merged with
+    // `.mocharc` `spec`, so the anchored pattern is what keeps the run to one test.
+    // https://mochajs.org/#-grep-regexp-g-regexp
+    // https://mochajs.org/#configuring-mocha-nodejs
+    const grep = grepFor(specSource, request.titlePath, request.title, request.line);
+    if (grep) args.push('--grep', grep);
     const childEnv: NodeJS.ProcessEnv = { ...process.env, QA_CORE_HEAL_CAPTURE: captureDir, QA_CORE_HEAL_PROJECT: request.projectRoot };
     for (const key of Object.keys(childEnv)) {
       if (key === 'MOCHA_OPTIONS' || key === 'NODE_OPTIONS' || key === 'NODE_CHANNEL_FD' || key.startsWith('NODE_TEST_')) delete childEnv[key];
@@ -236,26 +194,24 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     const report = readMochaReport(resultFile);
     if (!report) return { run, report: null, captureDir, timedOut: false, failureDetail: run.stderr || 'Mocha did not write a JSON report.' };
     const tests = report.tests ?? [];
-    if ((grep || only) && tests.length !== 1) {
-      const note = `${run.stderr ?? ''}\n${run.stdout ?? ''}`.trim().split('\n').slice(-12).join('\n').slice(0, 800);
-      const stats = report.stats?.tests;
-      const seen = tests.map((test) => test.fullTitle ?? test.title ?? '').filter(Boolean).slice(0, 5).join('; ');
-      const how = only ? 'it.only' : `fgrep ${grep}`;
-      let argvNote = '';
-      const argvFile = path.join(captureDir, 'argv.json');
-      if (fs.existsSync(argvFile)) {
-        argvNote = ` hook ${fs.readFileSync(argvFile, 'utf8').slice(0, 900)}`;
-        const loadedFile = path.join(captureDir, 'loaded.txt');
-        if (fs.existsSync(loadedFile)) argvNote += ` loaded ${fs.readFileSync(loadedFile, 'utf8').slice(0, 400)}`;
-      } else {
-        argvNote = ' hook did not run.';
+    if (grep && tests.length !== 1) {
+      // A `before` hook failure never reaches EVENT_TEST_END, so `tests` stays
+      // empty and stderr stays empty. The JSON file holds the real error.
+      const hookText = hookFailureText(report);
+      if (hookText) {
+        return {
+          run, report, captureDir, timedOut: false,
+          failureDetail: `The Mocha run did not finish the selected test. ${hookText}`,
+        };
       }
+      const note = `${run.stderr ?? ''}\n${run.stdout ?? ''}`.trim().split('\n').filter(Boolean).slice(-4).join('\n').slice(0, 400);
+      const seen = tests.map((test) => test.fullTitle ?? test.title ?? '').filter(Boolean).slice(0, 5).join('; ');
       return {
         run, report, captureDir, timedOut: false,
-        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected. ${how}. spec ${specArg}. status ${run.status}.${stats !== undefined ? ` stats.tests=${stats}.` : ''} report ${fs.readFileSync(resultFile, 'utf8').slice(0, 600)}.${seen ? ` titles ${seen}.` : ''}${argvNote}${note ? ` ${note}` : ''}`,
+        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected. grep ${grep}. spec ${specArg}.${seen ? ` titles ${seen}.` : ''}${note ? ` ${note}` : ''}`,
       };
     }
-    if ((grep || only) && tests[0] && !sameFile(tests[0].file ?? scratchSpec, scratchSpec, scratch)) {
+    if (grep && tests[0] && !sameFile(tests[0].file ?? scratchSpec, scratchSpec, scratch)) {
       return { run, report, captureDir, timedOut: false, failureDetail: 'The Mocha run reported a test from a different file. Nothing was changed.' };
     }
     return { run, report, captureDir, timedOut: false, failureDetail: '' };

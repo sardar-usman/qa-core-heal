@@ -103,8 +103,18 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Debug Mocha in CI
-        run: node scripts/debug-selenium-mocha.mjs
+      - name: Probe Chrome before the sandbox change
+        run: node scripts/probe-chrome-session.mjs
+
+      - name: Allow Chrome sandbox user namespaces
+        run: |
+          # Ubuntu 24.04 can block unprivileged user namespaces. Chrome for Testing
+          # then exits, and ChromeDriver reports SessionNotCreatedError. Chromium's
+          # documented workaround:
+          # https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          fi
 
       - name: Selenium tests
         run: npm run build && QA_CORE_HEAL_SELENIUM=1 node --import ./tests/helpers/temps.mjs --test tests/selenium-heal.test.mjs

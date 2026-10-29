@@ -23,12 +23,29 @@ const { parseSeleniumCalls, hasRemoteSession } = await import(path.join(repoRoot
 const { compareVersions } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'version.js'));
 const { seleniumMatchIds } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'unique.js'));
 const { grepPatternFor } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'list-tests.js'));
+const { hookFailureText } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'report.js'));
 
-test('Mocha fgrep is the full title', () => {
+test('Mocha grep is the anchored full title', () => {
   const source = "describe('login', () => {\n  it('logs in', async () => {});\n  it('hangs', async () => {});\n});\n";
-  assert.equal(grepPatternFor(source, 'logs in'), 'login logs in');
-  assert.equal(grepPatternFor(source, 'hangs'), 'login hangs');
-  assert.equal(grepPatternFor("it('logs in', () => {});", 'logs in'), 'logs in');
+  assert.equal(grepPatternFor(source, 'logs in'), '^login logs in$');
+  assert.equal(grepPatternFor(source, 'hangs'), '^login hangs$');
+  assert.equal(grepPatternFor("it('logs in', () => {});", 'logs in'), '^logs in$');
+  assert.equal(grepPatternFor("it('a.b+c', () => {});", 'a.b+c'), '^a\\.b\\+c$');
+});
+
+test('a Mocha hook failure is reported as the hook error', () => {
+  const text = hookFailureText({
+    stats: { tests: 0, failures: 1 },
+    tests: [],
+    failures: [{
+      title: '"before each" hook for "logs in"',
+      fullTitle: 'login "before each" hook for "logs in"',
+      err: { message: 'SessionNotCreatedError: session not created: Chrome failed to start' },
+    }],
+  });
+  assert.match(text, /before each/);
+  assert.match(text, /SessionNotCreatedError: session not created/);
+  assert.equal(hookFailureText({ tests: [], failures: [] }), '');
 });
 
 test('version compare treats 4.6.0 and 10.0.0 as the minimums', () => {

@@ -45,29 +45,8 @@ export function testAtLine(source: string, line: number): MochaListedTest | null
   return listMochaTests(source).find((test) => line >= test.line && line < test.endLine) ?? null;
 }
 
-/**
- * Mocha compares `--grep` to the full title. The argument is the regexp itself,
- * `^suite test$`, not a `/pattern/` wrapper.
- * https://mochajs.org/#-grep-regexp-g-regexp
- */
-/**
- * Add `.only` to one string-literal `it` or `test`. The scratch copy is the only
- * file that changes. Mocha then runs that test and not the other specs from `.mocharc`.
- */
-export function injectMochaOnly(source: string, title: string, line: number): { injected: boolean; source: string } {
-  const lines = source.split('\n');
-  const index = line - 1;
-  if (index < 0 || index >= lines.length) return { injected: false, source };
-  const text = lines[index] ?? '';
-  const match = /\b(it|test|specify)\s*\(\s*(['"`])([\s\S]*?)\2/.exec(text);
-  if (!match || match[3] !== title) return { injected: false, source };
-  if (/\b(it|test|specify)\s*\.\s*only\s*\(/.test(text)) return { injected: true, source };
-  lines[index] = text.replace(/\b(it|test|specify)\s*\(/, '$1.only(');
-  return { injected: true, source: lines.join('\n') };
-}
-
-/** Mocha full title for `--fgrep` when `.only` cannot be injected. */
-export function fgrepTextFor(source: string, title: string | null | undefined, line?: number): string | null {
+/** Mocha's full title: suite titles and the test title, joined with one space. */
+export function fullTitleFor(source: string, title: string | null | undefined, line?: number): string | null {
   const listed = listMochaTests(source).filter((test) => !test.skip);
   const named = title ? listed.filter((test) => test.title === title) : [];
   const atLine = line && line > 0
@@ -78,7 +57,14 @@ export function fgrepTextFor(source: string, title: string | null | undefined, l
   return full || null;
 }
 
+/**
+ * Mocha compares `--grep` to the full title. A value that does not start and
+ * end with `/` is compiled with `new RegExp`, so the argument is `^suite test$`
+ * with regexp metacharacters escaped, not a `/pattern/` wrapper.
+ * https://mochajs.org/#-grep-regexp-g-regexp
+ */
 export function grepPatternFor(source: string, title: string | null | undefined, line?: number): string | null {
-  const full = fgrepTextFor(source, title, line);
-  return full;
+  const full = fullTitleFor(source, title, line);
+  if (!full) return null;
+  return `^${full.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
 }

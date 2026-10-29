@@ -230,7 +230,7 @@ The project needs its own Cypress install. Heal does not add Cypress, a plugin, 
 
 Selenium healing uses Mocha and the project's own `selenium-webdriver`. The minimums are selenium-webdriver 4.6.0 and Mocha 10.0.0. Jest and a remote Grid session are refused.
 
-Heal runs one test with Mocha's `--grep` and reads the JSON reporter file. It does not use Mocha's exit code. A capture hook in the heal temp folder records the page when `findElement` or `wait` rejects. The project is not modified.
+Heal runs one test with Mocha's `--grep` and reads the JSON reporter file. It does not use Mocha's exit code. A `before` hook that fails before the test ends is reported with that error. A capture hook in the heal temp folder records the page when `findElement` or `wait` rejects. The project is not modified.
 
 `By.id`, `By.name`, `By.css`, `By.xpath`, `By.linkText`, and `By.partialLinkText` with string literals can be healed. `By.js`, object locators, relative locators, and variables are refused.
 
