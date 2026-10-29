@@ -50,7 +50,8 @@ export function testAtLine(source: string, line: number): MochaListedTest | null
  * `^suite test$`, not a `/pattern/` wrapper.
  * https://mochajs.org/#-grep-regexp-g-regexp
  */
-export function grepPatternFor(source: string, title: string | null | undefined, line?: number): string | null {
+/** Mocha full title for `--fgrep`. A `$` anchor in `--grep` matched nothing in CI. */
+export function fgrepTextFor(source: string, title: string | null | undefined, line?: number): string | null {
   const listed = listMochaTests(source).filter((test) => !test.skip);
   const named = title ? listed.filter((test) => test.title === title) : [];
   const atLine = line && line > 0
@@ -58,7 +59,10 @@ export function grepPatternFor(source: string, title: string | null | undefined,
     : undefined;
   const chosen = atLine ?? (named.length === 1 ? named[0] : undefined);
   const full = chosen ? chosen.titlePath.join(' ') : (title ?? '');
-  if (!full) return null;
-  const escaped = full.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return chosen ? `^${escaped}$` : `${escaped}$`;
+  return full || null;
+}
+
+export function grepPatternFor(source: string, title: string | null | undefined, line?: number): string | null {
+  const full = fgrepTextFor(source, title, line);
+  return full;
 }

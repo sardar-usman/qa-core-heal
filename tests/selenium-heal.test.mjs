@@ -26,9 +26,9 @@ const { grepPatternFor } = await import(path.join(repoRoot, 'dist', 'adapters', 
 
 test('Mocha grep is the anchored full title', () => {
   const source = "describe('login', () => {\n  it('logs in', async () => {});\n  it('hangs', async () => {});\n});\n";
-  assert.equal(grepPatternFor(source, 'logs in'), '^login logs in$');
-  assert.equal(grepPatternFor(source, 'hangs'), '^login hangs$');
-  assert.equal(grepPatternFor("it('logs in', () => {});", 'logs in'), '^logs in$');
+  assert.equal(grepPatternFor(source, 'logs in'), 'login logs in');
+  assert.equal(grepPatternFor(source, 'hangs'), 'login hangs');
+  assert.equal(grepPatternFor("it('logs in', () => {});", 'logs in'), 'logs in');
 });
 
 test('version compare treats 4.6.0 and 10.0.0 as the minimums', () => {

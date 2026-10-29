@@ -4,9 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { killProcessTree, trackOutputDir, untrackChildGroup, watchChildGroup } from '../../process-guard.js';
-import { escapeRegex } from '../../selectors.js';
 import type { ChildRun } from '../types.js';
-import { grepPatternFor } from './list-tests.js';
+import { fgrepTextFor } from './list-tests.js';
 import { hasRemoteSession } from './parse.js';
 import { readMochaReport, type MochaReport } from './report.js';
 import { MOCHA_MIN, SELENIUM_MIN, mochaVersion, seleniumVersion, versionAtLeast } from './version.js';
@@ -106,14 +105,11 @@ function copyTree(src: string, dst: string): void {
 }
 
 function grepFor(source: string, titlePath: string[] | undefined, title: string | null | undefined, line?: number): string | null {
-  const parsed = grepPatternFor(source, title, line);
+  const parsed = fgrepTextFor(source, title, line);
   if (parsed) return parsed;
   const parts = (titlePath ?? []).filter((part) => part.length > 0);
   const text = parts.length > 0 ? parts.join(' ') : (title ?? '');
-  if (!text) return null;
-  // A one-part path may be only the test title. A suffix still matches Mocha's full title.
-  // https://mochajs.org/#-grep-regexp-g-regexp
-  return parts.length > 1 ? `^${escapeRegex(text)}$` : `${escapeRegex(text)}$`;
+  return text || null;
 }
 
 function sameFile(reported: string, expected: string, cwd: string): boolean {
@@ -181,8 +177,10 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     // https://mochajs.org/#configuring-mocha-nodejs
     const args = [mochaBin, specArg, '--reporter', 'json', '--reporter-option', `output=${resultFile}`, '--retries', '0', '--require', hook];
     const specSource = fs.existsSync(scratchSpec) ? fs.readFileSync(scratchSpec, 'utf8') : specText;
+    // `--fgrep` is a literal substring of the full title (suite titles, a space, the test title).
+    // https://mochajs.org/#-fgrep-string-f-string
     const grep = grepFor(specSource, request.titlePath, request.title, request.line);
-    if (grep) args.push('--grep', grep);
+    if (grep) args.push('--fgrep', grep);
     const childEnv: NodeJS.ProcessEnv = { ...process.env, QA_CORE_HEAL_CAPTURE: captureDir, QA_CORE_HEAL_PROJECT: request.projectRoot };
     delete childEnv.MOCHA_OPTIONS;
     const run = await spawnChild(process.execPath, args, scratch, sampleTimeout(request.timeoutMs), childEnv);
