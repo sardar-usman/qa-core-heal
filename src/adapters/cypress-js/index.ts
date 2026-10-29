@@ -26,6 +26,9 @@ import { readCypressResult, startFailure, testsFromCypress } from './report.js';
 import { runCypressInScratch } from './spawn.js';
 import { countCypressQuery } from './unique.js';
 import { CYPRESS_MIN, cypressVersion, versionAtLeast } from './version.js';
+import { healCypress } from './heal-run.js';
+import { listSpecTests } from './list-tests.js';
+import { testIdAttributeFrom } from './capture.js';
 
 const CONFIGS = ['cypress.config.ts', 'cypress.config.js', 'cypress.config.mjs', 'cypress.config.cjs'];
 
@@ -37,7 +40,7 @@ function missing(): string {
   return 'Cypress is not installed in this project. Install cypress and run npx cypress install. Nothing was run.';
 }
 
-async function execute(root: string, specPath: string, title: string | null, line: number, timeoutMs?: RunRequest['timeoutMs'], observe?: (run: ChildRun) => void): Promise<SpecBatchResult> {
+async function execute(root: string, specPath: string, title: string | null, line: number, timeoutMs?: RunRequest['timeoutMs'], observe?: (run: ChildRun) => void, preview?: boolean): Promise<SpecBatchResult> {
   const version = cypressVersion(root);
   if (!version) {
     const run: ChildRun = { status: 1, stdout: '', stderr: missing(), command: 'cypress.run' };
@@ -56,6 +59,7 @@ async function execute(root: string, specPath: string, title: string | null, lin
     line,
     timeoutMs,
     observe,
+    preview,
   });
   setCaptureDir(spawned.captureDir);
   if (spawned.timedOut) {
@@ -87,20 +91,36 @@ export const cypressJs: FrameworkAdapter = {
   version: cypressVersion,
 
   async discoverConfig(root: string, _opts?: DiscoverOptions): Promise<DiscoveredConfig> {
-    return { baseUrl: null, testDir: fs.existsSync(path.join(root, 'cypress/e2e')) ? 'cypress/e2e' : null, testIdAttribute: 'data-cy' };
+    let config: string | null = null;
+    for (const name of CONFIGS) {
+      const file = path.join(root, name);
+      if (fs.existsSync(file)) { config = fs.readFileSync(file, 'utf8'); break; }
+    }
+    return {
+      baseUrl: null,
+      testDir: fs.existsSync(path.join(root, 'cypress/e2e')) ? 'cypress/e2e' : null,
+      testIdAttribute: testIdAttributeFrom(config),
+    };
   },
 
   async listTests(root: string, query: ListQuery): Promise<ListTestsResult> {
     const spec = query.specPath ? (path.isAbsolute(query.specPath) ? query.specPath : path.join(root, query.specPath)) : '';
     if (!spec || !fs.existsSync(spec)) return { ok: true, tests: [] };
-    const title = query.title ? [query.title] : ['test'];
-    return { ok: true, tests: [{ file: spec, line: query.line ?? 1, titlePath: title, project: null }] };
+    let tests = listSpecTests(fs.readFileSync(spec, 'utf8')).filter((item) => !item.skip);
+    if (query.title) {
+      tests = tests.filter((item) => item.title === query.title || item.titlePath.join(' › ') === query.title || item.titlePath.join(' > ') === query.title);
+    }
+    if (query.line && query.line > 0) tests = tests.filter((item) => item.line === query.line);
+    return {
+      ok: true,
+      tests: tests.map((item) => ({ file: spec, line: item.line, titlePath: item.titlePath, project: null })),
+    };
   },
 
   async runOne(root: string, test: RunRequest, _mode: RunMode): Promise<RunResult> {
     const title = test.grepTitle === undefined ? (test.selection.titlePath[test.selection.titlePath.length - 1] ?? null) : test.grepTitle;
     const spec = test.selection.specRel ? path.join(root, test.selection.specRel) : test.selection.specPath;
-    const batch = await execute(root, spec, title, test.selection.line, test.timeoutMs, test.observe);
+    const batch = await execute(root, spec, title, test.selection.line, test.timeoutMs, test.observe, test.preview);
     if (batch.kind === 'timeout') return { kind: 'timeout', run: batch.run };
     if (batch.kind !== 'ran') return { kind: 'error', message: batch.failureDetail, run: batch.run };
     const found = title ? batch.tests.filter((item) => item.title === title || item.titlePath.join(' ').endsWith(title)) : batch.tests;
@@ -116,11 +136,15 @@ export const cypressJs: FrameworkAdapter = {
         ? path.join(root, request.selection.specRel)
         : request.selection.specPath;
       const line = request.shiftedLine ?? request.selection.line;
-      return execute(root, spec, request.selection.title, line, request.timeoutMs, request.observe);
+      return execute(root, spec, request.selection.title, line, request.timeoutMs, request.observe, request.preview);
     }
     const rel = request.specsRel[0] ?? request.oneFileRel ?? '';
     const title = request.op === 'isolate' ? (request.oneTitle ?? null) : null;
-    return execute(root, path.join(root, rel), title, 0, request.timeoutMs, request.observe);
+    return execute(root, path.join(root, rel), title, 0, request.timeoutMs, request.observe, request.preview);
+  },
+
+  healSpec(opts: object) {
+    return healCypress(opts as Parameters<typeof healCypress>[0]);
   },
 
   parseReport(output: string): NeutralTestResult[] {

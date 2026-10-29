@@ -27,10 +27,30 @@ export interface CypressCall {
 
 const JQUERY_ONLY = /:(?:contains|eq|first|last|visible|hidden|checkbox|parent|header|selected|animated|button|input|submit|text|password|radio|file|image|reset|even|odd|gt|lt|has|not|empty|focus|disabled|enabled|checked)\b/;
 
+/**
+ * Commands Cypress ships. Anything else after `cy.` is a custom command.
+ * https://docs.cypress.io/api/table-of-contents
+ */
+const BUILTIN_COMMANDS = new Set([
+  'get', 'contains', 'getByRole', 'within', 'origin', 'find', 'shadow',
+  'visit', 'request', 'intercept', 'wait', 'window', 'document', 'title', 'url',
+  'go', 'reload', 'viewport', 'screenshot', 'log', 'debug', 'pause', 'wrap',
+  'then', 'each', 'root', 'focused', 'spy', 'stub', 'clock', 'tick', 'session',
+  'readFile', 'writeFile', 'exec', 'task', 'fixture', 'as', 'its', 'invoke',
+  'should', 'and', 'spread', 'location', 'hash', 'getCookie', 'getCookies',
+  'setCookie', 'clearCookie', 'clearCookies', 'clearLocalStorage', 'origin',
+  'scrollTo', 'scrollIntoView', 'click', 'dblclick', 'rightclick', 'type',
+  'clear', 'check', 'uncheck', 'select', 'selectFile', 'trigger', 'focus',
+  'blur', 'submit', 'children', 'closest', 'eq', 'filter', 'first', 'last',
+  'next', 'nextAll', 'nextUntil', 'not', 'parent', 'parents', 'parentsUntil',
+  'prev', 'prevAll', 'prevUntil', 'siblings',
+]);
+
 export function parseCypressCalls(source: string, file: string): CypressCall[] {
   const calls: CypressCall[] = [];
   const lineStarts = lineStartTable(source);
-  const re = /\bcy\s*\.\s*(get|contains|getByRole|origin|within|getBySel)\s*\(/g;
+  const withinSpans = withinRanges(source);
+  const re = /\bcy\s*\.\s*([A-Za-z_][\w]*)\s*\(/g;
   let match: RegExpExecArray | null;
   while ((match = re.exec(source)) !== null) {
     const name = match[1]!;
@@ -41,16 +61,44 @@ export function parseCypressCalls(source: string, file: string): CypressCall[] {
     const end = posOf(lineStarts, close + 1);
     const raw = source.slice(match.index, close + 1).replace(/\s*\n\s*/g, ' ');
     const args = source.slice(open + 1, close);
-    if (name === 'origin' || name === 'within' || name === 'getBySel') {
+    const insideWithin = withinSpans.some((span) => match!.index > span.open && match!.index < span.close);
+    if (!BUILTIN_COMMANDS.has(name)) {
+      calls.push(base(file, start, end, raw, 'get', "'", `Custom command cy.${name}() is not supported.`));
+      re.lastIndex = close + 1;
+      continue;
+    }
+    if (name === 'origin' || name === 'within') {
       calls.push(base(file, start, end, raw, 'get', "'", unsafeReason(name)));
       re.lastIndex = close + 1;
       continue;
     }
-    const call = readCall(name, args, file, start, end, raw, source.slice(close + 1, source.indexOf('\n', close + 1) < 0 ? source.length : source.indexOf('\n', close + 1)));
+    if (name !== 'get' && name !== 'contains' && name !== 'getByRole') {
+      re.lastIndex = close + 1;
+      continue;
+    }
+    const lineEnd = source.indexOf('\n', close + 1);
+    const trailing = source.slice(close + 1, lineEnd < 0 ? source.length : lineEnd);
+    const call = readCall(name, args, file, start, end, raw, trailing);
+    if (insideWithin || /\.within\s*\(/.test(trailing)) {
+      call.unsafe = 'cy.within() is not supported.';
+    }
     calls.push(call);
     re.lastIndex = close + 1;
   }
   return calls;
+}
+
+function withinRanges(source: string): Array<{ open: number; close: number }> {
+  const spans: Array<{ open: number; close: number }> = [];
+  const re = /\.within\s*\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(source)) !== null) {
+    const open = match.index + match[0].length - 1;
+    const close = matchParen(source, open);
+    if (close > open) spans.push({ open, close });
+    re.lastIndex = open + 1;
+  }
+  return spans;
 }
 
 function unsafeReason(name: string): string {

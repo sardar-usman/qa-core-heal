@@ -117,15 +117,14 @@ function cleanArtifacts(dir) {
   }
 }
 
-const FRAMEWORK_HELP = '      --framework <id>           framework to use. Supported now: playwright-js. Planned: cypress-js, selenium-js, playwright-py, selenium-py\n';
-
 function scrubText(text) {
   return text
     .replaceAll('0.6.0', '0.5.0')
     .replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt": "TIME"')
     .replace(/"timestamp":\s*"[^"]*"/g, '"timestamp": "TIME"')
     .replace(/qa-core-heal-out-[A-Za-z0-9_-]+/g, 'qa-core-heal-out-ID')
-    .replace(/^ {6}--framework <id>.*\n/gm, FRAMEWORK_HELP)
+    .replaceAll('Supported now: playwright-js, cypress-js.', 'Supported now: playwright-js.')
+    .replaceAll('Planned: selenium-js, playwright-py, selenium-py', 'Planned: cypress-js, selenium-js, playwright-py, selenium-py')
     .replace(/^ {2}frameworks:.*\n/gm, '  frameworks: playwright-js\n');
 }
 

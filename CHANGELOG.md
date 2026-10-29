@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 (2026-10-28)
+## 0.6.0 (Unreleased)
 
 Cypress JS/TS healing. Contract version 1 is unchanged. Playwright output for the same inputs stays the same except the version, the framework list, and the `--framework` help line.
 

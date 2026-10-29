@@ -577,6 +577,7 @@ export async function runFindingsFlow(o: FindingsFlowOptions): Promise<FindingsF
       noTrace: o.noTrace,
       timeoutMs,
       observe: o.observe,
+      preview: !o.apply,
     }, 'first');
     if (first.kind === 'timeout') return refusedEntry(f, 'timeout', 'The test run timed out before it finished.');
     if (first.kind === 'error') return plainEntry(f, 'error', scrub(first.message, root));

@@ -277,8 +277,8 @@ It prints one JSON object. `contracts.findings` and `contracts.results` are arra
   "tool": { "name": "qa-core-heal", "version": "0.6.0" },
   "contracts": { "findings": [1], "results": [1] },
   "playwrightVersion": "1.60.0",
-  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true, "frameworks": ["playwright-js"] },
-  "frameworkVersions": { "playwright-js": "1.60.0" }
+  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true, "frameworks": ["playwright-js", "cypress-js"] },
+  "frameworkVersions": { "playwright-js": "1.60.0", "cypress-js": null }
 }
 ```
 

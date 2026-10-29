@@ -6,8 +6,10 @@ import { matchFuzzy, type FuzzyCandidate } from '../../fuzzy.js';
 import type { ProbeQuery } from '../types.js';
 import { emitContains, emitGet, emitRole } from './emit.js';
 import { parseCypressCalls, configHasShadow, type CypressCall, type CypressQuote } from './parse.js';
-import { countCypressQuery } from './unique.js';
+import { countCypressQuery, cypressMatchStamps } from './unique.js';
 import { CYPRESS_GET_BY_ROLE_MIN, cypressVersion, versionAtLeast } from './version.js';
+import { testIdAttributeFrom } from './capture.js';
+import { testAtLine } from './list-tests.js';
 
 /**
  * Heal Cypress literals against the captured page. There is no fresh load.
@@ -19,6 +21,7 @@ export async function healCypress(opts: HealOptions): Promise<HealResult> {
   const calls = files.flatMap((file) => parseCypressCalls(fs.readFileSync(file, 'utf8'), file));
   const shadow = files.some((file) => configHasShadow(fs.readFileSync(file, 'utf8')));
   const version = cypressVersion(path.dirname(files[0] ?? process.cwd())) ?? cypressVersion(process.cwd());
+  const testId = testIdAttributeFrom(readProjectConfig(process.cwd()));
   const roleOk = version != null && versionAtLeast(version, CYPRESS_GET_BY_ROLE_MIN);
   const targets = opts.targets ?? [];
   const locators: LocatorReport[] = [];
@@ -59,8 +62,15 @@ export async function healCypress(opts: HealOptions): Promise<HealResult> {
       return route.abort();
     });
     await page.goto(capture.url, { waitUntil: 'commit' }).catch(() => undefined);
-    const chosen = targets.length > 0 ? calls.filter((call) => matchesTarget(call, targets)) : calls.filter((call) => !call.unsafe);
-    const pool = chosen.length > 0 ? chosen : calls;
+    const sources = new Map<string, string>();
+    const sourceOf = (file: string): string => {
+      const found = sources.get(file);
+      if (found !== undefined) return found;
+      const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+      sources.set(file, text);
+      return text;
+    };
+    const pool = calls.filter((call) => inFailedTest(call, targets, sourceOf));
     for (const call of pool) {
       if (call.unsafe) {
         locators.push(refused(call, call.unsafe));
@@ -76,7 +86,7 @@ export async function healCypress(opts: HealOptions): Promise<HealResult> {
         locators.push(refused(call, 'More than one element matches, so heal will not guess.', true));
         continue;
       }
-      const proposal = await propose(page, call, roleOk);
+      const proposal = await propose(page, call, roleOk, testId);
       if (proposal && 'ambiguous' in proposal) {
         locators.push(refused(call, 'More than one candidate matches, so heal will not guess.', true));
         continue;
@@ -113,9 +123,9 @@ export async function healCypress(opts: HealOptions): Promise<HealResult> {
   return resultOf(locators, plan, specs);
 }
 
-async function propose(page: Page, call: CypressCall, roleOk: boolean): Promise<{ code: string; level: 'testid' | 'role' | 'text' | 'css' } | { ambiguous: true } | null> {
+async function propose(page: Page, call: CypressCall, roleOk: boolean, testId: string): Promise<{ code: string; level: 'testid' | 'role' | 'text' | 'css' } | { ambiguous: true } | null> {
   const quote = call.quote;
-  const elements = await scan(page);
+  const elements = await scan(page, testId);
   const source = identityOf(call);
   const byDisplay = new Map(elements.map((el) => [el.display, el]));
   const candidates: FuzzyCandidate[] = elements.map((el) => ({
@@ -129,29 +139,29 @@ async function propose(page: Page, call: CypressCall, roleOk: boolean): Promise<
   const value = verdict.value;
   const attr = verdict.candidate.attrOf?.[value];
   const scanned = byDisplay.get(verdict.candidate.display);
-  if (attr === 'data-cy' || attr === 'data-test' || attr === 'data-testid') {
+  if (attr === testId || attr === 'data-cy' || attr === 'data-test' || attr === 'data-testid') {
     const selector = `[${attr}="${cssAttr(value)}"]`;
-    if (await countCypressQuery(page, { kind: 'css', selector }) !== 1) return null;
+    if (!await sameElement(page, { kind: 'css', selector }, scanned?.stamp)) return null;
     return { code: emitGet(selector, quote), level: 'testid' };
   }
   if (roleOk && (attr === 'text' || attr === 'aria-label') && scanned?.role) {
-    if (await countCypressQuery(page, { kind: 'role', role: scanned.role, name: value, exact: true }) === 1) {
+    if (await sameElement(page, { kind: 'role', role: scanned.role, name: value, exact: true }, scanned.stamp)) {
       return { code: emitRole(scanned.role, value, quote), level: 'role' };
     }
   }
   if (attr === 'text' || attr === 'aria-label') {
     const selector = scanned?.tag || '*';
-    if (await countCypressQuery(page, { kind: 'text', text: value, selector }) === 1) {
+    if (await sameElement(page, { kind: 'text', text: value, selector }, scanned?.stamp)) {
       return { code: emitContains(selector, value, quote), level: 'text' };
     }
   }
   if (attr === 'id' && scanned?.id) {
     const selector = `#${cssIdent(scanned.id)}`;
-    if (await countCypressQuery(page, { kind: 'css', selector }) === 1) return { code: emitGet(selector, quote), level: 'css' };
+    if (await sameElement(page, { kind: 'css', selector }, scanned.stamp)) return { code: emitGet(selector, quote), level: 'css' };
   }
   if (attr === 'name' && scanned?.name) {
     const selector = `[name="${cssAttr(scanned.name)}"]`;
-    if (await countCypressQuery(page, { kind: 'css', selector }) === 1) return { code: emitGet(selector, quote), level: 'css' };
+    if (await sameElement(page, { kind: 'css', selector }, scanned.stamp)) return { code: emitGet(selector, quote), level: 'css' };
   }
   return null;
 }
@@ -166,12 +176,14 @@ interface Scanned {
   role: string | null;
   type: string | null;
   href: boolean;
+  stamp: string;
 }
 
-async function scan(page: Page): Promise<Scanned[]> {
-  return page.evaluate(() => {
+async function scan(page: Page, testId: string): Promise<Scanned[]> {
+  return page.evaluate((preferred) => {
     const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
     const out: Scanned[] = [];
+    let serial = 0;
     for (const el of Array.from(document.querySelectorAll('body *'))) {
       const tag = el.tagName.toLowerCase();
       const id = el.id || null;
@@ -189,9 +201,12 @@ async function scan(page: Page): Promise<Scanned[]> {
         values.push(clean);
         attrOf[clean] = attr;
       };
-      add(el.getAttribute('data-cy'), 'data-cy');
-      add(el.getAttribute('data-test'), 'data-test');
-      add(el.getAttribute('data-testid'), 'data-testid');
+      const stamp = String(serial++);
+      el.setAttribute('data-qa-core-n', stamp);
+      add(el.getAttribute(preferred), preferred);
+      if (preferred !== 'data-cy') add(el.getAttribute('data-cy'), 'data-cy');
+      if (preferred !== 'data-test') add(el.getAttribute('data-test'), 'data-test');
+      if (preferred !== 'data-testid') add(el.getAttribute('data-testid'), 'data-testid');
       add(id, 'id');
       add(name, 'name');
       add(label, 'aria-label');
@@ -207,6 +222,7 @@ async function scan(page: Page): Promise<Scanned[]> {
         role,
         type,
         href: el.hasAttribute('href'),
+        stamp,
       });
     }
     return out;
@@ -226,7 +242,7 @@ async function scan(page: Page): Promise<Scanned[]> {
       }
       return null;
     }
-  });
+  }, testId);
 }
 
 function identityOf(call: CypressCall): string {
@@ -344,7 +360,41 @@ function cssAttr(value: string): string {
 }
 
 function cssIdent(value: string): string {
-  return /^[A-Za-z_][\w-]*$/.test(value) ? value : value;
+  if (/^[A-Za-z_][\w-]*$/.test(value)) return value;
+  return value.replace(/([^A-Za-z0-9_-])/g, '\\$1');
+}
+
+async function sameElement(page: Page, query: ProbeQuery, stamp: string | undefined): Promise<boolean> {
+  if (!stamp) return false;
+  const stamps = await cypressMatchStamps(page, query);
+  return stamps.length === 1 && stamps[0] === stamp;
+}
+
+function inFailedTest(
+  call: CypressCall,
+  targets: HealTarget[],
+  sourceOf: (file: string) => string,
+): boolean {
+  const owner = testAtLine(sourceOf(call.file), call.line);
+  if (!owner || owner.skip) return false;
+  if (targets.length === 0) return false;
+  const named = targets.some((target) => !target.test || target.test === owner.title);
+  if (!named) return false;
+  const spanned = targets.every((target) => {
+    if (!target.testSpan || target.test !== owner.title) return true;
+    return call.line >= target.testSpan.startLine && call.line < target.testSpan.endLine;
+  });
+  if (!spanned) return false;
+  if (call.unsafe) return true;
+  return matchesTarget(call, targets);
+}
+
+function readProjectConfig(root: string): string | null {
+  for (const name of ['cypress.config.ts', 'cypress.config.js', 'cypress.config.mjs', 'cypress.config.cjs']) {
+    const file = path.join(root, name);
+    if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8');
+  }
+  return null;
 }
 
 export type { CypressQuote };

@@ -819,45 +819,29 @@ async function main(): Promise<void> {
       }
       const wanted = cli.test.split(/ [›>] /).map((x) => x.trim());
       const title = wanted[wanted.length - 1]!;
-      if (activeAdapter().id === 'playwright-js') {
-        const listOut = specOutputDir('list');
-        const res: Resolution = await resolveTarget({
-          root: projectRootFor(target), file: target, title, project: cli.project,
-          config: playwrightConfigRel, outputDir: listOut,
-          match: matchTitle(cli.test), timeoutMs: childTimeout, observe: (run) => logChildRun(cli, run),
-        });
-        endSpecOutput(listOut);
-        const where = path.relative(process.cwd(), target) || target;
-        if (res.kind === 'not-found') fail(`No test titled "${cli.test}" was found in ${where}. Nothing was run.`);
-        if (res.kind === 'ambiguous') fail(`${res.count} tests match "${cli.test}" in ${where}, and --test runs exactly one. Use the full title ("Describe › test") or --project. Nothing was run.`);
-        if (res.kind === 'error') fail(`${res.message} Nothing was run.`);
-        only = {
-          selection: {
-            specPath: res.selection.specPath,
-            specRel: res.selection.specRel,
-            title: res.grepTitle,
-            line: res.selection.line,
-            project: res.project,
-            config: res.config,
-          },
-          file: target,
-          line: res.test.line,
-        };
-      } else {
-        const root = projectRootFor(target);
-        only = {
-          selection: {
-            specPath: target,
-            specRel: path.relative(root, target).split(path.sep).join('/'),
-            title,
-            line: 0,
-            project: cli.project ?? null,
-            config: null,
-          },
-          file: target,
-          line: 0,
-        };
-      }
+      const listOut = specOutputDir('list');
+      const res: Resolution = await resolveTarget({
+        root: projectRootFor(target), file: target, title, project: cli.project,
+        config: playwrightConfigRel, outputDir: listOut,
+        match: matchTitle(cli.test), timeoutMs: childTimeout, observe: (run) => logChildRun(cli, run),
+      });
+      endSpecOutput(listOut);
+      const where = path.relative(process.cwd(), target) || target;
+      if (res.kind === 'not-found') fail(`No test titled "${cli.test}" was found in ${where}. Nothing was run.`);
+      if (res.kind === 'ambiguous') fail(`${res.count} tests match "${cli.test}" in ${where}, and --test runs exactly one. Use the full title ("Describe › test") or --project. Nothing was run.`);
+      if (res.kind === 'error') fail(`${res.message} Nothing was run.`);
+      only = {
+        selection: {
+          specPath: res.selection.specPath,
+          specRel: res.selection.specRel,
+          title: res.grepTitle,
+          line: res.selection.line,
+          project: res.project,
+          config: res.config,
+        },
+        file: target,
+        line: res.test.line,
+      };
     }
     await runFirstFlow({
       cli, specs, write, verify, say, runPass, printDiff, writeAudit,
@@ -1107,6 +1091,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     configRel: ctx.playwrightConfigRel,
     timeoutMs: ctx.childTimeout,
     observe: (child) => logChildRun(cli, child),
+    preview: !write,
   });
   if (run.run.timedOut) fail(`The test run timed out after ${(cli.runTimeoutMs ?? 0) / 1000} seconds.`);
   if (run.kind !== 'ran') {

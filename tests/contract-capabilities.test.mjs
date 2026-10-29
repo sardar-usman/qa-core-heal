@@ -7,6 +7,16 @@ import { pkg, repoRoot, runCli } from './helpers/contract.mjs';
 
 const playwrightVersion = JSON.parse(fs.readFileSync(path.join(repoRoot, 'node_modules', '@playwright', 'test', 'package.json'), 'utf8')).version;
 
+function installedVersion(name) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(repoRoot, 'node_modules', name, 'package.json'), 'utf8')).version;
+  } catch {
+    return null;
+  }
+}
+
+const cypressVersion = installedVersion('cypress');
+
 test('capabilities --json reports the tool version, both contract versions and the Playwright version', async () => {
   const r = await runCli(['capabilities', '--json'], repoRoot);
   assert.equal(r.status, 0, r.stderr);
@@ -26,7 +36,7 @@ test('capabilities --json reports the tool version, both contract versions and t
       runTimeout: true,
       frameworks: ['playwright-js', 'cypress-js'],
     },
-    frameworkVersions: { 'playwright-js': playwrightVersion, 'cypress-js': null },
+    frameworkVersions: { 'playwright-js': playwrightVersion, 'cypress-js': cypressVersion },
   });
   assert.equal(caps.frameworkVersions['playwright-js'], caps.playwrightVersion);
   assert.deepEqual(Object.keys(caps), ['schema', 'schemaVersion', 'tool', 'contracts', 'playwrightVersion', 'features', 'frameworkVersions']);
