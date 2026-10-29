@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { killProcessTree, trackOutputDir, untrackChildGroup, watchChildGroup } from '../../process-guard.js';
 import { escapeRegex } from '../../selectors.js';
 import type { ChildRun } from '../types.js';
+import { grepPatternFor } from './list-tests.js';
 import { hasRemoteSession } from './parse.js';
 import { readMochaReport, type MochaReport } from './report.js';
 import { MOCHA_MIN, SELENIUM_MIN, mochaVersion, seleniumVersion, versionAtLeast } from './version.js';
@@ -23,8 +24,12 @@ export interface SeleniumSpawnRequest {
   specPath: string;
   titlePath?: string[];
   title?: string | null;
+  /** 1-based line of the `it` call, used to build Mocha's full title. */
+  line?: number;
   timeoutMs?: number | (() => number | undefined);
   observe?: (run: ChildRun) => void;
+  /** Dry run: the scratch copy stays in the system temp directory. */
+  preview?: boolean;
 }
 
 export interface SeleniumSpawnResult {
@@ -100,14 +105,15 @@ function copyTree(src: string, dst: string): void {
   }
 }
 
-function grepFor(titlePath: string[] | undefined, title: string | null | undefined): string | null {
+function grepFor(source: string, titlePath: string[] | undefined, title: string | null | undefined, line?: number): string | null {
+  const parsed = grepPatternFor(source, title, line);
+  if (parsed) return parsed;
   const parts = (titlePath ?? []).filter((part) => part.length > 0);
-  const text = parts.length > 1 ? parts.join(' ') : (title ?? parts[0] ?? '');
+  const text = parts.length > 0 ? parts.join(' ') : (title ?? '');
   if (!text) return null;
-  // Mocha treats a /pattern/ string as a regexp and tests it against the full title.
+  // A one-part path may be only the test title. A suffix still matches Mocha's full title.
   // https://mochajs.org/#-grep-regexp-g-regexp
-  const body = parts.length > 1 ? `^${escapeRegex(text)}$` : `${escapeRegex(text)}$`;
-  return `/${body}/`;
+  return parts.length > 1 ? `^${escapeRegex(text)}$` : `${escapeRegex(text)}$`;
 }
 
 function sameFile(reported: string, expected: string, cwd: string): boolean {
@@ -146,12 +152,20 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
   if (!versionAtLeast(mocha, MOCHA_MIN)) {
     return empty(`Mocha ${mocha} is older than ${MOCHA_MIN}, which this heal needs. Nothing was run.`);
   }
-  fs.mkdirSync(path.join(request.projectRoot, '.qa-core'), { recursive: true });
-  const scratch = fs.mkdtempSync(path.join(request.projectRoot, '.qa-core', 'scratch-'));
+  // The scratch stays inside the project so Node can see hoisted packages in a
+  // parent node_modules. A dry run still removes the folder when heal created it.
+  const qaCore = path.join(request.projectRoot, '.qa-core');
+  const createdQaCore = !fs.existsSync(qaCore);
+  fs.mkdirSync(qaCore, { recursive: true });
+  const scratch = fs.mkdtempSync(path.join(qaCore, 'scratch-'));
   trackOutputDir(scratch);
   try {
     copyTree(request.projectRoot, scratch);
+    const modules = path.join(request.projectRoot, 'node_modules');
+    const link = path.join(scratch, 'node_modules');
+    if (fs.existsSync(modules) && !fs.existsSync(link)) fs.symlinkSync(modules, link);
     const rel = path.relative(request.projectRoot, request.specPath);
+    const specArg = rel.split(path.sep).join('/');
     const scratchSpec = path.join(scratch, rel);
     let mochaBin: string;
     try {
@@ -162,14 +176,16 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     const resultFile = path.join(outRoot, 'mocha.json');
     const hook = path.join(outRoot, 'capture-hook.cjs');
     fs.writeFileSync(hook, HOOK);
-    const args = [mochaBin, scratchSpec, '--reporter', 'json', '--reporter-option', `output=${resultFile}`, '--retries', '0', '--require', hook];
-    const grep = grepFor(request.titlePath, request.title);
+    // Positional path is relative to the scratch cwd. An absolute path is merged
+    // with `.mocharc` `spec` and can miss the file when it sits under a dot directory.
+    // https://mochajs.org/#configuring-mocha-nodejs
+    const args = [mochaBin, specArg, '--reporter', 'json', '--reporter-option', `output=${resultFile}`, '--retries', '0', '--require', hook];
+    const specSource = fs.existsSync(scratchSpec) ? fs.readFileSync(scratchSpec, 'utf8') : specText;
+    const grep = grepFor(specSource, request.titlePath, request.title, request.line);
     if (grep) args.push('--grep', grep);
-    const run = await spawnChild(process.execPath, args, scratch, sampleTimeout(request.timeoutMs), {
-      ...process.env,
-      QA_CORE_HEAL_CAPTURE: captureDir,
-      QA_CORE_HEAL_PROJECT: request.projectRoot,
-    });
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, QA_CORE_HEAL_CAPTURE: captureDir, QA_CORE_HEAL_PROJECT: request.projectRoot };
+    delete childEnv.MOCHA_OPTIONS;
+    const run = await spawnChild(process.execPath, args, scratch, sampleTimeout(request.timeoutMs), childEnv);
     request.observe?.(run);
     if (run.timedOut) return { run, report: null, captureDir, timedOut: true, failureDetail: 'The Mocha run timed out.' };
     const report = readMochaReport(resultFile);
@@ -177,9 +193,11 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     const tests = report.tests ?? [];
     if (grep && tests.length !== 1) {
       const note = `${run.stderr ?? ''}\n${run.stdout ?? ''}`.trim().split('\n').slice(-12).join('\n').slice(0, 800);
+      const stats = report.stats?.tests;
+      const seen = tests.map((test) => test.fullTitle ?? test.title ?? '').filter(Boolean).slice(0, 5).join('; ');
       return {
         run, report, captureDir, timedOut: false,
-        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected.${note ? ` ${note}` : ''}`,
+        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected. grep ${grep}. spec ${specArg}.${stats !== undefined ? ` stats.tests=${stats}.` : ''}${seen ? ` titles ${seen}.` : ''}${note ? ` ${note}` : ''}`,
       };
     }
     if (grep && tests[0] && !sameFile(tests[0].file ?? scratchSpec, scratchSpec, scratch)) {
@@ -190,6 +208,11 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     return empty(error instanceof Error ? error.message : String(error));
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
+    if (createdQaCore) {
+      try {
+        if (fs.readdirSync(qaCore).length === 0) fs.rmdirSync(qaCore);
+      } catch { /* a folder heal did not create stays */ }
+    }
   }
 }
 

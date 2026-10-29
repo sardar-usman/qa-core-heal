@@ -1,3 +1,12 @@
 {
-  "cases": ["test id typo", "renamed text", "ambiguous", "moved", "real defect", "iframe", "wait timeout"]
+  "suite": "selenium-saucedemo-style",
+  "cases": [
+    { "name": "test id typo", "slug": "test-id-typo", "expect": "healed", "match": "username" },
+    { "name": "renamed text", "slug": "renamed-text", "expect": "healed" },
+    { "name": "ambiguous", "slug": "ambiguous", "expect": "refused", "ambiguous": true },
+    { "name": "moved", "slug": "moved", "expect": "healed", "match": "user-name" },
+    { "name": "real defect", "slug": "real-defect", "expect": "refused" },
+    { "name": "iframe", "slug": "iframe", "expect": "refused" },
+    { "name": "wait timeout", "slug": "wait-timeout", "expect": "healed", "match": "username" }
+  ]
 }

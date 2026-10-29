@@ -6,7 +6,8 @@ import { matchFuzzy, type FuzzyCandidate } from '../../fuzzy.js';
 import type { ProbeQuery } from '../types.js';
 import { emitBy } from './emit.js';
 import { parseSeleniumCalls, type SeleniumCall, type SeleniumQuote } from './parse.js';
-import { countSeleniumQuery } from './unique.js';
+import { testAtLine } from './list-tests.js';
+import { countSeleniumQuery, seleniumMatchStamps } from './unique.js';
 
 /**
  * Heal literal By calls against the captured page. There is no fresh load.
@@ -48,8 +49,15 @@ export async function healSelenium(opts: HealOptions): Promise<HealResult> {
       return route.abort();
     });
     await page.goto(capture.url, { waitUntil: 'commit' }).catch(() => undefined);
-    const chosen = targets.length > 0 ? calls.filter((call) => matchesTarget(call, targets)) : calls.filter((call) => !call.unsafe);
-    const pool = chosen.length > 0 ? chosen : calls;
+    const sources = new Map<string, string>();
+    const sourceOf = (file: string): string => {
+      const found = sources.get(file);
+      if (found !== undefined) return found;
+      const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+      sources.set(file, text);
+      return text;
+    };
+    const pool = calls.filter((call) => inFailedTest(call, targets, sourceOf));
     for (const call of pool) {
       if (call.unsafe) {
         locators.push(refused(call, call.unsafe));
@@ -102,20 +110,28 @@ async function propose(page: Page, call: SeleniumCall): Promise<{ code: string; 
   const attr = verdict.candidate.attrOf?.[value];
   const scanned = elements.find((el) => el.display === verdict.candidate.display);
   if (attr === 'id' && scanned?.id) {
-    if (await countSeleniumQuery(page, { kind: 'css', selector: `[id="${cssAttr(scanned.id)}"]` }) !== 1) return null;
+    const query = { kind: 'css' as const, selector: `[id="${cssAttr(scanned.id)}"]` };
+    if (await countSeleniumQuery(page, query) !== 1) return null;
+    if (!await sameElement(page, query, scanned.stamp)) return null;
     return { code: emitBy('id', scanned.id, quote), level: 'css' };
   }
   if (attr === 'name' && scanned?.name) {
-    if (await countSeleniumQuery(page, { kind: 'css', selector: `[name="${cssAttr(scanned.name)}"]` }) !== 1) return null;
+    const query = { kind: 'css' as const, selector: `[name="${cssAttr(scanned.name)}"]` };
+    if (await countSeleniumQuery(page, query) !== 1) return null;
+    if (!await sameElement(page, query, scanned.stamp)) return null;
     return { code: emitBy('name', scanned.name, quote), level: 'css' };
   }
   if (attr === 'data-test' || attr === 'data-testid' || attr === 'data-cy') {
     const selector = `[${attr}="${cssAttr(value)}"]`;
-    if (await countSeleniumQuery(page, { kind: 'css', selector }) !== 1) return null;
+    const query = { kind: 'css' as const, selector };
+    if (await countSeleniumQuery(page, query) !== 1) return null;
+    if (!await sameElement(page, query, scanned?.stamp)) return null;
     return { code: emitBy('css', selector, quote), level: 'testid' };
   }
   if (attr === 'text' && scanned?.tag === 'a') {
-    if (await countSeleniumQuery(page, { kind: 'text', text: value, exact: true }) !== 1) return null;
+    const query = { kind: 'text' as const, text: value, exact: true };
+    if (await countSeleniumQuery(page, query) !== 1) return null;
+    if (!await sameElement(page, query, scanned.stamp)) return null;
     return { code: emitBy('linkText', value, quote), level: 'text' };
   }
   if (attr === 'id' || attr === 'name' || attr === 'data-test') return null;
@@ -129,12 +145,14 @@ interface Scanned {
   tag: string;
   id: string | null;
   name: string | null;
+  stamp: string;
 }
 
 async function scan(page: Page): Promise<Scanned[]> {
   return page.evaluate(() => {
     const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
     const out: Scanned[] = [];
+    let serial = 0;
     for (const el of Array.from(document.querySelectorAll('body *'))) {
       const tag = el.tagName.toLowerCase();
       const id = el.id || null;
@@ -149,6 +167,8 @@ async function scan(page: Page): Promise<Scanned[]> {
         values.push(clean);
         attrOf[clean] = attr;
       };
+      const stamp = String(serial++);
+      el.setAttribute('data-qa-core-n', stamp);
       add(el.getAttribute('data-test'), 'data-test');
       add(el.getAttribute('data-testid'), 'data-testid');
       add(el.getAttribute('data-cy'), 'data-cy');
@@ -156,7 +176,7 @@ async function scan(page: Page): Promise<Scanned[]> {
       add(name, 'name');
       if (tag === 'a' && text && text.length < 80) add(text, 'text');
       if (values.length === 0) continue;
-      out.push({ display: id ? `#${id}` : values[0]!, values, attrOf, tag, id, name });
+      out.push({ display: id ? `#${id}` : values[0]!, values, attrOf, tag, id, name, stamp });
     }
     return out;
   });
@@ -182,6 +202,27 @@ function queryOf(call: SeleniumCall): ProbeQuery | null {
   if (call.strategy === 'linkText') return { kind: 'text', text: call.value, exact: true };
   if (call.strategy === 'partialLinkText') return { kind: 'text', text: call.value, exact: false };
   return null;
+}
+
+async function sameElement(page: Page, query: ProbeQuery, stamp: string | undefined): Promise<boolean> {
+  if (!stamp) return false;
+  const stamps = await seleniumMatchStamps(page, query);
+  return stamps.length === 1 && stamps[0] === stamp;
+}
+
+function inFailedTest(call: SeleniumCall, targets: HealTarget[], sourceOf: (file: string) => string): boolean {
+  const owner = testAtLine(sourceOf(call.file), call.line);
+  if (!owner || owner.skip) return false;
+  if (targets.length === 0) return false;
+  const named = targets.some((target) => !target.test || target.test === owner.title);
+  if (!named) return false;
+  const spanned = targets.every((target) => {
+    if (!target.testSpan || target.test !== owner.title) return true;
+    return call.line >= target.testSpan.startLine && call.line < target.testSpan.endLine;
+  });
+  if (!spanned) return false;
+  if (call.unsafe) return true;
+  return matchesTarget(call, targets);
 }
 
 function matchesTarget(call: SeleniumCall, targets: HealTarget[]): boolean {

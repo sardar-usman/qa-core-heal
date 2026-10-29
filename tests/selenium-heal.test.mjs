@@ -10,20 +10,26 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(repoRoot, 'dist', 'cli.js');
 const live = process.env.QA_CORE_HEAL_SELENIUM === '1';
-const seleniumRoot = [
-  path.join(repoRoot, 'node_modules', 'selenium-webdriver'),
-  '/tmp/selenium-cache/node_modules/selenium-webdriver',
-].find((dir) => fs.existsSync(dir));
-const mochaRoot = [
-  path.join(repoRoot, 'node_modules', 'mocha'),
-  '/tmp/selenium-cache/node_modules/mocha',
-].find((dir) => fs.existsSync(dir));
+function dependencyDir(name) {
+  const roots = [process.env.QA_CORE_HEAL_NODE_MODULES, path.join(repoRoot, 'node_modules')].filter(Boolean);
+  return roots.map((root) => path.join(root, name)).find((dir) => fs.existsSync(dir));
+}
+const seleniumRoot = dependencyDir('selenium-webdriver');
+const mochaRoot = dependencyDir('mocha');
 const canRun = live && Boolean(seleniumRoot) && Boolean(mochaRoot);
 
 const { classifySeleniumFailure, byFromSentSelector } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'classify.js'));
 const { parseSeleniumCalls, hasRemoteSession } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'parse.js'));
 const { compareVersions } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'version.js'));
 const { seleniumMatchIds } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'unique.js'));
+const { grepPatternFor } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'list-tests.js'));
+
+test('Mocha grep is the anchored full title', () => {
+  const source = "describe('login', () => {\n  it('logs in', async () => {});\n  it('hangs', async () => {});\n});\n";
+  assert.equal(grepPatternFor(source, 'logs in'), '^login logs in$');
+  assert.equal(grepPatternFor(source, 'hangs'), '^login hangs$');
+  assert.equal(grepPatternFor("it('logs in', () => {});", 'logs in'), '^logs in$');
+});
 
 test('version compare treats 4.6.0 and 10.0.0 as the minimums', () => {
   assert.equal(compareVersions('4.6.0', '4.6.0'), 0);
@@ -90,65 +96,19 @@ test('a Selenium test id typo heals from the captured page', { skip: canRun ? fa
   assert.equal(row.status, 'healed', JSON.stringify(row));
   assert.match(row.new, /username/);
   assert.equal(result.specAfter, result.specBefore);
+  assert.equal(result.qaCoreLeft, false);
 });
 
 test('selenium eval cases heal or refuse as specified', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 300000 }, async () => {
-  const expected = JSON.parse(fs.readFileSync(path.join(repoRoot, 'evals/fixtures/selenium-saucedemo-style/expected-results.json'), 'utf8'));
-  assert.deepEqual(expected.cases, ['test id typo', 'renamed text', 'ambiguous', 'moved', 'real defect', 'iframe', 'wait timeout']);
-  const cases = [
-    {
-      name: 'renamed text',
-      html: '<a id="login" href="/">Login</a>',
-      body: "await driver.findElement(By.linkText('Logn')).click();",
-      expect: 'healed',
-    },
-    {
-      name: 'ambiguous',
-      html: '<input data-test="user-1" /><input data-test="user-2" />',
-      body: "await driver.findElement(By.css('[data-test=\"user\"]')).click();",
-      expect: 'refused',
-      ambiguous: true,
-    },
-    {
-      name: 'moved',
-      html: '<input id="user-name" />',
-      body: "await driver.findElement(By.id('username')).click();",
-      expect: 'healed',
-      match: /user-name/,
-    },
-    {
-      name: 'real defect',
-      html: '<button id="stop">Stop</button>',
-      body: "await driver.findElement(By.id('checkout')).click();",
-      expect: 'refused',
-    },
-    {
-      name: 'iframe',
-      html: '<div id="login"></div>',
-      body: "await driver.findElement(By.css('iframe#missing')).click();",
-      expect: 'refused',
-    },
-    {
-      name: 'wait timeout',
-      html: '<input data-test="username" />',
-      body: "await driver.wait(until.elementLocated(By.css('[data-test=\"usrname\"]')), 500);",
-      expect: 'healed',
-      match: /username/,
-    },
-  ];
-  for (const item of cases) {
-    const result = await healHtml(item.html, loginSpec(item.body));
-    assert.equal(result.status, 0, `${item.name}\n${result.stderr}`);
-    const payload = JSON.parse(result.stdout);
-    const row = payload.locators.find((entry) => entry.old) ?? payload.locators[0];
-    assert.ok(row, `${item.name} ${JSON.stringify(payload)}`);
-    assert.equal(row.status, item.expect, `${item.name} ${JSON.stringify(row)}`);
-    if (item.match) assert.match(row.new ?? '', item.match, item.name);
-    if (item.ambiguous) assert.equal(row.ambiguous, true, item.name);
-    if (item.expect === 'refused') assert.equal(row.new, null, item.name);
-    assert.equal(result.specAfter, result.specBefore, item.name);
-    assert.equal(result.otherRan, false, `${item.name} ran the other spec`);
-  }
+  const { runSeleniumFixture } = await import(path.join(repoRoot, 'evals', 'run-selenium-evals.mjs'));
+  const failures = await runSeleniumFixture({
+    repoRoot,
+    cli,
+    seleniumPkg: seleniumRoot,
+    mochaPkg: mochaRoot,
+    chrome: chromeBinary(),
+  });
+  assert.deepEqual(failures, []);
 });
 
 test('findElements length matches the DOM count', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 180000 }, async () => {
@@ -243,6 +203,7 @@ async function healHtml(html, spec) {
       specBefore,
       specAfter: fs.readFileSync(specPath, 'utf8'),
       otherRan: fs.existsSync(path.join(dir, 'other-ran')),
+      qaCoreLeft: fs.existsSync(path.join(dir, '.qa-core')),
     };
   } finally {
     server.close();
@@ -258,13 +219,16 @@ function writeProject(dir, base, spec) {
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
     name: 'se-fixture',
     private: true,
+    type: 'commonjs',
     devDependencies: { 'selenium-webdriver': '4.51.0', mocha: '12.0.3' },
   }));
   fs.writeFileSync(path.join(dir, '.mocharc.json'), JSON.stringify({ spec: ['test/other.test.js', 'test/login.test.js'], timeout: 20000 }));
-  fs.writeFileSync(path.join(dir, 'test', 'other.test.js'), "const fs = require('node:fs');\ndescribe('other', () => { it('other test', () => { fs.writeFileSync('other-ran', 'yes'); }); });\n");
+  const mark = path.join(dir, 'other-ran');
+  fs.writeFileSync(path.join(dir, 'test', 'other.test.js'), "const fs = require('node:fs');\ndescribe('other', () => { it('other test', () => { fs.writeFileSync(process.env.QA_CORE_HEAL_MARK, 'yes'); }); });\n");
   fs.writeFileSync(path.join(dir, 'test', 'login.test.js'), spec);
   process.env.QA_CORE_HEAL_PAGE = base;
   process.env.QA_CORE_HEAL_CHROME = chromeBinary();
+  process.env.QA_CORE_HEAL_MARK = mark;
 }
 
 function listen(html) {
@@ -298,6 +262,7 @@ async function signalCase(sig, extra) {
   const server = await listen('<!doctype html><html><body><input id="user" /></body></html>');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-se-sig-'));
   writeProject(dir, server.base, loginSpec('await driver.findElement(By.id("missing")).click();'));
+  const before = new Set(browserPids());
   const child = spawn(process.execPath, [cli, 'test/login.test.js', ...extra], { cwd: dir, env: process.env });
   let stdout = '';
   let stderr = '';
@@ -306,7 +271,7 @@ async function signalCase(sig, extra) {
   const closed = new Promise((resolve) => child.on('close', (status) => resolve(status)));
   try {
     if (sig) {
-      await waitFor(() => projectPids(dir).some((pid) => Number(pid) !== child.pid), 'Chrome to start');
+      await waitFor(() => browserPids().some((pid) => !before.has(pid)), 'Chrome to start');
       process.kill(child.pid, sig);
     }
     const status = await closed;
@@ -321,13 +286,20 @@ async function signalCase(sig, extra) {
   }
 }
 
-function projectPids(dir) {
-  const real = fs.realpathSync(dir);
+function browserPids() {
   return fs.readdirSync('/proc').filter((name) => /^\d+$/.test(name)).filter((name) => {
     if (Number(name) === process.pid) return false;
     const cmd = readCmd(name);
-    if (/chromedriver|chrome/i.test(cmd) && (cmd.includes(real) || cmd.includes('qa-core-heal'))) return true;
-    try { return fs.readlinkSync(`/proc/${name}/cwd`).startsWith(real); } catch { return false; }
+    return /chromedriver|(?:^|[/\\])chrome(?:\s|$)/i.test(cmd);
+  });
+}
+
+function projectPids(dir) {
+  const real = fs.realpathSync(dir);
+  return browserPids().filter((pid) => {
+    const cmd = readCmd(pid);
+    if (cmd.includes(real) || cmd.includes('qa-core-heal')) return true;
+    try { return fs.readlinkSync(`/proc/${pid}/cwd`).startsWith(real); } catch { return false; }
   });
 }
 

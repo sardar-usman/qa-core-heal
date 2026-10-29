@@ -9,12 +9,20 @@ import type { ProbeQuery } from '../types.js';
  * https://www.w3.org/TR/webdriver2/#locator-strategies
  * https://www.selenium.dev/documentation/webdriver/elements/locators/
  */
+export async function seleniumMatchStamps(probePage: unknown, query: ProbeQuery): Promise<string[]> {
+  return matchField(probePage, query, 'stamp');
+}
+
 export async function seleniumMatchIds(probePage: unknown, query: ProbeQuery): Promise<string[]> {
+  return matchField(probePage, query, 'id');
+}
+
+async function matchField(probePage: unknown, query: ProbeQuery, field: 'id' | 'stamp'): Promise<string[]> {
   const page = probePage as Page;
   try {
-    const ids = await page.evaluate((q) => {
+    const ids = await page.evaluate(({ q, which }: { q: ProbeQuery; which: 'id' | 'stamp' }) => {
       const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
-      const idsOf = (els: Element[]): string[] => els.map((el) => el.id || '');
+      const idsOf = (els: Element[]): string[] => els.map((el) => which === 'stamp' ? (el.getAttribute('data-qa-core-n') || '') : (el.id || ''));
       if (q.kind === 'css' || q.kind === 'testId') {
         const selector = q.kind === 'css' ? q.selector : `[data-test="${q.value.replace(/"/g, '\\"')}"]`;
         return idsOf(Array.from(document.querySelectorAll(selector)));
@@ -37,7 +45,7 @@ export async function seleniumMatchIds(probePage: unknown, query: ProbeQuery): P
         return idsOf(matched);
       }
       return [];
-    }, query);
+    }, { q: query, which: field });
     return Array.isArray(ids) ? ids.map(String) : [];
   } catch {
     return [];

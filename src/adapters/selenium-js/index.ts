@@ -22,6 +22,7 @@ import { seleniumCleanup } from './cleanup.js';
 import { seleniumAssertionGrammar, seleniumRouteGrammar } from './grammar.js';
 import { setSeleniumCaptureDir } from './heal-run.js';
 import { parseSeleniumCalls } from './parse.js';
+import { listMochaTests } from './list-tests.js';
 import { testsFromMocha } from './report.js';
 import { runSeleniumInScratch } from './spawn.js';
 import { countSeleniumQuery } from './unique.js';
@@ -79,9 +80,9 @@ export function seleniumRunnerBlock(root: string): string | null {
   return 'selenium-js is planned and is not supported yet. Nothing was run.';
 }
 
-async function execute(root: string, specPath: string, titlePath: string[], title: string | null, timeoutMs?: RunRequest['timeoutMs'], observe?: (run: ChildRun) => void): Promise<SpecBatchResult> {
+async function execute(root: string, specPath: string, titlePath: string[], title: string | null, timeoutMs?: RunRequest['timeoutMs'], observe?: (run: ChildRun) => void, preview?: boolean, line?: number): Promise<SpecBatchResult> {
   const absolute = path.isAbsolute(specPath) ? specPath : path.join(root, specPath);
-  const spawned = await runSeleniumInScratch({ projectRoot: root, specPath: absolute, titlePath, title, timeoutMs, observe });
+  const spawned = await runSeleniumInScratch({ projectRoot: root, specPath: absolute, titlePath, title, line, timeoutMs, observe, preview });
   setSeleniumCaptureDir(spawned.captureDir);
   if (spawned.timedOut) return { kind: 'timeout', run: spawned.run, tests: [], rootDir: root, failureDetail: spawned.failureDetail };
   if (!spawned.report || spawned.failureDetail) {
@@ -110,15 +111,12 @@ export const seleniumJs: FrameworkAdapter = {
   async listTests(root: string, query: ListQuery): Promise<ListTestsResult> {
     const spec = query.specPath ? (path.isAbsolute(query.specPath) ? query.specPath : path.join(root, query.specPath)) : '';
     if (!spec || !fs.existsSync(spec)) return { ok: true, tests: [] };
-    const lines = fs.readFileSync(spec, 'utf8').split('\n');
     const tests: ListTestsResult['tests'] = [];
-    for (let i = 0; i < lines.length; i++) {
-      const found = /\b(?:it|test)\s*(?:\.\s*only\s*)?\(\s*(['"`])(.*?)\1/.exec(lines[i] ?? '');
-      if (!found || /\.skip\s*\(/.test(lines[i] ?? '')) continue;
-      const title = found[2] ?? '';
-      if (query.title && title !== query.title) continue;
-      if (query.line && query.line > 0 && query.line !== i + 1) continue;
-      tests.push({ file: spec, line: i + 1, titlePath: [title], project: null });
+    for (const test of listMochaTests(fs.readFileSync(spec, 'utf8'))) {
+      if (test.skip) continue;
+      if (query.title && test.title !== query.title && test.titlePath.join(' ') !== query.title) continue;
+      if (query.line && query.line > 0 && query.line !== test.line) continue;
+      tests.push({ file: spec, line: test.line, titlePath: test.titlePath, project: null });
     }
     return { ok: true, tests };
   },
@@ -128,7 +126,7 @@ export const seleniumJs: FrameworkAdapter = {
       ? (test.selection.titlePath[test.selection.titlePath.length - 1] ?? null)
       : test.grepTitle;
     const spec = test.selection.specRel ? path.join(root, test.selection.specRel) : test.selection.specPath;
-    const batch = await execute(root, spec, test.selection.titlePath, title, test.timeoutMs, test.observe);
+    const batch = await execute(root, spec, test.selection.titlePath, title, test.timeoutMs, test.observe, test.preview, test.selection.line);
     if (batch.kind === 'timeout') return { kind: 'timeout', run: batch.run };
     if (batch.kind !== 'ran') return { kind: 'error', message: batch.failureDetail, run: batch.run };
     const found = title
@@ -143,11 +141,11 @@ export const seleniumJs: FrameworkAdapter = {
   async runBatch(root: string, request: SpecBatchRequest): Promise<SpecBatchResult> {
     if (request.selection) {
       const spec = request.selection.specRel ? path.join(root, request.selection.specRel) : request.selection.specPath;
-      return execute(root, spec, [request.selection.title], request.selection.title, request.timeoutMs, request.observe);
+      return execute(root, spec, [request.selection.title], request.selection.title, request.timeoutMs, request.observe, request.preview, request.selection.line);
     }
     const rel = request.specsRel[0] ?? request.oneFileRel ?? '';
     const title = request.op === 'isolate' ? (request.oneTitle ?? null) : null;
-    return execute(root, path.join(root, rel), title ? [title] : [], title, request.timeoutMs, request.observe);
+    return execute(root, path.join(root, rel), title ? [title] : [], title, request.timeoutMs, request.observe, request.preview);
   },
 
   parseReport(output: string): NeutralTestResult[] {
