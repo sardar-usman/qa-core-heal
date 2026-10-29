@@ -29,6 +29,13 @@ const SUPPORT_NAMES = [
   'cypress/support/index.ts',
 ];
 
+/**
+ * Append the capture hook to the project's support file.
+ * A `supportFile: false` config gets a hook-only file.
+ * A custom path is loaded as well: the hook is appended and Cypress is not
+ * pointed at a replacement file.
+ * https://docs.cypress.io/app/references/configuration#e2e
+ */
 export function attachCapture(scratchRoot: string, configSource: string | null): { supportFile?: string } {
   const disabled = configSource != null && /supportFile\s*:\s*false/.test(configSource);
   if (disabled) {
@@ -38,16 +45,29 @@ export function attachCapture(scratchRoot: string, configSource: string | null):
     fs.writeFileSync(file, `${CAPTURE_HOOK}\n`);
     return { supportFile: file };
   }
-  for (const rel of SUPPORT_NAMES) {
+  const custom = configSource ? /supportFile\s*:\s*['"]([^'"]+)['"]/.exec(configSource) : null;
+  const names = custom ? [custom[1]!] : SUPPORT_NAMES;
+  for (const rel of names) {
     const file = path.join(scratchRoot, rel);
     if (!fs.existsSync(file)) continue;
     const text = fs.readFileSync(file, 'utf8');
     if (!text.includes('qaCoreHealCapture')) fs.appendFileSync(file, `\n${CAPTURE_HOOK}\n`);
     return {};
   }
-  const rel = 'cypress/support/e2e.js';
+  const rel = custom ? custom[1]! : 'cypress/support/e2e.js';
   const file = path.join(scratchRoot, rel);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${CAPTURE_HOOK}\n`);
-  return { supportFile: file };
+  return custom ? {} : { supportFile: file };
+}
+
+/**
+ * Cypress has no testIdAttribute setting. The best-practices page lists
+ * data-cy, data-test, and data-testid. This heal reads `testIdAttribute`
+ * when a project sets it, and otherwise uses data-test.
+ * https://docs.cypress.io/app/core-concepts/best-practices#Selecting-Elements
+ */
+export function testIdAttributeFrom(configSource: string | null): string {
+  const found = configSource ? /testIdAttribute\s*:\s*['"]([A-Za-z_][\w-]*)['"]/.exec(configSource) : null;
+  return found?.[1] ?? 'data-test';
 }

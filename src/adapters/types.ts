@@ -193,6 +193,11 @@ export interface SpecBatchRequest {
   configRel?: string | null;
   timeoutMs?: number | (() => number | undefined);
   observe?: (run: ChildRun) => void;
+  /**
+   * A dry run must not create folders in the user project.
+   * The adapter keeps its scratch copy in the system temp directory.
+   */
+  preview?: boolean;
 }
 
 export interface SpecBatchResult {
@@ -238,6 +243,8 @@ export interface RunRequest {
   observe?: (run: ChildRun) => void;
   /** First runs record a trace unless this is set. */
   noTrace?: boolean;
+  /** A dry run must not create folders in the user project. */
+  preview?: boolean;
 }
 
 export type RunResult =
@@ -361,4 +368,9 @@ export interface FrameworkAdapter {
   /** A navigation or network failure in this framework's error text. */
   navigationError: RegExp;
   capabilities: AdapterCapabilities;
+  /**
+   * When set, this adapter heals the spec. The core calls it instead of the
+   * Playwright healer. Playwright leaves it unset.
+   */
+  healSpec?(opts: object): Promise<object>;
 }

@@ -16,6 +16,8 @@ export interface CypressSpawnRequest {
   browser?: string;
   timeoutMs?: number | (() => number | undefined);
   observe?: (run: ChildRun) => void;
+  /** Dry run: the scratch copy stays in the system temp directory. */
+  preview?: boolean;
 }
 
 export interface CypressSpawnResult {
@@ -32,15 +34,19 @@ function sampleTimeout(timeoutMs?: number | (() => number | undefined)): number 
   return value <= 0 ? 0 : value;
 }
 
-function copyTree(src: string, dst: string): void {
+/** Cypress asset folders. A user folder with the same name elsewhere is copied. */
+const ASSET_DIRS = new Set(['cypress/screenshots', 'cypress/videos', 'cypress/downloads']);
+
+function copyTree(src: string, dst: string, root = src): void {
   fs.mkdirSync(dst, { recursive: true });
-  const skip = new Set(['node_modules', '.git', '.qa-core', 'screenshots', 'videos', 'downloads']);
+  const skipNames = new Set(['node_modules', '.git', '.qa-core']);
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    if (skip.has(entry.name)) continue;
     const from = path.join(src, entry.name);
+    const rel = path.relative(root, from).split(path.sep).join('/');
+    if (skipNames.has(entry.name) || ASSET_DIRS.has(rel)) continue;
     const to = path.join(dst, entry.name);
     if (entry.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(from), to);
-    else if (entry.isDirectory()) copyTree(from, to);
+    else if (entry.isDirectory()) copyTree(from, to, root);
     else if (entry.isFile()) fs.copyFileSync(from, to);
   }
 }
@@ -56,8 +62,15 @@ function readConfigText(root: string): string | null {
 export async function runCypressInScratch(request: CypressSpawnRequest): Promise<CypressSpawnResult> {
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-out-'));
   trackOutputDir(outRoot);
-  fs.mkdirSync(path.join(request.projectRoot, '.qa-core'), { recursive: true });
-  const scratch = fs.mkdtempSync(path.join(request.projectRoot, '.qa-core', 'scratch-'));
+  const qaCore = path.join(request.projectRoot, '.qa-core');
+  const createdQaCore = !request.preview && !fs.existsSync(qaCore);
+  let scratch: string;
+  if (request.preview) {
+    scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-scratch-'));
+  } else {
+    fs.mkdirSync(qaCore, { recursive: true });
+    scratch = fs.mkdtempSync(path.join(qaCore, 'scratch-'));
+  }
   trackOutputDir(scratch);
   const captureDir = path.join(outRoot, 'capture');
   fs.mkdirSync(captureDir, { recursive: true });
@@ -70,6 +83,11 @@ export async function runCypressInScratch(request: CypressSpawnRequest): Promise
   });
   try {
     copyTree(request.projectRoot, scratch);
+    if (request.preview) {
+      const modules = path.join(request.projectRoot, 'node_modules');
+      const link = path.join(scratch, 'node_modules');
+      if (fs.existsSync(modules) && !fs.existsSync(link)) fs.symlinkSync(modules, link);
+    }
     const rel = path.relative(request.projectRoot, request.specPath);
     const scratchSpec = path.join(scratch, rel);
     if (request.title && request.line && request.line > 0 && fs.existsSync(scratchSpec)) {
@@ -104,6 +122,11 @@ export async function runCypressInScratch(request: CypressSpawnRequest): Promise
     return empty(error instanceof Error ? error.message : String(error));
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
+    if (createdQaCore) {
+      try {
+        if (fs.readdirSync(qaCore).length === 0) fs.rmdirSync(qaCore);
+      } catch { /* a folder heal did not create stays */ }
+    }
   }
 }
 

@@ -12,13 +12,21 @@ import type { ProbeQuery } from '../types.js';
  * https://docs.cypress.io/api/commands/getbyrole
  */
 /** Ids of the elements the Cypress rule matches. The count is this list's length. */
+export async function cypressMatchStamps(probePage: unknown, query: ProbeQuery): Promise<string[]> {
+  return matchField(probePage, query, 'stamp');
+}
+
 export async function cypressMatchIds(probePage: unknown, query: ProbeQuery): Promise<string[]> {
+  return matchField(probePage, query, 'id');
+}
+
+async function matchField(probePage: unknown, query: ProbeQuery, field: 'id' | 'stamp'): Promise<string[]> {
   const page = probePage as Page;
   try {
-    const ids = await page.evaluate((q) => {
+    const ids = await page.evaluate(({ q, which }: { q: ProbeQuery; which: 'id' | 'stamp' }) => {
       const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
       const all = (selector: string): Element[] => Array.from(document.querySelectorAll(selector));
-      const idsOf = (els: Element[]): string[] => els.map((el) => el.id || '');
+      const idsOf = (els: Element[]): string[] => els.map((el) => which === 'stamp' ? (el.getAttribute('data-qa-core-n') || '') : (el.id || ''));
       if (q.kind === 'css' || q.kind === 'testId') {
         const selector = q.kind === 'css' ? q.selector : `[data-cy="${q.value.replace(/"/g, '\\"')}"]`;
         return idsOf(all(selector));
@@ -55,7 +63,7 @@ export async function cypressMatchIds(probePage: unknown, query: ProbeQuery): Pr
         }
         return collapse(el.textContent ?? '');
       }
-    }, query);
+    }, { q: query, which: field });
     return Array.isArray(ids) ? ids.map(String) : [];
   } catch {
     return [];

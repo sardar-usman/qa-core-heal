@@ -17,6 +17,7 @@ import type {
   SpecBatchResult,
 } from '../types.js';
 import { classifySeleniumFailure } from './classify.js';
+import { healSelenium } from './heal-run.js';
 import { seleniumCleanup } from './cleanup.js';
 import { seleniumAssertionGrammar, seleniumRouteGrammar } from './grammar.js';
 import { setSeleniumCaptureDir } from './heal-run.js';
@@ -109,8 +110,17 @@ export const seleniumJs: FrameworkAdapter = {
   async listTests(root: string, query: ListQuery): Promise<ListTestsResult> {
     const spec = query.specPath ? (path.isAbsolute(query.specPath) ? query.specPath : path.join(root, query.specPath)) : '';
     if (!spec || !fs.existsSync(spec)) return { ok: true, tests: [] };
-    const title = query.title ? [query.title] : ['test'];
-    return { ok: true, tests: [{ file: spec, line: query.line && query.line > 0 ? query.line : 1, titlePath: title, project: null }] };
+    const lines = fs.readFileSync(spec, 'utf8').split('\n');
+    const tests: ListTestsResult['tests'] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const found = /\b(?:it|test)\s*(?:\.\s*only\s*)?\(\s*(['"`])(.*?)\1/.exec(lines[i] ?? '');
+      if (!found || /\.skip\s*\(/.test(lines[i] ?? '')) continue;
+      const title = found[2] ?? '';
+      if (query.title && title !== query.title) continue;
+      if (query.line && query.line > 0 && query.line !== i + 1) continue;
+      tests.push({ file: spec, line: i + 1, titlePath: [title], project: null });
+    }
+    return { ok: true, tests };
   },
 
   async runOne(root: string, test: RunRequest, _mode: RunMode): Promise<RunResult> {
@@ -191,6 +201,10 @@ export const seleniumJs: FrameworkAdapter = {
   },
   unexpectedCountMessage(count: number) {
     return `--test expected exactly one test to run, but Mocha reported ${count}. Nothing was changed.`;
+  },
+
+  healSpec(opts: object) {
+    return healSelenium(opts as Parameters<typeof healSelenium>[0]);
   },
 
   assertionGrammar: seleniumAssertionGrammar,

@@ -10,13 +10,14 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(repoRoot, 'dist', 'cli.js');
 const cypressPkg = [
+  process.env.QA_CORE_HEAL_CYPRESS_PACKAGE,
   path.join(repoRoot, 'node_modules', 'cypress'),
-  '/tmp/cypress-cache/node_modules/cypress',
-].find((dir) => fs.existsSync(dir));
+].filter(Boolean).find((dir) => fs.existsSync(path.join(dir, 'package.json')));
 const hasCypress = Boolean(cypressPkg);
 
 const { classifyCypressFailure, cypressFrames } = await import(path.join(repoRoot, 'dist', 'adapters', 'cypress-js', 'classify.js'));
 const { parseCypressCalls } = await import(path.join(repoRoot, 'dist', 'adapters', 'cypress-js', 'parse.js'));
+const { listSpecTests } = await import(path.join(repoRoot, 'dist', 'adapters', 'cypress-js', 'list-tests.js'));
 const { compareVersions } = await import(path.join(repoRoot, 'dist', 'adapters', 'cypress-js', 'version.js'));
 
 test('version compare treats 15.10.0 as the minimum and 16.2.0 as the getByRole line', () => {
@@ -50,6 +51,24 @@ test('webpack frames map to project files and other prefixes are unknown', () =>
   assert.equal(other.unknownPrefix, true);
 });
 
+test('parser refuses within, custom commands, and skipped tests are not listed', () => {
+  const source = [
+    "cy.get('#login').within(() => { cy.get('#user').click(); });",
+    "cy.getBySel('user');",
+    "cy.login();",
+    "it.skip('old', () => { cy.contains('Login'); });",
+    "it('signs in', () => { cy.get('[data-test=\"usrname\"]').click(); });",
+  ].join('\n');
+  const calls = parseCypressCalls(source, 'cypress/e2e/login.cy.js');
+  assert.ok(calls.some((call) => call.unsafe && /within/.test(call.unsafe)));
+  assert.ok(calls.filter((call) => /within/.test(call.unsafe ?? '')).length >= 2);
+  assert.ok(calls.some((call) => call.unsafe && /cy\.getBySel/.test(call.unsafe)));
+  assert.ok(calls.some((call) => call.unsafe && /cy\.login/.test(call.unsafe)));
+  const listed = listSpecTests(source);
+  assert.equal(listed.find((item) => item.title === 'old')?.skip, true);
+  assert.equal(listed.find((item) => item.title === 'signs in')?.skip, false);
+});
+
 test('parser accepts literal cy.get and refuses templates, shadow, and custom commands', () => {
   const src = [
     "cy.get('[data-test=\"usrname\"]')",
@@ -66,7 +85,7 @@ test('parser accepts literal cy.get and refuses templates, shadow, and custom co
   assert.equal(calls[2].kind, 'getByRole');
   assert.match(calls[3].unsafe, /template/);
   assert.match(calls[4].unsafe, /shadow/);
-  assert.match(calls[5].unsafe, /Custom commands/);
+  assert.match(calls[5].unsafe, /Custom command/);
 });
 
 test('a real Cypress run heals a test id typo and does not touch the project outside the spec', { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 180000 }, async () => {
@@ -93,6 +112,7 @@ test('a real Cypress run heals a test id typo and does not touch the project out
     const run = await runCli([specRel, '--dry-run', '--json'], dir);
     const after = new Set(walk(dir));
     assert.equal(run.status, 0, `${run.stderr}\n${run.stdout}`);
+    assert.equal(fs.existsSync(path.join(dir, '.qa-core')), false);
     assert.deepEqual([...after].sort(), [...before].sort());
     const payload = JSON.parse(run.stdout);
     const healed = payload.locators.find((item) => item.status === 'healed');
@@ -105,56 +125,24 @@ test('a real Cypress run heals a test id typo and does not touch the project out
   }
 });
 
-test('cypress eval cases heal or refuse as specified', { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 300000 }, async () => {
-  const cases = [
-    {
-      name: 'renamed text',
-      html: '<!doctype html><html><body><button id="login">Login</button></body></html>',
-      spec: "describe('login', () => {\n  it('renamed text', () => {\n    cy.visit('/');\n    cy.contains('button', 'Logn').click();\n  });\n});\n",
-      expect: 'healed',
-      match: /login/i,
-    },
-    {
-      name: 'ambiguous match',
-      html: '<!doctype html><html><body><button data-test="user-1">A</button><button data-test="user-2">B</button></body></html>',
-      spec: "describe('login', () => {\n  it('ambiguous match', () => {\n    cy.visit('/');\n    cy.get('[data-test=\"user\"]').click();\n  });\n});\n",
-      expect: 'refused',
-      ambiguous: true,
-    },
-    {
-      name: 'moved element',
-      html: '<!doctype html><html><body><main><input id="username" data-test="username" /></main></body></html>',
-      spec: "describe('login', () => {\n  it('moved element', () => {\n    cy.visit('/');\n    cy.get('#user-name').type('a');\n  });\n});\n",
-      expect: 'healed',
-      match: /username/,
-    },
-    {
-      name: 'real defect',
-      html: '<!doctype html><html><body><button id="stop">Stop</button></body></html>',
-      spec: "describe('login', () => {\n  it('real defect', () => {\n    cy.visit('/');\n    cy.get('[data-test=\"checkout\"]').click();\n  });\n});\n",
-      expect: 'refused',
-    },
-    {
-      name: 'iframe',
-      html: '<!doctype html><html><body><p>Login</p></body></html>',
-      spec: "describe('login', () => {\n  it('iframe', () => {\n    cy.visit('/');\n    cy.get('iframe#login').should('exist');\n  });\n});\n",
-      expect: 'refused',
-      reason: /iframe/,
-    },
-  ];
-  for (const item of cases) {
-    const result = await healHtml(item.html, item.spec);
-    assert.equal(result.status, 0, `${item.name}\n${result.stderr}\n${result.stdout}`);
-    const payload = JSON.parse(result.stdout);
-    const row = payload.locators.find((entry) => entry.old) ?? payload.locators[0];
-    assert.ok(row, `${item.name} ${JSON.stringify(payload.locators)}`);
-    assert.equal(row.status, item.expect, `${item.name} ${JSON.stringify(row)}`);
-    if (item.match) assert.match(row.new ?? '', item.match, item.name);
-    if (item.ambiguous) assert.equal(row.ambiguous, true, item.name);
-    if (item.expect === 'refused') assert.equal(row.new, null, `${item.name} must not heal`);
-    if (item.reason) assert.match(row.reason ?? '', item.reason, item.name);
-    assert.equal(result.specAfter, result.specBefore, `${item.name} dry run changed the spec`);
-  }
+test('the Cypress eval runner checks the fixture pages', { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 300000 }, async () => {
+  const { runCypressFixture } = await import(path.join(repoRoot, 'evals', 'run-cypress-evals.mjs'));
+  const failures = await runCypressFixture({ repoRoot, cli, cypressPkg });
+  assert.deepEqual(failures, [], failures.join('\n'));
+});
+
+test('a skipped Cypress test is not a heal target, and an unknown title is refused', { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 180000 }, async () => {
+  const html = '<!doctype html><html><body><button id="login">Login</button><input data-test="username" /></body></html>';
+  const spec = "describe('login', () => {\n  it.skip('old name', () => {\n    cy.contains('button', 'Login').click();\n  });\n  it('signs in', () => {\n    cy.visit('/');\n    cy.get('[data-test=\"usrname\"]').type('a');\n  });\n});\n";
+  const result = await healHtml(html, spec);
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  const rows = payload.locators.filter((entry) => entry.old);
+  assert.ok(rows.every((entry) => !/contains/.test(entry.old)), JSON.stringify(rows));
+  assert.ok(rows.some((entry) => entry.status === 'healed' && /username/.test(entry.new ?? '')), JSON.stringify(rows));
+  const missing = await healHtml(html, spec, ['--test', 'no such test']);
+  assert.equal(missing.status, 1, missing.stderr);
+  assert.match(missing.stderr, /No test titled "no such test"/);
 });
 
 test('cy.contains and cy.getByRole pick the same element as the DOM rules', { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 180000 }, async () => {
@@ -214,7 +202,7 @@ for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) 
   });
 }
 
-async function healHtml(html, spec) {
+async function healHtml(html, spec, extra = []) {
   const server = http.createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(html);
@@ -226,7 +214,7 @@ async function healHtml(html, spec) {
     writeProject(dir, base, spec);
     const specPath = path.join(dir, 'cypress/e2e/login.cy.js');
     const specBefore = fs.readFileSync(specPath, 'utf8');
-    const run = await runCli(['cypress/e2e/login.cy.js', '--dry-run', '--json'], dir);
+    const run = await runCli(['cypress/e2e/login.cy.js', ...extra, '--dry-run', '--json'], dir);
     return { ...run, specBefore, specAfter: fs.readFileSync(specPath, 'utf8') };
   } finally {
     server.close();
@@ -263,7 +251,8 @@ async function signalCase(sig, extra) {
   const closed = new Promise((resolve) => child.on('close', (status) => resolve(status)));
   try {
     if (sig) {
-      await waitFor(() => projectPids(dir).some((pid) => Number(pid) !== child.pid), 'Cypress to start');
+      const before = new Set(cypressPids());
+      await waitFor(() => cypressPids().some((pid) => !before.has(pid)), 'Cypress to start');
       process.kill(child.pid, sig);
     }
     const status = await closed;
@@ -276,6 +265,14 @@ async function signalCase(sig, extra) {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+function cypressPids() {
+  if (!fs.existsSync('/proc')) return [];
+  return fs.readdirSync('/proc').filter((name) => /^\d+$/.test(name)).filter((name) => {
+    const cmd = readCmd(name);
+    return /Cypress|chrome|Xvfb/i.test(cmd) && !cmd.includes(`${path.sep}dist${path.sep}cli.js`);
+  });
 }
 
 function projectPids(dir) {
@@ -303,7 +300,7 @@ async function waitFor(fn, label) {
 
 function walk(dir, out = []) {
   for (const name of fs.readdirSync(dir)) {
-    if (name === 'node_modules' || name === '.qa-core') continue;
+    if (name === 'node_modules') continue;
     const file = path.join(dir, name);
     const stat = fs.statSync(file);
     if (stat.isDirectory()) walk(file, out);
