@@ -1609,5 +1609,16 @@
     "wrongHeals": 0,
     "misses": 0,
     "levelMatches": 72
+  },
+  "cypress": {
+    "suite": "cypress-saucedemo-style",
+    "cases": [
+      { "name": "test id typo", "expect": "healed", "code": null, "ok": true },
+      { "name": "renamed text", "expect": "healed", "code": null, "ok": true },
+      { "name": "ambiguous match", "expect": "refused", "code": "ambiguous-match", "ok": true },
+      { "name": "moved element", "expect": "healed", "code": null, "ok": true },
+      { "name": "real defect", "expect": "refused", "code": "possible-real-bug", "ok": true },
+      { "name": "iframe", "expect": "refused", "code": "no-safe-pattern", "ok": true }
+    ]
   }
 }

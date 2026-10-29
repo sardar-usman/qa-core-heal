@@ -30,6 +30,7 @@ const JQUERY_ONLY = /:(?:contains|eq|first|last|visible|hidden|checkbox|parent|h
 /**
  * Commands Cypress ships. Anything else after `cy.` is a custom command.
  * https://docs.cypress.io/api/table-of-contents
+ * Names also follow Cypress.Chainable in the installed cypress types.
  */
 const BUILTIN_COMMANDS = new Set([
   'get', 'contains', 'getByRole', 'within', 'origin', 'find', 'shadow',
@@ -38,12 +39,15 @@ const BUILTIN_COMMANDS = new Set([
   'then', 'each', 'root', 'focused', 'spy', 'stub', 'clock', 'tick', 'session',
   'readFile', 'writeFile', 'exec', 'task', 'fixture', 'as', 'its', 'invoke',
   'should', 'and', 'spread', 'location', 'hash', 'getCookie', 'getCookies',
-  'setCookie', 'clearCookie', 'clearCookies', 'clearLocalStorage', 'origin',
+  'setCookie', 'clearCookie', 'clearCookies', 'clearLocalStorage',
+  'clearAllCookies', 'clearAllLocalStorage', 'clearAllSessionStorage',
+  'getAllCookies', 'getAllLocalStorage', 'getAllSessionStorage',
   'scrollTo', 'scrollIntoView', 'click', 'dblclick', 'rightclick', 'type',
   'clear', 'check', 'uncheck', 'select', 'selectFile', 'trigger', 'focus',
   'blur', 'submit', 'children', 'closest', 'eq', 'filter', 'first', 'last',
   'next', 'nextAll', 'nextUntil', 'not', 'parent', 'parents', 'parentsUntil',
   'prev', 'prevAll', 'prevUntil', 'siblings',
+  'on', 'once', 'press', 'now', 'prompt', 'env', 'setSystemTime',
 ]);
 
 export function parseCypressCalls(source: string, file: string): CypressCall[] {

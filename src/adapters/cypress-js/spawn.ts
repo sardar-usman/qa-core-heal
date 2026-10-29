@@ -62,15 +62,13 @@ function readConfigText(root: string): string | null {
 export async function runCypressInScratch(request: CypressSpawnRequest): Promise<CypressSpawnResult> {
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-out-'));
   trackOutputDir(outRoot);
+  // Always inside the project. A scratch in the system temp directory only sees
+  // a linked node_modules and misses packages hoisted to a parent folder.
+  // https://docs.npmjs.com/cli/configuring-npm/package-lock-json#packages
   const qaCore = path.join(request.projectRoot, '.qa-core');
-  const createdQaCore = !request.preview && !fs.existsSync(qaCore);
-  let scratch: string;
-  if (request.preview) {
-    scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-scratch-'));
-  } else {
-    fs.mkdirSync(qaCore, { recursive: true });
-    scratch = fs.mkdtempSync(path.join(qaCore, 'scratch-'));
-  }
+  const createdQaCore = !fs.existsSync(qaCore);
+  fs.mkdirSync(qaCore, { recursive: true });
+  const scratch = fs.mkdtempSync(path.join(qaCore, 'scratch-'));
   trackOutputDir(scratch);
   const captureDir = path.join(outRoot, 'capture');
   fs.mkdirSync(captureDir, { recursive: true });
@@ -83,11 +81,6 @@ export async function runCypressInScratch(request: CypressSpawnRequest): Promise
   });
   try {
     copyTree(request.projectRoot, scratch);
-    if (request.preview) {
-      const modules = path.join(request.projectRoot, 'node_modules');
-      const link = path.join(scratch, 'node_modules');
-      if (fs.existsSync(modules) && !fs.existsSync(link)) fs.symlinkSync(modules, link);
-    }
     const rel = path.relative(request.projectRoot, request.specPath);
     const scratchSpec = path.join(scratch, rel);
     if (request.title && request.line && request.line > 0 && fs.existsSync(scratchSpec)) {

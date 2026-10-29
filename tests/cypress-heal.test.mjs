@@ -69,6 +69,36 @@ test('parser refuses within, custom commands, and skipped tests are not listed',
   assert.equal(listed.find((item) => item.title === 'signs in')?.skip, false);
 });
 
+test('a brace inside a string does not end the suite', () => {
+  const source = "describe('login', () => {\n  it('a { b', () => {\n    const x = '{';\n  });\n  it('stays', () => {});\n});\n";
+  const listed = listSpecTests(source);
+  assert.deepEqual(listed.find((item) => item.title === 'stays')?.titlePath, ['login', 'stays']);
+  assert.equal(listed.find((item) => item.title === 'a { b')?.titlePath[0], 'login');
+});
+
+test('documented Cypress commands are not treated as custom commands', () => {
+  const src = ["cy.press('Enter')", "cy.now('get', '#a')", "cy.on('fail', () => {})", "cy.once('fail', () => {})", "cy.clearAllCookies()", "cy.getAllCookies()"].join('\n');
+  const calls = parseCypressCalls(src, 'login.cy.js');
+  assert.equal(calls.some((call) => /Custom command/.test(call.unsafe ?? '')), false);
+});
+
+test('confirmSameElement accepts the element that carries the token', async () => {
+  const { getAdapter } = await import(path.join(repoRoot, 'dist', 'adapters', 'index.js'));
+  const cypressJs = getAdapter('cypress-js');
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<button id="save">Save</button><button id="cancel">Cancel</button>');
+    const same = await cypressJs.confirmSameElement(page.locator('#save'), 'Save');
+    const other = await cypressJs.confirmSameElement(page.locator('#cancel'), 'Save');
+    assert.equal(same.confirmed, true);
+    assert.equal(other.confirmed, false);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('parser accepts literal cy.get and refuses templates, shadow, and custom commands', () => {
   const src = [
     "cy.get('[data-test=\"usrname\"]')",
@@ -127,8 +157,8 @@ test('a real Cypress run heals a test id typo and does not touch the project out
 
 test('the Cypress eval runner checks the fixture pages', { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 300000 }, async () => {
   const { runCypressFixture } = await import(path.join(repoRoot, 'evals', 'run-cypress-evals.mjs'));
-  const failures = await runCypressFixture({ repoRoot, cli, cypressPkg });
-  assert.deepEqual(failures, [], failures.join('\n'));
+  const report = await runCypressFixture({ repoRoot, cli, cypressPkg });
+  assert.deepEqual(report.failures, [], report.failures.join('\n'));
 });
 
 test('a skipped Cypress test is not a heal target, and an unknown title is refused', { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 180000 }, async () => {
@@ -184,6 +214,44 @@ test('cy.contains and cy.getByRole pick the same element as the DOM rules', { sk
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a hoisted Cypress install is found on dry-run and on a normal run', { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 180000 }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-cy-hoist-'));
+  const app = path.join(root, 'packages', 'app');
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><html><body><input id="user" /></body></html>');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true });
+    fs.symlinkSync(cypressPkg, path.join(root, 'node_modules', 'cypress'));
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'mono', private: true }));
+    fs.mkdirSync(path.join(app, 'cypress/e2e'), { recursive: true });
+    fs.mkdirSync(path.join(app, 'cypress/support'), { recursive: true });
+    fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'app', private: true }));
+    fs.writeFileSync(path.join(app, 'cypress.config.js'), `const { defineConfig } = require('cypress');\nmodule.exports = defineConfig({ e2e: { baseUrl: '${base}', supportFile: 'cypress/support/e2e.js' }, video: false });\n`);
+    fs.writeFileSync(path.join(app, 'cypress/support/e2e.js'), '');
+    fs.writeFileSync(path.join(app, 'cypress/e2e/login.cy.js'), "describe('login', () => { it('shows the field', () => { cy.visit('/'); cy.get('#user').should('exist'); }); });\n");
+    for (const args of [['--dry-run', '--json'], ['--yes', '--json']]) {
+      const run = await new Promise((resolve) => {
+        const child = spawn(process.execPath, [cli, 'cypress/e2e/login.cy.js', ...args], { cwd: app, env: process.env });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        child.on('close', (status) => resolve({ status, stdout, stderr }));
+      });
+      assert.equal(run.status, 0, `${args.join(' ')}\n${run.stderr}\n${run.stdout}`);
+      assert.doesNotMatch(`${run.stderr}\n${run.stdout}`, /no tests/i);
+      assert.equal(fs.existsSync(path.join(app, '.qa-core')), false, args.join(' '));
+    }
+  } finally {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -251,8 +319,7 @@ async function signalCase(sig, extra) {
   const closed = new Promise((resolve) => child.on('close', (status) => resolve(status)));
   try {
     if (sig) {
-      const before = new Set(cypressPids());
-      await waitFor(() => cypressPids().some((pid) => !before.has(pid)), 'Cypress to start');
+      await waitFor(() => projectPids(dir).some((pid) => Number(pid) !== child.pid), 'Cypress to start');
       process.kill(child.pid, sig);
     }
     const status = await closed;
@@ -267,20 +334,14 @@ async function signalCase(sig, extra) {
   }
 }
 
-function cypressPids() {
-  if (!fs.existsSync('/proc')) return [];
-  return fs.readdirSync('/proc').filter((name) => /^\d+$/.test(name)).filter((name) => {
-    const cmd = readCmd(name);
-    return /Cypress|chrome|Xvfb/i.test(cmd) && !cmd.includes(`${path.sep}dist${path.sep}cli.js`);
-  });
-}
-
 function projectPids(dir) {
+  if (!fs.existsSync('/proc')) return [];
   const real = fs.realpathSync(dir);
   return fs.readdirSync('/proc').filter((name) => /^\d+$/.test(name)).filter((name) => {
     if (Number(name) === process.pid) return false;
     const cmd = readCmd(name);
-    if (/cypress|chrome|Xvfb|chromedriver/i.test(cmd) && cmd.includes(real)) return true;
+    if (!/Cypress|chrome|Xvfb/i.test(cmd) || cmd.includes(`${path.sep}dist${path.sep}cli.js`)) return false;
+    if (cmd.includes(real)) return true;
     try { return fs.readlinkSync(`/proc/${name}/cwd`).startsWith(real); } catch { return false; }
   });
 }

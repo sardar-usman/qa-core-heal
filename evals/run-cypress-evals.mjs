@@ -44,11 +44,24 @@ export async function runCypressFixture({ repoRoot, cli, cypressPkg }) {
       continue;
     }
     if (row.status !== item.expect) failures.push(`${item.name}: ${row.status} ${JSON.stringify(row)}`);
+    if (item.code) {
+      const { refusalFromReason } = await import(path.join(repoRoot, 'dist', 'findings-flow.js'));
+      const code = refusalFromReason(row.reason ?? '', row.ambiguous === true);
+      if (code !== item.code) failures.push(`${item.name}: refusal ${code}, expected ${item.code}`);
+    }
     if (item.expect === 'refused' && row.new != null) failures.push(`${item.name}: wrote ${row.new}`);
     if (result.specAfter !== spec) failures.push(`${item.name}: dry run changed the spec`);
     if (result.qaCoreLeft) failures.push(`${item.name}: left .qa-core`);
   }
-  return failures;
+  return {
+    failures,
+    cases: expected.cases.map((item) => ({
+      name: item.name,
+      expect: item.expect,
+      code: item.code ?? null,
+      ok: !failures.some((failure) => failure.startsWith(`${item.name}:`)),
+    })),
+  };
 }
 
 async function healOne({ cli, cypressPkg, html, spec }) {
