@@ -45,6 +45,21 @@ const path = require('node:path');
 const { createRequire } = require('node:module');
 const dir = process.env.QA_CORE_HEAL_CAPTURE;
 const root = process.env.QA_CORE_HEAL_PROJECT;
+const Module = require('node:module');
+const origLoad = Module._load;
+const loaded = [];
+Module._load = function (request, parent, isMain) {
+  loaded.push(String(request));
+  return origLoad.apply(this, arguments);
+};
+process.on('exit', () => {
+  try {
+    if (!dir) return;
+    fs.mkdirSync(dir, { recursive: true });
+    const interesting = loaded.filter((item) => /test|login|mocharc|spec/.test(item)).slice(0, 30);
+    fs.writeFileSync(path.join(dir, 'loaded.txt'), interesting.join('\\n'));
+  } catch { /* ignore */ }
+});
 if (dir) {
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -56,7 +71,7 @@ if (dir) {
       const lines = fs.existsSync(login) ? fs.readFileSync(login, 'utf8').split('\\n').filter((line) => /\\b(it|describe)\\b/.test(line)) : ['missing'];
       specPeek = names.join(',') + ' :: ' + lines.join(' | ');
     } catch (err) { specPeek = String(err); }
-    fs.writeFileSync(path.join(dir, 'argv.json'), JSON.stringify({ specPeek, cwd: process.cwd() }));
+    fs.writeFileSync(path.join(dir, 'argv.json'), JSON.stringify({ specPeek, argv: process.argv.slice(1) }));
   } catch { /* the failure text can say the hook did not write */ }
 }
 if (dir && root) {
@@ -229,7 +244,9 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
       let argvNote = '';
       const argvFile = path.join(captureDir, 'argv.json');
       if (fs.existsSync(argvFile)) {
-        argvNote = ` hook ${fs.readFileSync(argvFile, 'utf8').slice(0, 700)}`;
+        argvNote = ` hook ${fs.readFileSync(argvFile, 'utf8').slice(0, 900)}`;
+        const loadedFile = path.join(captureDir, 'loaded.txt');
+        if (fs.existsSync(loadedFile)) argvNote += ` loaded ${fs.readFileSync(loadedFile, 'utf8').slice(0, 400)}`;
       } else {
         argvNote = ' hook did not run.';
       }
