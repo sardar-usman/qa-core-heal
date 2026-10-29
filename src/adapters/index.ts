@@ -3,7 +3,7 @@ import { playwrightJs } from './playwright-js/index.js';
 import type { FrameworkAdapter, FrameworkId } from './types.js';
 
 /**
- * Adapters this build can run. 0.5 registers playwright-js only.
+ * Adapters this build can run. 0.6 registers playwright-js and cypress-js.
  * The other ids are recognised by detection and refused until a later release.
  */
 const registry = new Map<FrameworkId, FrameworkAdapter>([
@@ -58,6 +58,17 @@ export function useAdapter(id: FrameworkId): FrameworkAdapter {
   if (!found) throw new Error(`No adapter is registered for ${id}.`);
   current = found;
   return found;
+}
+
+/** Tests register a stub or a disabled adapter. Production does not call this. */
+export function registerAdapter(adapter: FrameworkAdapter): void {
+  registry.set(adapter.id, adapter);
+}
+
+/** Remove a test adapter and restore Playwright when it was the active one. */
+export function unregisterAdapter(id: FrameworkId): void {
+  registry.delete(id);
+  if (current.id === id) current = playwrightJs;
 }
 
 export type { FrameworkAdapter, FrameworkId } from './types.js';
