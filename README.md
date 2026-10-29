@@ -202,17 +202,17 @@ re-resolved element differs: expected an element matching "search panel 42"
 
 ## Frameworks
 
-Version 0.6 runs Playwright and Cypress tests written in JavaScript or TypeScript. The adapter ids are `playwright-js` and `cypress-js`.
+Version 0.7 runs Playwright, Cypress, and Selenium tests written in JavaScript or TypeScript. Selenium uses Mocha. The adapter ids are `playwright-js`, `cypress-js`, and `selenium-js`.
 
 Detection looks at files only. It does not run a framework, a package manager, or Python. The order is:
 
 1. `--framework` wins, including when two frameworks are present.
 2. In a findings file, `project.configPath` names the framework when the file name is recognised.
-3. Otherwise heal looks at the project root for `playwright.config.*`, `cypress.config.*`, `selenium-webdriver` in `package.json` dependencies or devDependencies, and Python config files that import `playwright` or `selenium`.
+3. Otherwise heal looks at the project root for `playwright.config.*`, `cypress.config.*`, `selenium-webdriver` together with Mocha (a `.mocharc.*` file, a `mocha` key, or a `mocha` dependency), and Python config files that import `playwright` or `selenium`.
 
 When nothing matches, heal uses `playwright-js` and prints nothing about it. When two frameworks match and you do not pass `--framework`, heal stops with exit code 2, names what matched, and writes nothing. When the only match is a framework this version does not run, heal stops with exit code 2 and writes nothing. `capabilities` and `capabilities --json` are answered before that check, with no `--framework` flag, the same way 0.4.2 always answered. `--verbose` prints one line, `[verbose] framework <id> (<reason>)`.
 
-Selenium and Python adapters are planned. This version does not run them.
+Python adapters are planned. This version does not run them. Selenium with Jest, and a remote Grid session, are refused.
 
 ## Cypress
 
@@ -223,6 +223,16 @@ Cypress healing uses the same rules as Playwright: one matching element, or no c
 These shapes are refused: `cy.origin`, iframes, `.shadow()`, `includeShadowDom`, `.within()`, a chained `.find()`, jQuery-only selectors, variables, template literals with expressions, and custom commands.
 
 The project needs its own Cypress install. Heal does not add Cypress, a plugin, or a file to the project. A run uses a temporary copy and does not clear the project's screenshot, video, or download folders.
+
+## Selenium
+
+Selenium healing uses Mocha and the project's own `selenium-webdriver`. The minimums are selenium-webdriver 4.6.0 and Mocha 10.0.0. Jest and a remote Grid session are refused.
+
+Heal runs one test with Mocha's `--grep` and reads the JSON reporter file. It does not use Mocha's exit code. A capture hook in the heal temp folder records the page when `findElement` or `wait` rejects. The project is not modified.
+
+`By.id`, `By.name`, `By.css`, `By.xpath`, `By.linkText`, and `By.partialLinkText` with string literals can be healed. `By.js`, object locators, relative locators, and variables are refused.
+
+The project needs its own `selenium-webdriver` and `mocha` install. Heal does not add them.
 
 ## The Findings and Results Contract
 
@@ -274,7 +284,7 @@ It prints one JSON object. `contracts.findings` and `contracts.results` are arra
 {
   "schema": "qa-core.heal-capabilities",
   "schemaVersion": 1,
-  "tool": { "name": "qa-core-heal", "version": "0.6.0" },
+  "tool": { "name": "qa-core-heal", "version": "0.7.0" },
   "contracts": { "findings": [1], "results": [1] },
   "playwrightVersion": "1.60.0",
   "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true, "frameworks": ["playwright-js"] },

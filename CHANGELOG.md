@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 (2026-10-29)
+
+Selenium JS/TS healing with Mocha. Contract version 1 is unchanged. Playwright output for the same inputs stays the same except the version, the framework list, and the `--framework` help line.
+
+- **Added:** `selenium-js` runs when the project has `selenium-webdriver` and Mocha. `--framework selenium-js` selects it. Jest and a remote Grid session are refused.
+- **Added:** Literal `By.id`, `By.name`, `By.css`, `By.xpath`, `By.linkText`, and `By.partialLinkText` can be healed from the captured failing page. `By.js`, object locators, relative locators, and variables are refused. The refusal codes are the existing ones.
+- **Changed:** `capabilities` lists `playwright-js`, `cypress-js`, and `selenium-js`. `selenium-webdriver` below 4.6.0 and Mocha below 10.0.0 are refused.
+
 ## 0.6.0 (2026-10-28)
 
 Cypress JS/TS healing. Contract version 1 is unchanged. Playwright output for the same inputs stays the same except the version, the framework list, and the `--framework` help line.

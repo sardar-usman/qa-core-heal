@@ -1,0 +1,3 @@
+{
+  "cases": ["test id typo", "renamed text", "ambiguous", "moved", "real defect", "iframe", "wait timeout"]
+}
