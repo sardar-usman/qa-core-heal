@@ -341,6 +341,29 @@ export function untrackOutputDir(dir: string): void {
   outputDirs.delete(dir);
 }
 
+/**
+ * A `.qa-core` directory this run created. The signal path deletes the scratch
+ * inside it, then removes the directory when that leaves it empty.
+ */
+const createdQaCoreDirs = new Set<string>();
+
+export function trackCreatedQaCore(dir: string): void {
+  createdQaCoreDirs.add(path.resolve(dir));
+}
+
+export function untrackCreatedQaCore(dir: string): void {
+  createdQaCoreDirs.delete(path.resolve(dir));
+}
+
+function removeEmptyCreatedQaCore(): void {
+  for (const dir of createdQaCoreDirs) {
+    try {
+      if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+    } catch { /* a folder heal did not create, or one that is not empty, stays */ }
+  }
+  createdQaCoreDirs.clear();
+}
+
 interface ChromiumWatch {
   tempDir: string;
   startedAtMs: number;
@@ -473,6 +496,7 @@ export function cleanupChildrenAndOutputs(): void {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* already gone */ }
   }
   outputDirs.clear();
+  removeEmptyCreatedQaCore();
 }
 
 function signalExitCode(sig: NodeJS.Signals): number {

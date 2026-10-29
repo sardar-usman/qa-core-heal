@@ -76,6 +76,19 @@ test('a brace inside a string does not end the suite', () => {
   assert.equal(listed.find((item) => item.title === 'a { b')?.titlePath[0], 'login');
 });
 
+test('a regexp that contains a quote does not hide the next test', () => {
+  const source = "it('a', () => { /'/; });\nit('b', () => {});\n";
+  const listed = listSpecTests(source);
+  assert.deepEqual(listed.map((item) => item.title), ['a', 'b']);
+});
+
+test('a backslash and a newline inside a string still count the next line', () => {
+  const source = "it('a\\\nb', () => {});\nit('c', () => {});\n";
+  const listed = listSpecTests(source);
+  assert.equal(listed.find((item) => item.title === 'ab')?.line, 1);
+  assert.equal(listed.find((item) => item.title === 'c')?.line, 3);
+});
+
 test('documented Cypress commands are not treated as custom commands', () => {
   const src = ["cy.press('Enter')", "cy.now('get', '#a')", "cy.on('fail', () => {})", "cy.once('fail', () => {})", "cy.clearAllCookies()", "cy.getAllCookies()"].join('\n');
   const calls = parseCypressCalls(src, 'login.cy.js');
@@ -266,6 +279,7 @@ for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) 
   test(`Cypress ${sig} leaves no Cypress, browser, or Xvfb`, { skip: hasCypress ? false : 'Cypress is not installed in the test cache', timeout: 180000 }, async () => {
     const outcome = await signalCase(sig, []);
     assert.equal(outcome.status, code, `${outcome.stderr}\n${outcome.stdout}`);
+    assert.equal(outcome.treeSame, true, (outcome.after ?? []).join('\n'));
     assert.deepEqual(outcome.left, []);
   });
 }
@@ -311,6 +325,7 @@ async function signalCase(sig, extra) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-cy-sig-'));
   const spec = "describe('login', () => {\n  it('hangs', () => {\n    cy.visit('/');\n    cy.wait(120000);\n  });\n});\n";
   writeProject(dir, base, spec);
+  const before = projectTree(dir);
   const child = spawn(process.execPath, [cli, 'cypress/e2e/login.cy.js', ...extra], { cwd: dir });
   let stdout = '';
   let stderr = '';
@@ -324,7 +339,8 @@ async function signalCase(sig, extra) {
     }
     const status = await closed;
     await new Promise((resolve) => setTimeout(resolve, 800));
-    return { status, stdout, stderr, left: projectPids(dir) };
+    const after = projectTree(dir);
+    return { status, stdout, stderr, left: projectPids(dir), treeSame: before.join('\n') === after.join('\n'), after };
   } finally {
     if (child.exitCode === null && !child.killed) {
       try { process.kill(child.pid, 'SIGKILL'); } catch { /* already gone */ }
@@ -332,6 +348,21 @@ async function signalCase(sig, extra) {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+function projectTree(dir) {
+  const out = [];
+  const walk = (current) => {
+    for (const name of fs.readdirSync(current)) {
+      const full = path.join(current, name);
+      const rel = path.relative(dir, full);
+      const st = fs.lstatSync(full);
+      if (st.isSymbolicLink() || st.isFile()) out.push(rel);
+      else if (st.isDirectory()) { out.push(`${rel}/`); walk(full); }
+    }
+  };
+  walk(dir);
+  return out.sort();
 }
 
 function projectPids(dir) {
