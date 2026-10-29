@@ -103,5 +103,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Debug Mocha in CI
+        run: node scripts/debug-selenium-mocha.mjs
+
       - name: Selenium tests
         run: npm run build && QA_CORE_HEAL_SELENIUM=1 node --import ./tests/helpers/temps.mjs --test tests/selenium-heal.test.mjs

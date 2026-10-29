@@ -252,7 +252,7 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
       }
       return {
         run, report, captureDir, timedOut: false,
-        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected. ${how}. spec ${specArg}.${stats !== undefined ? ` stats.tests=${stats}.` : ''}${seen ? ` titles ${seen}.` : ''}${argvNote}${note ? ` ${note}` : ''}`,
+        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected. ${how}. spec ${specArg}. status ${run.status}.${stats !== undefined ? ` stats.tests=${stats}.` : ''} report ${fs.readFileSync(resultFile, 'utf8').slice(0, 600)}.${seen ? ` titles ${seen}.` : ''}${argvNote}${note ? ` ${note}` : ''}`,
       };
     }
     if ((grep || only) && tests[0] && !sameFile(tests[0].file ?? scratchSpec, scratchSpec, scratch)) {
