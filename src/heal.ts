@@ -6,6 +6,7 @@ import { healResolve } from './heal-resolve.js';
 import { installEvalShim } from './eval-shim.js';
 import { activeAdapter, type LocatorCall } from './adapters/index.js';
 import { healCypress } from './adapters/cypress-js/heal-run.js';
+import { healSelenium } from './adapters/selenium-js/heal-run.js';
 import type { ProbeQuery } from './adapters/types.js';
 import {
   buildRoutePlan, routesForLocator, routeLabel, resolveRoute, stripAutoSuffixes, hasExplicitRoute,
@@ -1401,6 +1402,7 @@ type RouteOutcome =
 
 export async function heal(opts: HealOptions): Promise<HealResult> {
   if (activeAdapter().id === 'cypress-js') return healCypress(opts);
+  if (activeAdapter().id === 'selenium-js') return healSelenium(opts);
   const givenPaths = (opts.specPaths ?? (opts.specPath ? [opts.specPath] : []))
     .map((p) => path.resolve(p));
   if (givenPaths.length === 0) throw new Error('No spec path given.');
