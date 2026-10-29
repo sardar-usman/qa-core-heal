@@ -104,8 +104,10 @@ function grepFor(titlePath: string[] | undefined, title: string | null | undefin
   const parts = (titlePath ?? []).filter((part) => part.length > 0);
   const text = parts.length > 1 ? parts.join(' ') : (title ?? parts[0] ?? '');
   if (!text) return null;
-  if (parts.length > 1) return `^${escapeRegex(text)}$`;
-  return `^(?:.* )?${escapeRegex(text)}$`;
+  // Mocha treats a /pattern/ string as a regexp and tests it against the full title.
+  // https://mochajs.org/#-grep-regexp-g-regexp
+  const body = parts.length > 1 ? `^${escapeRegex(text)}$` : `${escapeRegex(text)}$`;
+  return `/${body}/`;
 }
 
 function sameFile(reported: string, expected: string, cwd: string): boolean {
@@ -174,7 +176,11 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     if (!report) return { run, report: null, captureDir, timedOut: false, failureDetail: run.stderr || 'Mocha did not write a JSON report.' };
     const tests = report.tests ?? [];
     if (grep && tests.length !== 1) {
-      return { run, report, captureDir, timedOut: false, failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected.` };
+      const note = `${run.stderr ?? ''}\n${run.stdout ?? ''}`.trim().split('\n').slice(-12).join('\n').slice(0, 800);
+      return {
+        run, report, captureDir, timedOut: false,
+        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected.${note ? ` ${note}` : ''}`,
+      };
     }
     if (grep && tests[0] && !sameFile(tests[0].file ?? scratchSpec, scratchSpec, scratch)) {
       return { run, report, captureDir, timedOut: false, failureDetail: 'The Mocha run reported a test from a different file. Nothing was changed.' };
