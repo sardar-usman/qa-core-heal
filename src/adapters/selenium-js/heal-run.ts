@@ -7,7 +7,7 @@ import type { ProbeQuery } from '../types.js';
 import { emitBy } from './emit.js';
 import { parseSeleniumCalls, type SeleniumCall, type SeleniumQuote } from './parse.js';
 import { testAtLine } from './list-tests.js';
-import { countSeleniumQuery, seleniumMatchStamps } from './unique.js';
+import { countSeleniumQuery } from './unique.js';
 
 /**
  * Heal literal By calls against the captured page. There is no fresh load.
@@ -112,26 +112,26 @@ async function propose(page: Page, call: SeleniumCall): Promise<{ code: string; 
   if (attr === 'id' && scanned?.id) {
     const query = { kind: 'css' as const, selector: `[id="${cssAttr(scanned.id)}"]` };
     if (await countSeleniumQuery(page, query) !== 1) return null;
-    if (!await sameElement(page, query, scanned.stamp)) return null;
+    if (!await sameElement(page, query, value)) return null;
     return { code: emitBy('id', scanned.id, quote), level: 'css' };
   }
   if (attr === 'name' && scanned?.name) {
     const query = { kind: 'css' as const, selector: `[name="${cssAttr(scanned.name)}"]` };
     if (await countSeleniumQuery(page, query) !== 1) return null;
-    if (!await sameElement(page, query, scanned.stamp)) return null;
+    if (!await sameElement(page, query, value)) return null;
     return { code: emitBy('name', scanned.name, quote), level: 'css' };
   }
   if (attr === 'data-test' || attr === 'data-testid' || attr === 'data-cy') {
     const selector = `[${attr}="${cssAttr(value)}"]`;
     const query = { kind: 'css' as const, selector };
     if (await countSeleniumQuery(page, query) !== 1) return null;
-    if (!await sameElement(page, query, scanned?.stamp)) return null;
+    if (!await sameElement(page, query, value)) return null;
     return { code: emitBy('css', selector, quote), level: 'testid' };
   }
   if (attr === 'text' && scanned?.tag === 'a') {
     const query = { kind: 'text' as const, text: value, exact: true };
     if (await countSeleniumQuery(page, query) !== 1) return null;
-    if (!await sameElement(page, query, scanned.stamp)) return null;
+    if (!await sameElement(page, query, value)) return null;
     return { code: emitBy('linkText', value, quote), level: 'text' };
   }
   if (attr === 'id' || attr === 'name' || attr === 'data-test') return null;
@@ -204,10 +204,18 @@ function queryOf(call: SeleniumCall): ProbeQuery | null {
   return null;
 }
 
-async function sameElement(page: Page, query: ProbeQuery, stamp: string | undefined): Promise<boolean> {
-  if (!stamp) return false;
-  const stamps = await seleniumMatchStamps(page, query);
-  return stamps.length === 1 && stamps[0] === stamp;
+function locatorFor(page: Page, query: ProbeQuery) {
+  if (query.kind === 'css') return page.locator(query.selector);
+  if (query.kind === 'text') return page.locator('a').getByText(query.text, { exact: query.exact !== false });
+  return null;
+}
+
+async function sameElement(page: Page, query: ProbeQuery, token: string): Promise<boolean> {
+  const locator = locatorFor(page, query);
+  if (!locator) return false;
+  const { activeAdapter } = await import('../index.js');
+  const result = await activeAdapter().confirmSameElement(locator, token);
+  return result.confirmed;
 }
 
 function inFailedTest(call: SeleniumCall, targets: HealTarget[], sourceOf: (file: string) => string): boolean {
