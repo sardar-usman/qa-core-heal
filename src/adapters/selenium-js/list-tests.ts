@@ -50,7 +50,23 @@ export function testAtLine(source: string, line: number): MochaListedTest | null
  * `^suite test$`, not a `/pattern/` wrapper.
  * https://mochajs.org/#-grep-regexp-g-regexp
  */
-/** Mocha full title for `--fgrep`. A `$` anchor in `--grep` matched nothing in CI. */
+/**
+ * Add `.only` to one string-literal `it` or `test`. The scratch copy is the only
+ * file that changes. Mocha then runs that test and not the other specs from `.mocharc`.
+ */
+export function injectMochaOnly(source: string, title: string, line: number): { injected: boolean; source: string } {
+  const lines = source.split('\n');
+  const index = line - 1;
+  if (index < 0 || index >= lines.length) return { injected: false, source };
+  const text = lines[index] ?? '';
+  const match = /\b(it|test|specify)\s*\(\s*(['"`])([\s\S]*?)\2/.exec(text);
+  if (!match || match[3] !== title) return { injected: false, source };
+  if (/\b(it|test|specify)\s*\.\s*only\s*\(/.test(text)) return { injected: true, source };
+  lines[index] = text.replace(/\b(it|test|specify)\s*\(/, '$1.only(');
+  return { injected: true, source: lines.join('\n') };
+}
+
+/** Mocha full title for `--fgrep` when `.only` cannot be injected. */
 export function fgrepTextFor(source: string, title: string | null | undefined, line?: number): string | null {
   const listed = listMochaTests(source).filter((test) => !test.skip);
   const named = title ? listed.filter((test) => test.title === title) : [];

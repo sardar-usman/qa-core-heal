@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { killProcessTree, trackOutputDir, untrackChildGroup, watchChildGroup } from '../../process-guard.js';
 import type { ChildRun } from '../types.js';
-import { fgrepTextFor } from './list-tests.js';
+import { fgrepTextFor, injectMochaOnly } from './list-tests.js';
 import { hasRemoteSession } from './parse.js';
 import { readMochaReport, type MochaReport } from './report.js';
 import { MOCHA_MIN, SELENIUM_MIN, mochaVersion, seleniumVersion, versionAtLeast } from './version.js';
@@ -176,10 +176,21 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     // with `.mocharc` `spec` and can miss the file when it sits under a dot directory.
     // https://mochajs.org/#configuring-mocha-nodejs
     const args = [mochaBin, specArg, '--reporter', 'json', '--reporter-option', `output=${resultFile}`, '--retries', '0', '--require', hook];
-    const specSource = fs.existsSync(scratchSpec) ? fs.readFileSync(scratchSpec, 'utf8') : specText;
-    // `--fgrep` is a literal substring of the full title (suite titles, a space, the test title).
+    let specSource = fs.existsSync(scratchSpec) ? fs.readFileSync(scratchSpec, 'utf8') : specText;
+    let only = false;
+    if (request.title && request.line && request.line > 0 && fs.existsSync(scratchSpec)) {
+      const edited = injectMochaOnly(specSource, request.title, request.line);
+      if (edited.injected) {
+        fs.writeFileSync(scratchSpec, edited.source);
+        specSource = edited.source;
+        only = true;
+      }
+    }
+    // `.only` in the scratch copy selects one test. `--fgrep` is the fallback when the
+    // title is not a string literal on a known line.
+    // https://mochajs.org/#exclusive-tests
     // https://mochajs.org/#-fgrep-string-f-string
-    const grep = grepFor(specSource, request.titlePath, request.title, request.line);
+    const grep = only ? null : grepFor(specSource, request.titlePath, request.title, request.line);
     if (grep) args.push('--fgrep', grep);
     const childEnv: NodeJS.ProcessEnv = { ...process.env, QA_CORE_HEAL_CAPTURE: captureDir, QA_CORE_HEAL_PROJECT: request.projectRoot };
     delete childEnv.MOCHA_OPTIONS;
@@ -189,16 +200,17 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     const report = readMochaReport(resultFile);
     if (!report) return { run, report: null, captureDir, timedOut: false, failureDetail: run.stderr || 'Mocha did not write a JSON report.' };
     const tests = report.tests ?? [];
-    if (grep && tests.length !== 1) {
+    if ((grep || only) && tests.length !== 1) {
       const note = `${run.stderr ?? ''}\n${run.stdout ?? ''}`.trim().split('\n').slice(-12).join('\n').slice(0, 800);
       const stats = report.stats?.tests;
       const seen = tests.map((test) => test.fullTitle ?? test.title ?? '').filter(Boolean).slice(0, 5).join('; ');
+      const how = only ? 'it.only' : `fgrep ${grep}`;
       return {
         run, report, captureDir, timedOut: false,
-        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected. grep ${grep}. spec ${specArg}.${stats !== undefined ? ` stats.tests=${stats}.` : ''}${seen ? ` titles ${seen}.` : ''}${note ? ` ${note}` : ''}`,
+        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected. ${how}. spec ${specArg}.${stats !== undefined ? ` stats.tests=${stats}.` : ''}${seen ? ` titles ${seen}.` : ''}${note ? ` ${note}` : ''}`,
       };
     }
-    if (grep && tests[0] && !sameFile(tests[0].file ?? scratchSpec, scratchSpec, scratch)) {
+    if ((grep || only) && tests[0] && !sameFile(tests[0].file ?? scratchSpec, scratchSpec, scratch)) {
       return { run, report, captureDir, timedOut: false, failureDetail: 'The Mocha run reported a test from a different file. Nothing was changed.' };
     }
     return { run, report, captureDir, timedOut: false, failureDetail: '' };
