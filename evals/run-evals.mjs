@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { runCypressFixture } from './run-cypress-evals.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1135,7 +1136,7 @@ function totalsOf(results) {
   };
 }
 
-function renderMarkdown(results, totals) {
+function renderMarkdown(results, totals, cypress = null) {
   const lines = [];
   lines.push('# qa-core-heal eval results');
   lines.push('');
@@ -1166,6 +1167,18 @@ function renderMarkdown(results, totals) {
     lines.push(...allNotes);
     lines.push('');
   }
+  if (cypress) {
+    lines.push('## Cypress');
+    lines.push('');
+    lines.push('Local fixture pages. These rows are not part of the Playwright table above.');
+    lines.push('');
+    lines.push('| Case | Expected | Refusal code | Result |');
+    lines.push('|---|---|---|---|');
+    for (const item of cypress.cases) {
+      lines.push(`| ${item.name} | ${item.expect} | ${item.code ?? ''} | ${item.ok ? 'ok' : 'failed'} |`);
+    }
+    lines.push('');
+  }
   return lines.join('\n') + '\n';
 }
 
@@ -1188,13 +1201,23 @@ for (const suite of selected) {
 }
 
 const totals = totalsOf(results);
+let cypress = null;
+if (!only) {
+  const cypressPkg = process.env.QA_CORE_HEAL_CYPRESS_PACKAGE || path.join(packageDir, 'node_modules', 'cypress');
+  if (fs.existsSync(path.join(cypressPkg, 'package.json'))) {
+    console.log('=== cypress-saucedemo-style ===');
+    cypress = await runCypressFixture({ repoRoot: packageDir, cli: cliJs, cypressPkg });
+    console.log(`    cypress cases ${cypress.cases.filter((item) => item.ok).length}/${cypress.cases.length}`);
+    if (cypress.failures.length > 0) console.error(cypress.failures.join('\n'));
+  }
+}
 if (only) {
   console.log('\nSingle-suite run: results.json / RESULTS.md not rewritten.');
 } else {
-  const payload = { playwrightVersion, suites: results, totals };
+  const payload = { playwrightVersion, suites: results, totals, ...(cypress ? { cypress } : {}) };
   fs.writeFileSync(path.join(evalsDir, 'results.json'), JSON.stringify(payload, null, 2) + '\n');
-  fs.writeFileSync(path.join(evalsDir, 'RESULTS.md'), renderMarkdown(results, totals));
+  fs.writeFileSync(path.join(evalsDir, 'RESULTS.md'), renderMarkdown(results, totals, cypress));
   console.log('\nWrote evals/results.json and evals/RESULTS.md');
 }
-const anyWrong = totals.wrongHeals > 0 || totals.misses > 0 || results.some((r) => !r.finalOk || r.notes.some((n) => n.startsWith('FIXTURE') || n.startsWith('WRONG') || n.startsWith('YES-INVARIANCE')));
+const anyWrong = totals.wrongHeals > 0 || totals.misses > 0 || results.some((r) => !r.finalOk || r.notes.some((n) => n.startsWith('FIXTURE') || n.startsWith('WRONG') || n.startsWith('YES-INVARIANCE'))) || (cypress?.failures.length > 0);
 process.exitCode = anyWrong ? 1 : 0;

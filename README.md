@@ -202,7 +202,7 @@ re-resolved element differs: expected an element matching "search panel 42"
 
 ## Frameworks
 
-Version 0.5 runs Playwright tests written in JavaScript or TypeScript. That adapter id is `playwright-js`.
+Version 0.6 runs Playwright and Cypress tests written in JavaScript or TypeScript. The adapter ids are `playwright-js` and `cypress-js`.
 
 Detection looks at files only. It does not run a framework, a package manager, or Python. The order is:
 
@@ -212,7 +212,19 @@ Detection looks at files only. It does not run a framework, a package manager, o
 
 When nothing matches, heal uses `playwright-js` and prints nothing about it. When two frameworks match and you do not pass `--framework`, heal stops with exit code 2, names what matched, and writes nothing. When the only match is a framework this version does not run, heal stops with exit code 2 and writes nothing. `capabilities` and `capabilities --json` are answered before that check, with no `--framework` flag, the same way 0.4.2 always answered. `--verbose` prints one line, `[verbose] framework <id> (<reason>)`.
 
-Cypress, Selenium, and Python adapters are planned. This version does not run them.
+Selenium and Python adapters are planned. This version does not run them.
+
+## Cypress
+
+Cypress healing uses the same rules as Playwright: one matching element, or no change. The failing page is taken from the test that just failed. Heal does not open the app again.
+
+`cy.get` with a CSS literal, `cy.contains` with a literal, and `cy.getByRole` with a literal role and name can be healed. `cy.getByRole` is written only when the installed Cypress is 16.2.0 or newer. Cypress older than 15.10.0 is refused.
+
+A test id heal uses the `testIdAttribute` string in the Cypress config when the project sets one. Otherwise heal uses `data-test`. Cypress's own configuration reference does not define `testIdAttribute`; projects set it when they follow the `data-cy`, `data-test`, or `data-testid` practice.
+
+These shapes are refused: `cy.origin`, iframes, `.shadow()`, `includeShadowDom`, `.within()`, a chained `.find()`, jQuery-only selectors, variables, template literals with expressions, and custom commands.
+
+The project needs its own Cypress install. Heal does not add Cypress, a plugin, or a file to the project. A run uses a temporary copy and does not clear the project's screenshot, video, or download folders.
 
 ## The Findings and Results Contract
 
@@ -264,11 +276,11 @@ It prints one JSON object. `contracts.findings` and `contracts.results` are arra
 {
   "schema": "qa-core.heal-capabilities",
   "schemaVersion": 1,
-  "tool": { "name": "qa-core-heal", "version": "0.5.0" },
+  "tool": { "name": "qa-core-heal", "version": "0.6.0" },
   "contracts": { "findings": [1], "results": [1] },
   "playwrightVersion": "1.60.0",
-  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true, "frameworks": ["playwright-js"] },
-  "frameworkVersions": { "playwright-js": "1.60.0" }
+  "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true, "frameworks": ["playwright-js", "cypress-js"] },
+  "frameworkVersions": { "playwright-js": "1.60.0", "cypress-js": null }
 }
 ```
 

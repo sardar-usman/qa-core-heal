@@ -363,5 +363,24 @@ export function weakeningReason(before: string, after: string): string | null {
     return 'The proposed change removes an assertion.';
   }
   if (skipCount(after) > skipCount(before)) return 'The proposed change skips a test.';
+  if (activeAdapter().assertionGrammar.shouldChain) {
+    const chain = shouldChainReason(before, after);
+    if (chain) return chain;
+  }
+  return null;
+}
+
+/** Cypress `.should()` / `.and()` and Chai `expect`. Playwright does not call this. */
+function shouldChainReason(before: string, after: string): string | null {
+  const count = (src: string, word: string): number => {
+    const re = new RegExp(`\\.${word}\\s*\\(`, 'g');
+    return [...src.matchAll(re)].length;
+  };
+  if (count(after, 'should') < count(before, 'should')) return 'The proposed change removes an assertion.';
+  if (count(after, 'and') < count(before, 'and')) return 'The proposed change removes an assertion.';
+  const chai = (src: string): number => [...src.matchAll(/\bexpect\s*\(/g)].length;
+  if (chai(after) < chai(before)) return 'The proposed change removes an assertion.';
+  const only = (src: string): number => [...src.matchAll(/\.\s*only\s*\(/g)].length;
+  if (only(after) > only(before)) return 'The proposed change skips a test.';
   return null;
 }

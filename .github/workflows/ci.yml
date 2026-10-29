@@ -37,3 +37,40 @@ jobs:
 
       - name: Test
         run: npm test
+
+  cypress:
+    name: Cypress Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the Chromium browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Cache the Cypress binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-16.2.1-${{ runner.os }}
+
+      - name: Install Cypress
+        run: npm install --no-save --no-audit --no-fund cypress@16.2.1 && npx cypress install && npx cypress verify
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Cypress tests
+        run: npm run build && QA_CORE_HEAL_CYPRESS=1 node --import ./tests/helpers/temps.mjs --test tests/cypress-heal.test.mjs

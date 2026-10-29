@@ -104,13 +104,13 @@ test('the framework flag overrides a non-Playwright match by refusing', async ()
     write(dir, 'cypress.config.js', 'module.exports = {};\n');
     write(dir, 'findings.json', JSON.stringify(finding('cypress.config.js')));
     const flagged = await runCli(['--findings', 'findings.json', '--results', 'out.json', '--framework', 'cypress-js'], dir);
-    assert.equal(flagged.status, 2);
-    assert.match(flagged.stderr, /cypress-js is planned and is not supported yet\. Nothing was run\./);
-    assert.equal(fs.existsSync(path.join(dir, 'out.json')), false);
+    assert.equal(flagged.status, 0, flagged.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'out.json'), 'utf8')).results[0].refusal.code, 'ineligible-handoff');
+    fs.rmSync(path.join(dir, 'out.json'));
     const detected = await runCli(['--findings', 'findings.json', '--results', 'out.json'], dir);
-    assert.equal(detected.status, 2);
-    assert.match(detected.stderr, /cypress-js is planned and is not supported yet/);
-    assert.equal(fs.existsSync(path.join(dir, 'out.json')), false);
+    assert.equal(detected.status, 0, detected.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'out.json'), 'utf8')).results[0].refusal.code, 'ineligible-handoff');
+    fs.rmSync(path.join(dir, 'out.json'));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -133,8 +133,8 @@ test('an unknown framework value is a usage error and lists the accepted values'
     const r = await runCli(['--dry-run', '--framework', 'webdriver'], dir);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /Unknown framework "webdriver"/);
-    assert.match(r.stderr, /Supported now: playwright-js/);
-    assert.match(r.stderr, /Planned: cypress-js, selenium-js, playwright-py, selenium-py/);
+    assert.match(r.stderr, /Supported now: playwright-js, cypress-js/);
+    assert.match(r.stderr, /Planned: selenium-js, playwright-py, selenium-py/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -156,9 +156,9 @@ test('project.configPath names each framework', async () => {
 
     write(dir, 'cy.json', JSON.stringify(finding('cypress.config.js')));
     const cy = await runCli(['--findings', 'cy.json', '--results', 'out.json', '--dry-run'], dir);
-    assert.equal(cy.status, 2);
-    assert.match(cy.stderr, /cypress-js is planned and is not supported yet/);
-    assert.equal(fs.existsSync(path.join(dir, 'out.json')), false);
+    assert.equal(cy.status, 0, cy.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'out.json'), 'utf8')).results[0].refusal.code, 'ineligible-handoff');
+    fs.rmSync(path.join(dir, 'out.json'));
 
     write(dir, 'py.json', JSON.stringify(finding('pytest.ini')));
     const py = await runCli(['--findings', 'py.json', '--results', 'out.json'], dir);
@@ -191,7 +191,7 @@ test('selenium-webdriver in package.json is refused for a run, and capabilities 
     const json = await runCli(['capabilities', '--json'], dir);
     assert.equal(plain.status, 0, plain.stderr);
     assert.equal(json.status, 0, json.stderr);
-    assert.match(plain.stdout, /frameworks: playwright-js/);
+    assert.match(plain.stdout, /frameworks: playwright-js, cypress-js/);
     assert.equal(JSON.parse(json.stdout).features.runTimeout, true);
     assert.equal(plain.stderr, '');
     const run = await runCli(['tests/nope.spec.ts', '--dry-run'], dir);

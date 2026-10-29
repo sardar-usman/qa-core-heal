@@ -550,7 +550,40 @@ interface IdentityProbe {
  * a pinned ElementHandle inside ONE evaluate call, so the same physical DOM
  * node is read both times and nothing can be re-queried in between.
  */
-async function probeIdentity(handle: ElementHandle<SVGElement | HTMLElement>): Promise<IdentityProbe> {
+/**
+ * One read, with no in-page timer. A context that has JavaScript disabled
+ * never fires `setTimeout`, so the timed probe would wait until Playwright's
+ * own evaluate timeout. A captured page cannot change while script is off,
+ * so the second read is the first read.
+ */
+async function probeIdentitySnapshot(handle: ElementHandle<SVGElement | HTMLElement>): Promise<IdentityProbe> {
+  return handle.evaluate((el) => {
+    const ATTRS = ['aria-label', 'placeholder', 'name', 'alt', 'title', 'value', 'data-testid', 'data-test'];
+    const read = (): Array<[string, string]> => {
+      const out: Array<[string, string]> = [];
+      for (let i = 0; i < ATTRS.length; i++) {
+        const v = el.getAttribute(ATTRS[i]!);
+        if (v) out.push(['attr:' + ATTRS[i], v]);
+      }
+      const inp = el as HTMLInputElement;
+      if (typeof inp.value === 'string' && inp.value) out.push(['prop:value', inp.value]);
+      const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (t) out.push(['text', t]);
+      if (el.id) out.push(['id', el.id]);
+      const labels = (el as HTMLInputElement).labels;
+      if (labels && labels.length > 0) {
+        const lt = (labels[0]!.textContent ?? '').replace(/\s+/g, ' ').trim();
+        if (lt) out.push(['label', lt]);
+      }
+      return out;
+    };
+    const first = read();
+    return { first, second: first.map((pair) => [pair[0], pair[1]] as [string, string]), mutated: [], observed: [] };
+  });
+}
+
+async function probeIdentity(handle: ElementHandle<SVGElement | HTMLElement>, inPageTimers = true): Promise<IdentityProbe> {
+  if (!inPageTimers) return probeIdentitySnapshot(handle);
   return handle.evaluate(async (el, windowMs) => {
     const ATTRS = ['aria-label', 'placeholder', 'name', 'alt', 'title', 'value', 'data-testid', 'data-test'];
     const read = (): Array<[string, string]> => {
@@ -604,7 +637,7 @@ async function probeIdentity(handle: ElementHandle<SVGElement | HTMLElement>): P
   }, IDENTITY_WINDOW_MS);
 }
 
-interface ConfirmResult {
+export interface ConfirmResult {
   confirmed: boolean;
   /** True when confirmation failed but a DISCARDED (unstable) value would have matched. */
   unstableMatch: boolean;
@@ -728,7 +761,24 @@ function describeFingerprint(f: Fingerprint): string {
  * Matching compares separator-normalized forms too: an attribute
  * "search_field" carries the token "search field 1".
  */
-async function confirmSameElement(locator: Locator, token: string): Promise<ConfirmResult> {
+/** A JavaScript-disabled probe must refuse instead of waiting on a timer that never fires. */
+const CONFIRM_DEADLINE_MS = 8000;
+
+export async function confirmSameElement(
+  locator: Locator,
+  token: string,
+  options?: { inPageTimers?: boolean },
+): Promise<ConfirmResult> {
+  const inPageTimers = options?.inPageTimers !== false;
+  const work = confirmSameElementNow(locator, token, inPageTimers);
+  if (inPageTimers) return work;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve({ confirmed: false, unstableMatch: false }), CONFIRM_DEADLINE_MS);
+    work.then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });
+  });
+}
+
+async function confirmSameElementNow(locator: Locator, token: string, inPageTimers: boolean): Promise<ConfirmResult> {
   const nt = norm(token);
   if (nt.length < 2) return { confirmed: false, unstableMatch: false }; // nothing specific enough to confirm against
   const st = normSep(token);
@@ -754,7 +804,7 @@ async function confirmSameElement(locator: Locator, token: string): Promise<Conf
     if (!handle) return 'gone';
     let probe: IdentityProbe;
     try {
-      probe = await probeIdentity(handle);
+      probe = await probeIdentity(handle, inPageTimers);
     } catch {
       return 'gone';
     } finally {
@@ -1399,6 +1449,8 @@ type RouteOutcome =
     };
 
 export async function heal(opts: HealOptions): Promise<HealResult> {
+  const healSpec = activeAdapter().healSpec;
+  if (healSpec) return healSpec(opts) as Promise<HealResult>;
   const givenPaths = (opts.specPaths ?? (opts.specPath ? [opts.specPath] : []))
     .map((p) => path.resolve(p));
   if (givenPaths.length === 0) throw new Error('No spec path given.');

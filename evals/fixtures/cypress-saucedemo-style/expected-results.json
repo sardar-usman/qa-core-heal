@@ -1,0 +1,11 @@
+{
+  "suite": "cypress-saucedemo-style",
+  "cases": [
+    { "name": "test id typo", "expect": "healed", "code": null },
+    { "name": "renamed text", "expect": "healed", "code": null },
+    { "name": "ambiguous match", "expect": "refused", "code": "ambiguous-match" },
+    { "name": "moved element", "expect": "healed", "code": null },
+    { "name": "real defect", "expect": "refused", "code": "possible-real-bug" },
+    { "name": "iframe", "expect": "refused", "code": "no-safe-pattern" }
+  ]
+}

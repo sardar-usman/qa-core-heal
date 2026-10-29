@@ -104,6 +104,8 @@ export interface NeutralTestResult {
   locations: Array<{ file: string; line: number }>;
   /** The runner's own status word when the report has one. */
   status: string;
+  /** Cypress writes the failing page here. Playwright leaves this unset. */
+  capturePath?: string | null;
 }
 
 /**
@@ -191,6 +193,11 @@ export interface SpecBatchRequest {
   configRel?: string | null;
   timeoutMs?: number | (() => number | undefined);
   observe?: (run: ChildRun) => void;
+  /**
+   * A dry run must not create folders in the user project.
+   * The adapter keeps its scratch copy in the system temp directory.
+   */
+  preview?: boolean;
 }
 
 export interface SpecBatchResult {
@@ -236,6 +243,8 @@ export interface RunRequest {
   observe?: (run: ChildRun) => void;
   /** First runs record a trace unless this is set. */
   noTrace?: boolean;
+  /** A dry run must not create folders in the user project. */
+  preview?: boolean;
 }
 
 export type RunResult =
@@ -262,6 +271,11 @@ export interface WeakenGrammar {
   /** Not global. Matches test.skip and test.fixme, including test.describe.skip. */
   skipCall: RegExp;
   assertCallee: string;
+  /**
+   * Cypress counts `.should()` and `.and()` as assertions.
+   * Unset for Playwright, so the expect() rules stay as they are.
+   */
+  shouldChain?: boolean;
 }
 
 /**
@@ -329,6 +343,12 @@ export interface FrameworkAdapter {
    * not proof for them.
    */
   uniqueInTarget(probePage: unknown, query: ProbeQuery): Promise<number>;
+  /**
+   * The core same-element check. `locator` is a Playwright locator for the
+   * candidate, and `token` is the identity that candidate must still carry.
+   * Adapters call this instead of comparing a mark made during their own scan.
+   */
+  confirmSameElement(locator: unknown, token: string): Promise<{ confirmed: boolean; unstableMatch: boolean; got?: string }>;
   /** The page URL at failure time. Playwright reads it from the trace. */
   pageSource(input: PageSourceInput): string | null;
   /** Base URL and storage state for the probe. */
@@ -344,10 +364,19 @@ export interface FrameworkAdapter {
   /** True when this project has a TypeScript config this Node cannot load. */
   blocksTypeScriptConfig(root: string): boolean;
   typeStrippingMessage(): string;
+  /** Spec-mode wording. Playwright keeps the sentences it already prints. */
+  noReportMessage?(detail: string): string;
+  noTestsMessage?(specs: string): string;
+  unexpectedCountMessage?(count: number): string;
   assertionGrammar: WeakenGrammar;
   routeCalls: RouteGrammar;
   cleanup: CleanupRules;
   /** A navigation or network failure in this framework's error text. */
   navigationError: RegExp;
   capabilities: AdapterCapabilities;
+  /**
+   * When set, this adapter heals the spec. The core calls it instead of the
+   * Playwright healer. Playwright leaves it unset.
+   */
+  healSpec?(opts: object): Promise<object>;
 }

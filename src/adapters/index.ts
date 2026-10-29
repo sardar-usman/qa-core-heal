@@ -1,12 +1,14 @@
+import { cypressJs } from './cypress-js/index.js';
 import { playwrightJs } from './playwright-js/index.js';
 import type { FrameworkAdapter, FrameworkId } from './types.js';
 
 /**
- * Adapters this build can run. 0.5 registers playwright-js only.
+ * Adapters this build can run. 0.6 registers playwright-js and cypress-js.
  * The other ids are recognised by detection and refused until a later release.
  */
 const registry = new Map<FrameworkId, FrameworkAdapter>([
   ['playwright-js', playwrightJs],
+  ['cypress-js', cypressJs],
 ]);
 
 /** Capabilities and detection list frameworks in this order. Python ids stay planned. */

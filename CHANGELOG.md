@@ -1,8 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (Unreleased)
 
-- **Docs:** The README says `playwright` is a required peer dependency and `@playwright/test` is optional. Both stay at `>=1.49.0`.
+Cypress JS/TS healing. Contract version 1 is unchanged. Playwright output for the same inputs stays the same except the version, the framework list, and the `--framework` help line.
+
+- **Added:** `cypress-js` runs. A project with a Cypress config is healed as Cypress. `--framework cypress-js` selects it.
+- **Added:** Literal `cy.get`, `cy.contains`, and `cy.getByRole` can be healed from the captured failing page. `cy.getByRole` is emitted only on Cypress 16.2.0 or newer. Cypress older than 15.10.0 is refused.
+- **Added:** Refusals for `cy.origin`, iframes, `.shadow()`, `includeShadowDom`, `.within()`, chained `.find()`, jQuery-only selectors, variables, template expressions, and custom commands. The refusal codes are the existing ones.
+- **Changed:** `capabilities` lists `playwright-js` and `cypress-js`. `@playwright/test` stays an optional peer. `playwright` stays required. The README says the same.
 - **Fixed:** A text lookup that also sets `selector` counts matches inside that selector. A text lookup without `selector` is unchanged.
 
 ## 0.5.0 (2026-10-28)
