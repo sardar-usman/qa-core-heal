@@ -24,7 +24,7 @@ const { compareVersions } = await import(path.join(repoRoot, 'dist', 'adapters',
 const { seleniumMatchIds } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'unique.js'));
 const { grepPatternFor } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'list-tests.js'));
 
-test('Mocha grep is the anchored full title', () => {
+test('Mocha fgrep is the full title', () => {
   const source = "describe('login', () => {\n  it('logs in', async () => {});\n  it('hangs', async () => {});\n});\n";
   assert.equal(grepPatternFor(source, 'logs in'), 'login logs in');
   assert.equal(grepPatternFor(source, 'hangs'), 'login hangs');
