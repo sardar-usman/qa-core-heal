@@ -34,9 +34,13 @@ test('capabilities --json reports the tool version, both contract versions and t
       ai: false,
       playwrightConfig: true,
       runTimeout: true,
-      frameworks: ['playwright-js', 'cypress-js'],
+      frameworks: ['playwright-js', 'cypress-js', 'selenium-js'],
     },
-    frameworkVersions: { 'playwright-js': playwrightVersion, 'cypress-js': cypressVersion },
+    frameworkVersions: {
+      'playwright-js': playwrightVersion,
+      'cypress-js': cypressVersion,
+      'selenium-js': installedVersion('selenium-webdriver'),
+    },
   });
   assert.equal(caps.frameworkVersions['playwright-js'], caps.playwrightVersion);
   assert.deepEqual(Object.keys(caps), ['schema', 'schemaVersion', 'tool', 'contracts', 'playwrightVersion', 'features', 'frameworkVersions']);
@@ -53,7 +57,7 @@ test('capabilities prints readable text without --json', async () => {
   assert.match(r.stdout, /spec mode Playwright config: --playwright-config/);
   assert.match(r.stdout, /run timeout: --run-timeout/);
   assert.match(r.stdout, new RegExp(`Playwright: ${playwrightVersion.replace(/\./g, '\\.')}`));
-  assert.match(r.stdout, /frameworks: playwright-js, cypress-js\n$/);
+  assert.match(r.stdout, /frameworks: playwright-js, cypress-js, selenium-js\n$/);
 });
 
 test('capabilities runs nothing: no test, no browser, no file written', async () => {
@@ -80,12 +84,12 @@ test('capabilities lists only enabled adapters in Playwright, Cypress, Selenium,
       const r = await runCli(['capabilities', '--json'], dir);
       assert.equal(r.status, 0, `${name}: ${r.stderr}`);
       const caps = JSON.parse(r.stdout);
-      assert.deepEqual(caps.features.frameworks, ['playwright-js', 'cypress-js'], name);
-      assert.deepEqual(Object.keys(caps.frameworkVersions), ['playwright-js', 'cypress-js'], name);
+      assert.deepEqual(caps.features.frameworks, ['playwright-js', 'cypress-js', 'selenium-js'], name);
+      assert.deepEqual(Object.keys(caps.frameworkVersions), ['playwright-js', 'cypress-js', 'selenium-js'], name);
       assert.equal(caps.frameworkVersions['playwright-js'], caps.playwrightVersion, name);
       const text = await runCli(['capabilities'], dir);
       assert.equal(text.status, 0, text.stderr);
-      assert.match(text.stdout, /frameworks: playwright-js, cypress-js\n$/);
+      assert.match(text.stdout, /frameworks: playwright-js, cypress-js, selenium-js\n$/);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 });

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { repoRoot, runCli } from './helpers/contract.mjs';
 
 const { detectFramework } = await import(path.join(repoRoot, 'dist', 'adapters', 'detect.js'));
+const { useAdapter } = await import(path.join(repoRoot, 'dist', 'adapters', 'index.js'));
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-fw-'));
@@ -133,8 +134,8 @@ test('an unknown framework value is a usage error and lists the accepted values'
     const r = await runCli(['--dry-run', '--framework', 'webdriver'], dir);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /Unknown framework "webdriver"/);
-    assert.match(r.stderr, /Supported now: playwright-js, cypress-js/);
-    assert.match(r.stderr, /Planned: selenium-js, playwright-py, selenium-py/);
+    assert.match(r.stderr, /Supported now: playwright-js, cypress-js, selenium-js/);
+    assert.match(r.stderr, /Planned: playwright-py, selenium-py/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -183,6 +184,26 @@ test('project.configPath names each framework', async () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('selenium-webdriver with Mocha is selected, and Jest stays planned', async () => {
+  const mochaDir = tempDir();
+  const jestDir = tempDir();
+  try {
+    write(mochaDir, 'package.json', JSON.stringify({ devDependencies: { 'selenium-webdriver': '4.6.0', mocha: '10.0.0' } }));
+    write(mochaDir, '.mocharc.json', '{}\n');
+    const found = detectFramework({ root: mochaDir });
+    assert.equal(found.ok, true);
+    assert.equal(found.id, 'selenium-js');
+    write(jestDir, 'package.json', JSON.stringify({ devDependencies: { 'selenium-webdriver': '4.6.0', jest: '29.0.0' } }));
+    const jest = detectFramework({ root: jestDir });
+    assert.equal(jest.ok, false);
+    assert.match(jest.message, /Jest is planned and is not supported yet/);
+  } finally {
+    fs.rmSync(mochaDir, { recursive: true, force: true });
+    fs.rmSync(jestDir, { recursive: true, force: true });
+    useAdapter('playwright-js');
+  }
+});
+
 test('selenium-webdriver in package.json is refused for a run, and capabilities still answers', async () => {
   const dir = tempDir();
   try {
@@ -191,7 +212,7 @@ test('selenium-webdriver in package.json is refused for a run, and capabilities 
     const json = await runCli(['capabilities', '--json'], dir);
     assert.equal(plain.status, 0, plain.stderr);
     assert.equal(json.status, 0, json.stderr);
-    assert.match(plain.stdout, /frameworks: playwright-js, cypress-js/);
+    assert.match(plain.stdout, /frameworks: playwright-js, cypress-js, selenium-js/);
     assert.equal(JSON.parse(json.stdout).features.runTimeout, true);
     assert.equal(plain.stderr, '');
     const run = await runCli(['tests/nope.spec.ts', '--dry-run'], dir);

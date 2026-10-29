@@ -7,7 +7,7 @@
  * Normalisations against 0.5.0:
  *   - results generatedAt and audit timestamp values
  *   - the temporary output folder id
- *   - the version string 0.6.0 versus 0.5.0
+ *   - the version string 0.7.0 versus 0.5.0
  *   - features.frameworks, frameworkVersions, and the frameworks text line
  *   - the --framework values in --help
  */
@@ -23,7 +23,7 @@ const baselineCli = ensureGoldenBaseline();
 const NORMALISATIONS = [
   'results generatedAt and audit timestamp values',
   'temporary output folder id (qa-core-heal-out-*)',
-  'version string 0.6.0 versus 0.5.0',
+  'version string 0.7.0 versus 0.5.0',
   'features.frameworks, frameworkVersions, and the frameworks text line',
   'the --framework values in --help',
 ];
@@ -119,12 +119,13 @@ function cleanArtifacts(dir) {
 
 function scrubText(text) {
   return text
+    .replaceAll('0.7.0', '0.5.0')
     .replaceAll('0.6.0', '0.5.0')
     .replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt": "TIME"')
     .replace(/"timestamp":\s*"[^"]*"/g, '"timestamp": "TIME"')
     .replace(/qa-core-heal-out-[A-Za-z0-9_-]+/g, 'qa-core-heal-out-ID')
-    .replaceAll('Supported now: playwright-js, cypress-js.', 'Supported now: playwright-js.')
-    .replaceAll('Planned: selenium-js, playwright-py, selenium-py', 'Planned: cypress-js, selenium-js, playwright-py, selenium-py')
+    .replaceAll('Supported now: playwright-js, cypress-js, selenium-js.', 'Supported now: playwright-js.')
+    .replaceAll('Planned: playwright-py, selenium-py', 'Planned: cypress-js, selenium-js, playwright-py, selenium-py')
     .replace(/^ {2}frameworks:.*\n/gm, '  frameworks: playwright-js\n');
 }
 

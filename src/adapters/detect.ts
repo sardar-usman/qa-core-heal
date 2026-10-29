@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FRAMEWORK_IDS, type DetectHit, type FrameworkId } from './types.js';
 import { enabledAdapters, getAdapter, registeredAdapters, useAdapter } from './index.js';
+import { seleniumRunnerBlock } from './selenium-js/index.js';
 
 /**
  * Framework detection. It reads files only. It never runs a framework,
@@ -112,7 +113,7 @@ function hitsFromRoot(root: string): DetectHit[] {
   if (pkgText) {
     try {
       const pkg = JSON.parse(pkgText) as { dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
-      if (pkg.dependencies?.['selenium-webdriver'] != null || pkg.devDependencies?.['selenium-webdriver'] != null) {
+      if (!getAdapter('selenium-js') && (pkg.dependencies?.['selenium-webdriver'] != null || pkg.devDependencies?.['selenium-webdriver'] != null)) {
         hits.push({ id: 'selenium-js', reason: 'package.json' });
       }
     } catch { /* a package.json that is not JSON is not a Selenium marker */ }
@@ -148,6 +149,10 @@ export function detectFramework(input: { root: string; flag?: string; configPath
       return { ok: false, message: `Unknown framework "${flag}". Supported now: ${supportedNow()}. Planned: ${plannedIds()}.` };
     }
     const id = flag as FrameworkId;
+    if (id === 'selenium-js') {
+      const blocked = seleniumRunnerBlock(input.root);
+      if (blocked) return { ok: false, message: blocked };
+    }
     if (!runnable(id)) return { ok: false, message: planned(id) };
     useAdapter(id);
     return { ok: true, id, reason: 'flag' };
@@ -164,6 +169,10 @@ export function detectFramework(input: { root: string; flag?: string; configPath
     }
   }
   const decision = decide(hitsFromRoot(input.root));
+  if (decision.ok && decision.reason === 'fallback') {
+    const blocked = seleniumRunnerBlock(input.root);
+    if (blocked) return { ok: false, message: blocked };
+  }
   if (decision.ok) useAdapter(decision.id);
   return decision;
 }
