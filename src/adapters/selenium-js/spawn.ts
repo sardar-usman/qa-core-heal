@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { killProcessTree, trackOutputDir, untrackChildGroup, watchChildGroup } from '../../process-guard.js';
+import { killProcessTree, trackCreatedQaCore, trackOutputDir, untrackChildGroup, untrackCreatedQaCore, watchChildGroup } from '../../process-guard.js';
 import type { ChildRun } from '../types.js';
 import { grepPatternFor } from './list-tests.js';
 import { hasRemoteSession } from './parse.js';
@@ -154,6 +154,9 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
   const qaCore = path.join(request.projectRoot, '.qa-core');
   const createdQaCore = !fs.existsSync(qaCore);
   fs.mkdirSync(qaCore, { recursive: true });
+  // The signal handler exits before this function's finally runs. It deletes
+  // the scratch, then this registration deletes .qa-core when that leaves it empty.
+  if (createdQaCore) trackCreatedQaCore(qaCore);
   const scratch = fs.mkdtempSync(path.join(qaCore, 'scratch-'));
   trackOutputDir(scratch);
   try {
@@ -223,6 +226,7 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
       try {
         if (fs.readdirSync(qaCore).length === 0) fs.rmdirSync(qaCore);
       } catch { /* a folder heal did not create stays */ }
+      untrackCreatedQaCore(qaCore);
     }
   }
 }

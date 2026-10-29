@@ -207,6 +207,7 @@ for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) 
   test(`Selenium ${sig} leaves no chromedriver or Chrome`, { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 180000 }, async () => {
     const outcome = await signalCase(sig, []);
     assert.equal(outcome.status, code, `${outcome.stderr}\n${outcome.stdout}`);
+    assert.equal(outcome.treeSame, true, (outcome.after ?? []).join('\n'));
     assert.deepEqual(outcome.left, []);
   });
 }
@@ -359,6 +360,7 @@ async function signalCase(sig, extra) {
   const server = await listen('<!doctype html><html><body><input id="user" /></body></html>');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-se-sig-'));
   writeProject(dir, server.base, loginSpec('await driver.findElement(By.id("missing")).click();'));
+  const treeBefore = projectTree(dir);
   const before = new Set(browserPids());
   const child = spawn(process.execPath, [cli, 'test/login.test.js', ...extra], { cwd: dir, env: process.env });
   let stdout = '';
@@ -373,7 +375,8 @@ async function signalCase(sig, extra) {
     }
     const status = await closed;
     await new Promise((resolve) => setTimeout(resolve, 800));
-    return { status, stdout, stderr, left: projectPids(dir) };
+    const after = projectTree(dir);
+    return { status, stdout, stderr, left: projectPids(dir), treeSame: treeBefore.join('\n') === after.join('\n'), after };
   } finally {
     if (child.exitCode === null && !child.killed) {
       try { process.kill(child.pid, 'SIGKILL'); } catch { /* already gone */ }
@@ -389,6 +392,21 @@ function browserPids() {
     const cmd = readCmd(name);
     return /chromedriver|(?:^|[/\\])chrome(?:\s|$)/i.test(cmd);
   });
+}
+
+function projectTree(dir) {
+  const out = [];
+  const walk = (current) => {
+    for (const name of fs.readdirSync(current)) {
+      const full = path.join(current, name);
+      const rel = path.relative(dir, full);
+      const st = fs.lstatSync(full);
+      if (st.isSymbolicLink() || st.isFile()) out.push(rel);
+      else if (st.isDirectory()) { out.push(`${rel}/`); walk(full); }
+    }
+  };
+  walk(dir);
+  return out.sort();
 }
 
 function projectPids(dir) {
