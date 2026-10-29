@@ -343,6 +343,12 @@ export interface FrameworkAdapter {
    * not proof for them.
    */
   uniqueInTarget(probePage: unknown, query: ProbeQuery): Promise<number>;
+  /**
+   * The core same-element check. `locator` is a Playwright locator for the
+   * candidate, and `token` is the identity that candidate must still carry.
+   * Adapters call this instead of comparing a mark made during their own scan.
+   */
+  confirmSameElement(locator: unknown, token: string): Promise<{ confirmed: boolean; unstableMatch: boolean; got?: string }>;
   /** The page URL at failure time. Playwright reads it from the trace. */
   pageSource(input: PageSourceInput): string | null;
   /** Base URL and storage state for the probe. */

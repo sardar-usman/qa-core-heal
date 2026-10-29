@@ -604,7 +604,7 @@ async function probeIdentity(handle: ElementHandle<SVGElement | HTMLElement>): P
   }, IDENTITY_WINDOW_MS);
 }
 
-interface ConfirmResult {
+export interface ConfirmResult {
   confirmed: boolean;
   /** True when confirmation failed but a DISCARDED (unstable) value would have matched. */
   unstableMatch: boolean;
@@ -728,7 +728,7 @@ function describeFingerprint(f: Fingerprint): string {
  * Matching compares separator-normalized forms too: an attribute
  * "search_field" carries the token "search field 1".
  */
-async function confirmSameElement(locator: Locator, token: string): Promise<ConfirmResult> {
+export async function confirmSameElement(locator: Locator, token: string): Promise<ConfirmResult> {
   const nt = norm(token);
   if (nt.length < 2) return { confirmed: false, unstableMatch: false }; // nothing specific enough to confirm against
   const st = normSep(token);

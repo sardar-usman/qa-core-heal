@@ -220,6 +220,8 @@ Cypress healing uses the same rules as Playwright: one matching element, or no c
 
 `cy.get` with a CSS literal, `cy.contains` with a literal, and `cy.getByRole` with a literal role and name can be healed. `cy.getByRole` is written only when the installed Cypress is 16.2.0 or newer. Cypress older than 15.10.0 is refused.
 
+A test id heal uses the `testIdAttribute` string in the Cypress config when the project sets one. Otherwise heal uses `data-test`. Cypress's own configuration reference does not define `testIdAttribute`; projects set it when they follow the `data-cy`, `data-test`, or `data-testid` practice.
+
 These shapes are refused: `cy.origin`, iframes, `.shadow()`, `includeShadowDom`, `.within()`, a chained `.find()`, jQuery-only selectors, variables, template literals with expressions, and custom commands.
 
 The project needs its own Cypress install. Heal does not add Cypress, a plugin, or a file to the project. A run uses a temporary copy and does not clear the project's screenshot, video, or download folders.

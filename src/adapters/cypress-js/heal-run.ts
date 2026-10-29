@@ -6,10 +6,11 @@ import { matchFuzzy, type FuzzyCandidate } from '../../fuzzy.js';
 import type { ProbeQuery } from '../types.js';
 import { emitContains, emitGet, emitRole } from './emit.js';
 import { parseCypressCalls, configHasShadow, type CypressCall, type CypressQuote } from './parse.js';
-import { countCypressQuery, cypressMatchStamps } from './unique.js';
+import { countCypressQuery } from './unique.js';
 import { CYPRESS_GET_BY_ROLE_MIN, cypressVersion, versionAtLeast } from './version.js';
 import { testIdAttributeFrom } from './capture.js';
 import { testAtLine } from './list-tests.js';
+import { projectRootFor } from '../../project-root.js';
 
 /**
  * Heal Cypress literals against the captured page. There is no fresh load.
@@ -20,8 +21,9 @@ export async function healCypress(opts: HealOptions): Promise<HealResult> {
   const files = specs.filter((file) => fs.existsSync(file) && fs.statSync(file).isFile());
   const calls = files.flatMap((file) => parseCypressCalls(fs.readFileSync(file, 'utf8'), file));
   const shadow = files.some((file) => configHasShadow(fs.readFileSync(file, 'utf8')));
-  const version = cypressVersion(path.dirname(files[0] ?? process.cwd())) ?? cypressVersion(process.cwd());
-  const testId = testIdAttributeFrom(readProjectConfig(process.cwd()));
+  const root = projectRootFor(files[0] ?? process.cwd());
+  const version = cypressVersion(root);
+  const testId = testIdAttributeFrom(readProjectConfig(root));
   const roleOk = version != null && versionAtLeast(version, CYPRESS_GET_BY_ROLE_MIN);
   const targets = opts.targets ?? [];
   const locators: LocatorReport[] = [];
@@ -141,27 +143,32 @@ async function propose(page: Page, call: CypressCall, roleOk: boolean, testId: s
   const scanned = byDisplay.get(verdict.candidate.display);
   if (attr === testId || attr === 'data-cy' || attr === 'data-test' || attr === 'data-testid') {
     const selector = `[${attr}="${cssAttr(value)}"]`;
-    if (!await sameElement(page, { kind: 'css', selector }, scanned?.stamp)) return null;
+    if (await countCypressQuery(page, { kind: 'css', selector }) !== 1) return null;
+    if (!await sameElement(page, { kind: 'css', selector }, value)) return null;
     return { code: emitGet(selector, quote), level: 'testid' };
   }
   if (roleOk && (attr === 'text' || attr === 'aria-label') && scanned?.role) {
-    if (await sameElement(page, { kind: 'role', role: scanned.role, name: value, exact: true }, scanned.stamp)) {
+    const roleQuery = { kind: 'role' as const, role: scanned.role, name: value, exact: true };
+    if (await countCypressQuery(page, roleQuery) === 1 && await sameElement(page, roleQuery, value)) {
       return { code: emitRole(scanned.role, value, quote), level: 'role' };
     }
   }
   if (attr === 'text' || attr === 'aria-label') {
     const selector = scanned?.tag || '*';
-    if (await sameElement(page, { kind: 'text', text: value, selector }, scanned?.stamp)) {
+    const textQuery = { kind: 'text' as const, text: value, selector };
+    if (await countCypressQuery(page, textQuery) === 1 && await sameElement(page, textQuery, value)) {
       return { code: emitContains(selector, value, quote), level: 'text' };
     }
   }
   if (attr === 'id' && scanned?.id) {
     const selector = `#${cssIdent(scanned.id)}`;
-    if (await sameElement(page, { kind: 'css', selector }, scanned.stamp)) return { code: emitGet(selector, quote), level: 'css' };
+    if (await countCypressQuery(page, { kind: 'css', selector }) !== 1) return null;
+    if (await sameElement(page, { kind: 'css', selector }, value)) return { code: emitGet(selector, quote), level: 'css' };
   }
   if (attr === 'name' && scanned?.name) {
     const selector = `[name="${cssAttr(scanned.name)}"]`;
-    if (await sameElement(page, { kind: 'css', selector }, scanned.stamp)) return { code: emitGet(selector, quote), level: 'css' };
+    if (await countCypressQuery(page, { kind: 'css', selector }) !== 1) return null;
+    if (await sameElement(page, { kind: 'css', selector }, value)) return { code: emitGet(selector, quote), level: 'css' };
   }
   return null;
 }
@@ -269,7 +276,9 @@ function matchesTarget(call: CypressCall, targets: HealTarget[]): boolean {
   return targets.some((target) => {
     const selector = target.selector.replace(/\s+/g, '');
     const raw = call.raw.replace(/\s+/g, '');
-    return raw.includes(selector) || selector.includes(call.css ?? '') || selector.includes(call.text ?? '___none___');
+    if (raw.includes(selector)) return true;
+    if (call.css && selector.includes(call.css)) return true;
+    return Boolean(call.text) && selector.includes(call.text!);
   });
 }
 
@@ -364,10 +373,24 @@ function cssIdent(value: string): string {
   return value.replace(/([^A-Za-z0-9_-])/g, '\\$1');
 }
 
-async function sameElement(page: Page, query: ProbeQuery, stamp: string | undefined): Promise<boolean> {
-  if (!stamp) return false;
-  const stamps = await cypressMatchStamps(page, query);
-  return stamps.length === 1 && stamps[0] === stamp;
+function locatorFor(page: Page, query: ProbeQuery) {
+  if (query.kind === 'css') return page.locator(query.selector);
+  if (query.kind === 'testId') return page.locator(`[data-test="${query.value.replace(/"/g, '\\"')}"]`);
+  if (query.kind === 'text') {
+    const root = query.selector && query.selector !== '*' ? page.locator(query.selector) : page.locator('body');
+    return root.getByText(query.text, { exact: true });
+  }
+  if (query.kind === 'role') return page.getByRole(query.role as 'button', { name: query.name ?? '', exact: true });
+  return null;
+}
+
+/** The candidate locator must carry `token` under the core same-element check. */
+async function sameElement(page: Page, query: ProbeQuery, token: string): Promise<boolean> {
+  const locator = locatorFor(page, query);
+  if (!locator) return false;
+  const { activeAdapter } = await import('../index.js');
+  const result = await activeAdapter().confirmSameElement(locator, token);
+  return result.confirmed;
 }
 
 function inFailedTest(
