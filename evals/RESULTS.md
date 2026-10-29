@@ -42,3 +42,17 @@ Local fixture pages. These rows are not part of the Playwright table above.
 | real defect | refused | possible-real-bug | ok |
 | iframe | refused | no-safe-pattern | ok |
 
+## Selenium
+
+Local fixture pages, driven by Mocha and selenium-webdriver. These rows are not part of the Playwright table above.
+
+| Case | Expected | Refusal code | Result |
+|---|---|---|---|
+| test id typo | healed |  | ok |
+| renamed text | healed |  | ok |
+| ambiguous | refused | ambiguous-match | ok |
+| moved | healed |  | ok |
+| real defect | refused | possible-real-bug | ok |
+| iframe | refused | no-safe-pattern | ok |
+| wait timeout | healed |  | ok |
+

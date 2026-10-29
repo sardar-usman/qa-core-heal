@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -118,14 +118,14 @@ test('a Selenium test id typo heals from the captured page', { skip: canRun ? fa
 
 test('selenium eval cases heal or refuse as specified', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 300000 }, async () => {
   const { runSeleniumFixture } = await import(path.join(repoRoot, 'evals', 'run-selenium-evals.mjs'));
-  const failures = await runSeleniumFixture({
+  const outcome = await runSeleniumFixture({
     repoRoot,
     cli,
     seleniumPkg: seleniumRoot,
     mochaPkg: mochaRoot,
     chrome: chromeBinary(),
   });
-  assert.deepEqual(failures, []);
+  assert.deepEqual(outcome.failures, []);
 });
 
 test('findElements length matches the DOM count', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 180000 }, async () => {
@@ -172,6 +172,29 @@ for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) 
   });
 }
 
+/**
+ * ChromeDriver on PATH is used before Selenium Manager. A GitHub-hosted runner
+ * ships ChromeDriver 156, which refuses Playwright's Chrome for Testing 148.
+ * Ask Selenium Manager for the driver that matches this browser and pass that
+ * executable, so the PATH driver is not the one that starts.
+ * https://www.selenium.dev/documentation/selenium_manager/
+ */
+function chromedriverFor(browserPath) {
+  if (!browserPath || !seleniumRoot) return '';
+  const folder = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : (process.arch === 'arm64' ? 'linux-arm64' : 'linux-x86_64');
+  const name = process.platform === 'win32' ? 'selenium-manager.exe' : 'selenium-manager';
+  const manager = path.join(seleniumRoot, 'bin', folder, name);
+  if (!fs.existsSync(manager)) return '';
+  const run = spawnSync(manager, ['--browser', 'chrome', '--browser-path', browserPath, '--skip-driver-in-path', '--output', 'json'], { encoding: 'utf8', timeout: 120000 });
+  try {
+    const parsed = JSON.parse(run.stdout || '');
+    const driver = parsed?.result?.driver_path;
+    return driver && fs.existsSync(driver) ? driver : '';
+  } catch {
+    return '';
+  }
+}
+
 function chromeBinary() {
   const root = path.join(os.homedir(), '.cache', 'ms-playwright');
   if (!fs.existsSync(root)) return '';
@@ -192,7 +215,10 @@ describe('login', () => {
     const binary = process.env.QA_CORE_HEAL_CHROME;
     if (binary) options.setChromeBinaryPath(binary);
     options.addArguments('--headless=new', '--no-sandbox', '--disable-dev-shm-usage');
-    driver = await new Builder().forBrowser('chrome').setChromeOptions(options).build();
+    let builder = new Builder().forBrowser('chrome').setChromeOptions(options);
+    const driverBin = process.env.QA_CORE_HEAL_CHROMEDRIVER;
+    if (driverBin) builder = builder.setChromeService(new chrome.ServiceBuilder(driverBin));
+    driver = await builder.build();
   });
   afterEach(async () => { if (driver) await driver.quit(); });
   it('${pass ? 'counts' : 'logs in'}', async () => {
@@ -245,6 +271,7 @@ function writeProject(dir, base, spec) {
   fs.writeFileSync(path.join(dir, 'test', 'login.test.js'), spec);
   process.env.QA_CORE_HEAL_PAGE = base;
   process.env.QA_CORE_HEAL_CHROME = chromeBinary();
+  process.env.QA_CORE_HEAL_CHROMEDRIVER = chromedriverFor(process.env.QA_CORE_HEAL_CHROME);
   process.env.QA_CORE_HEAL_MARK = mark;
 }
 
