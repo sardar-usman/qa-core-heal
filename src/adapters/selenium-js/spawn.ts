@@ -48,7 +48,15 @@ const root = process.env.QA_CORE_HEAL_PROJECT;
 if (dir) {
   try {
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'argv.json'), JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(1) }));
+    let specPeek = '';
+    try {
+      const testDir = path.join(process.cwd(), 'test');
+      const names = fs.existsSync(testDir) ? fs.readdirSync(testDir) : [];
+      const login = path.join(testDir, 'login.test.js');
+      const lines = fs.existsSync(login) ? fs.readFileSync(login, 'utf8').split('\\n').filter((line) => /\\b(it|describe)\\b/.test(line)) : ['missing'];
+      specPeek = names.join(',') + ' :: ' + lines.join(' | ');
+    } catch (err) { specPeek = String(err); }
+    fs.writeFileSync(path.join(dir, 'argv.json'), JSON.stringify({ specPeek, cwd: process.cwd() }));
   } catch { /* the failure text can say the hook did not write */ }
 }
 if (dir && root) {
@@ -197,7 +205,12 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     // https://mochajs.org/#exclusive-tests
     // https://mochajs.org/#-fgrep-string-f-string
     const grep = only ? null : grepFor(specSource, request.titlePath, request.title, request.line);
-    if (grep) args.push('--fgrep', grep);
+    if (only) {
+      // One absolute file, ignoring `.mocharc`, so a hidden parent directory cannot
+      // drop the spec from the merged list. `.only` still limits that file to one test.
+      args[1] = scratchSpec;
+      args.push('--no-config', '--timeout', '20000');
+    } else if (grep) args.push('--fgrep', grep);
     const childEnv: NodeJS.ProcessEnv = { ...process.env, QA_CORE_HEAL_CAPTURE: captureDir, QA_CORE_HEAL_PROJECT: request.projectRoot };
     for (const key of Object.keys(childEnv)) {
       if (key === 'MOCHA_OPTIONS' || key === 'NODE_OPTIONS' || key === 'NODE_CHANNEL_FD' || key.startsWith('NODE_TEST_')) delete childEnv[key];
@@ -216,7 +229,7 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
       let argvNote = '';
       const argvFile = path.join(captureDir, 'argv.json');
       if (fs.existsSync(argvFile)) {
-        argvNote = ` hook ${fs.readFileSync(argvFile, 'utf8').slice(0, 500)}`;
+        argvNote = ` hook ${fs.readFileSync(argvFile, 'utf8').slice(0, 700)}`;
       } else {
         argvNote = ' hook did not run.';
       }
