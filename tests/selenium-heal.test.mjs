@@ -103,6 +103,45 @@ test('link text and xpath counts follow the DOM rules', async () => {
   }
 });
 
+test('a beforeEach session error is reported, not zero tests', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 60000 }, async () => {
+  const spec = `describe('login', () => {
+  beforeEach(() => { throw new Error('SessionNotCreatedError: session not created: Chrome failed to start'); });
+  it('logs in', () => {});
+  it('hangs', () => {});
+});
+`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-se-hook-'));
+  try {
+    writeProject(dir, 'http://127.0.0.1:9', spec);
+    const run = await runCli(['test/login.test.js', '--test', 'logs in', '--dry-run', '--json'], dir);
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /did not finish the selected test/);
+    assert.match(run.stderr, /session not created: Chrome failed to start/);
+    assert.doesNotMatch(`${run.stderr}\n${run.stdout}`, /0 tests/);
+    assert.equal(fs.existsSync(path.join(dir, '.qa-core')), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a heal starts Chrome when ChromeDriver is not on PATH', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 180000 }, async () => {
+  const html = '<!doctype html><html><body><input id="user-name" data-test="username" /></body></html>';
+  const stripped = (process.env.PATH || '').split(path.delimiter).filter((dir) => dir && !fs.existsSync(path.join(dir, 'chromedriver')) && !fs.existsSync(path.join(dir, 'chromedriver.exe'))).join(path.delimiter);
+  const result = await healHtml(html, loginSpec('await driver.findElement(By.css(\'[data-test="usrname"]\')).click();'), { pathEnv: stripped });
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  assert.match(result.specAfter, /username|usrname/);
+  assert.equal(result.qaCoreLeft, false);
+});
+
+test('a heal uses the discovered Chrome when no binary is forced', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 180000 }, async () => {
+  const html = '<!doctype html><html><body><input id="user-name" data-test="username" /></body></html>';
+  const result = await healHtml(html, loginSpec('await driver.findElement(By.css(\'[data-test="username"]\')).click();'), { chromeMode: 'system' });
+  assert.ok(result.browser, 'Selenium Manager did not discover a Chrome binary');
+  assert.equal(result.browser.includes('ms-playwright'), false, result.browser);
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  assert.equal(result.qaCoreLeft, false);
+});
+
 test('a Selenium test id typo heals from the captured page', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 180000 }, async () => {
   const html = '<!doctype html><html><body><input id="user-name" data-test="username" /></body></html>';
   const result = await healHtml(html, loginSpec('await driver.findElement(By.css(\'[data-test="usrname"]\')).click();'));
@@ -175,23 +214,32 @@ for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) 
 /**
  * ChromeDriver on PATH is used before Selenium Manager. A GitHub-hosted runner
  * ships ChromeDriver 156, which refuses Playwright's Chrome for Testing 148.
- * Ask Selenium Manager for the driver that matches this browser and pass that
- * executable, so the PATH driver is not the one that starts.
+ * `--skip-driver-in-path` makes Selenium Manager resolve the driver for the
+ * browser we pass, or for the Chrome it discovers when no binary is passed.
+ * The absolute driver path is what the session starts, so a missing PATH
+ * entry still works.
  * https://www.selenium.dev/documentation/selenium_manager/
  */
-function chromedriverFor(browserPath) {
-  if (!browserPath || !seleniumRoot) return '';
+function resolveChrome(browserPath) {
+  const empty = { browser: browserPath || '', driver: '' };
+  if (!seleniumRoot) return empty;
   const folder = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : (process.arch === 'arm64' ? 'linux-arm64' : 'linux-x86_64');
   const name = process.platform === 'win32' ? 'selenium-manager.exe' : 'selenium-manager';
   const manager = path.join(seleniumRoot, 'bin', folder, name);
-  if (!fs.existsSync(manager)) return '';
-  const run = spawnSync(manager, ['--browser', 'chrome', '--browser-path', browserPath, '--skip-driver-in-path', '--output', 'json'], { encoding: 'utf8', timeout: 120000 });
+  if (!fs.existsSync(manager)) return empty;
+  const args = ['--browser', 'chrome', '--skip-driver-in-path', '--output', 'json'];
+  if (browserPath) args.push('--browser-path', browserPath);
+  const run = spawnSync(manager, args, { encoding: 'utf8', timeout: 120000 });
   try {
     const parsed = JSON.parse(run.stdout || '');
     const driver = parsed?.result?.driver_path;
-    return driver && fs.existsSync(driver) ? driver : '';
+    const browser = browserPath || parsed?.result?.browser_path || '';
+    return {
+      browser: browser && fs.existsSync(browser) ? browser : (browserPath || ''),
+      driver: driver && fs.existsSync(driver) ? driver : '',
+    };
   } catch {
-    return '';
+    return empty;
   }
 }
 
@@ -233,28 +281,32 @@ describe('login', () => {
 `;
 }
 
-async function healHtml(html, spec) {
+async function healHtml(html, spec, options = {}) {
   const server = await listen(html);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-se-'));
+  const previousPath = process.env.PATH;
+  if (options.pathEnv) process.env.PATH = options.pathEnv;
   try {
-    writeProject(dir, server.base, spec);
+    writeProject(dir, server.base, spec, options.chromeMode || 'playwright');
     const specPath = path.join(dir, 'test', 'login.test.js');
     const specBefore = fs.readFileSync(specPath, 'utf8');
-    const run = await runCli(['test/login.test.js', '--test', 'logs in', '--dry-run', '--json'], dir);
+    const run = await runCli(['test/login.test.js', '--test', 'logs in', '--dry-run', '--json'], dir, { ...process.env });
     return {
       ...run,
       specBefore,
       specAfter: fs.readFileSync(specPath, 'utf8'),
       otherRan: fs.existsSync(path.join(dir, 'other-ran')),
       qaCoreLeft: fs.existsSync(path.join(dir, '.qa-core')),
+      browser: process.env.QA_CORE_HEAL_CHROME || '',
     };
   } finally {
+    if (options.pathEnv) process.env.PATH = previousPath;
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
-function writeProject(dir, base, spec) {
+function writeProject(dir, base, spec, chromeMode = 'playwright') {
   fs.mkdirSync(path.join(dir, 'test'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
   fs.symlinkSync(seleniumRoot, path.join(dir, 'node_modules', 'selenium-webdriver'));
@@ -270,8 +322,9 @@ function writeProject(dir, base, spec) {
   fs.writeFileSync(path.join(dir, 'test', 'other.test.js'), "const fs = require('node:fs');\ndescribe('other', () => { it('other test', () => { fs.writeFileSync(process.env.QA_CORE_HEAL_MARK, 'yes'); }); });\n");
   fs.writeFileSync(path.join(dir, 'test', 'login.test.js'), spec);
   process.env.QA_CORE_HEAL_PAGE = base;
-  process.env.QA_CORE_HEAL_CHROME = chromeBinary();
-  process.env.QA_CORE_HEAL_CHROMEDRIVER = chromedriverFor(process.env.QA_CORE_HEAL_CHROME);
+  const resolved = chromeMode === 'system' ? resolveChrome('') : resolveChrome(chromeBinary());
+  process.env.QA_CORE_HEAL_CHROME = resolved.browser;
+  process.env.QA_CORE_HEAL_CHROMEDRIVER = resolved.driver;
   process.env.QA_CORE_HEAL_MARK = mark;
 }
 
@@ -287,9 +340,9 @@ function listen(html) {
   });
 }
 
-function runCli(args, cwd) {
+function runCli(args, cwd, env = process.env) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [cli, ...args], { cwd, env: process.env });
+    const child = spawn(process.execPath, [cli, ...args], { cwd, env });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });

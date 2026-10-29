@@ -17,19 +17,25 @@ const fixture = path.join(here, 'fixtures', 'selenium-saucedemo-style');
  * driver Selenium Manager resolves for this browser so the versions match.
  * https://www.selenium.dev/documentation/selenium_manager/
  */
-function chromedriverFor(seleniumPkg, browserPath) {
-  if (!browserPath) return '';
+function resolveChrome(seleniumPkg, browserPath) {
+  const empty = { browser: browserPath || '', driver: '' };
   const folder = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : (process.arch === 'arm64' ? 'linux-arm64' : 'linux-x86_64');
   const name = process.platform === 'win32' ? 'selenium-manager.exe' : 'selenium-manager';
   const manager = path.join(seleniumPkg, 'bin', folder, name);
-  if (!fs.existsSync(manager)) return '';
-  const run = spawnSync(manager, ['--browser', 'chrome', '--browser-path', browserPath, '--skip-driver-in-path', '--output', 'json'], { encoding: 'utf8', timeout: 120000 });
+  if (!fs.existsSync(manager)) return empty;
+  const args = ['--browser', 'chrome', '--skip-driver-in-path', '--output', 'json'];
+  if (browserPath) args.push('--browser-path', browserPath);
+  const run = spawnSync(manager, args, { encoding: 'utf8', timeout: 120000 });
   try {
     const parsed = JSON.parse(run.stdout || '');
     const driver = parsed?.result?.driver_path;
-    return driver && fs.existsSync(driver) ? driver : '';
+    const browser = browserPath || parsed?.result?.browser_path || '';
+    return {
+      browser: browser && fs.existsSync(browser) ? browser : (browserPath || ''),
+      driver: driver && fs.existsSync(driver) ? driver : '',
+    };
   } catch {
-    return '';
+    return empty;
   }
 }
 
@@ -128,11 +134,12 @@ async function healOne({ cli, seleniumPkg, mochaPkg, chrome, html, body }) {
     fs.writeFileSync(path.join(dir, 'test', 'other.test.js'), "const fs = require('node:fs');\ndescribe('other', () => { it('other test', () => { fs.writeFileSync(process.env.QA_CORE_HEAL_MARK, 'yes'); }); });\n");
     const spec = specText(body);
     fs.writeFileSync(specPath, spec);
+    const resolved = resolveChrome(seleniumPkg, chrome || '');
     const env = {
       ...process.env,
       QA_CORE_HEAL_PAGE: base,
-      QA_CORE_HEAL_CHROME: chrome || '',
-      QA_CORE_HEAL_CHROMEDRIVER: chromedriverFor(seleniumPkg, chrome || ''),
+      QA_CORE_HEAL_CHROME: chrome || resolved.browser,
+      QA_CORE_HEAL_CHROMEDRIVER: resolved.driver,
       QA_CORE_HEAL_MARK: mark,
     };
     const run = await new Promise((resolve) => {
