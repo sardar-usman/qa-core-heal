@@ -73,4 +73,4 @@ jobs:
         run: npm run typecheck
 
       - name: Cypress tests
-        run: QA_CORE_HEAL_CYPRESS=1 node --import ./tests/helpers/temps.mjs --test tests/cypress-heal.test.mjs
+        run: npm run build && QA_CORE_HEAL_CYPRESS=1 node --import ./tests/helpers/temps.mjs --test tests/cypress-heal.test.mjs
