@@ -179,7 +179,7 @@ function frameworkHelpLine(): string {
   return `      --framework <id>           framework to use. Supported now: ${supported}. Planned: ${planned}`;
 }
 
-const HELP = `qa-core-heal — deterministic selector healing for Playwright specs
+const HELP = `qa-core-heal: deterministic selector healing for Playwright, Cypress, and Selenium specs
 
 Usage:
   qa-core-heal [spec-path] [flags]

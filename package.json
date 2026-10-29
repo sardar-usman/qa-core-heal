@@ -22,13 +22,13 @@
     "no-llm",
     "cli"
   ],
-  "homepage": "https://github.com/sardar-usman/qa-core-heal#readme",
+  "homepage": "https://github.com/sprintsynergyhq/qa-core-heal#readme",
   "bugs": {
-    "url": "https://github.com/sardar-usman/qa-core-heal/issues"
+    "url": "https://github.com/sprintsynergyhq/qa-core-heal/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sardar-usman/qa-core-heal.git"
+    "url": "git+https://github.com/sprintsynergyhq/qa-core-heal.git"
   },
   "author": {
     "name": "Muhammad Usman",
