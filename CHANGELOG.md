@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.7.0 (Unreleased)
+## 0.7.0 (2026-10-29)
+
+This is the first npm release since 0.3.4. It also contains the changes listed under 0.6.0, 0.5.0, 0.4.2, 0.4.1, 0.4.0, and 0.3.5, which were not published to npm on their own.
 
 Selenium JS/TS healing with Mocha. Contract version 1 is unchanged. Playwright output for the same inputs stays the same except the version, the framework list, and the `--framework` help line.
 
@@ -9,8 +11,9 @@ Selenium JS/TS healing with Mocha. Contract version 1 is unchanged. Playwright o
 - **Changed:** `capabilities` lists `playwright-js`, `cypress-js`, and `selenium-js`. `selenium-webdriver` below 4.6.0 and Mocha below 10.0.0 are refused.
 - **Fixed:** `--test` passes Mocha `--grep` as `^<full title>$`, the suite titles and the test title joined by a space, with regexp characters escaped. The spec path is relative to the scratch copy, so a `.mocharc` spec list still merges and the grep keeps a single test. A `before` hook that fails before the test ends is reported with that error. A dry run does not leave `.qa-core`.
 - **Fixed:** A template literal or a concatenated `By` argument is refused instead of being dropped. An identity check on a captured page does not wait on an in-page timer.
+- **Changed:** The repository moved to `sprintsynergyhq/qa-core-heal`. The `repository`, `homepage`, and `bugs` links in `package.json` point there. The `--help` title names Playwright, Cypress, and Selenium.
 
-## 0.6.0 (Unreleased)
+## 0.6.0 (Not published on its own. Released in 0.7.0.)
 
 Cypress JS/TS healing. Contract version 1 is unchanged. Playwright output for the same inputs stays the same except the version, the framework list, and the `--framework` help line.
 
