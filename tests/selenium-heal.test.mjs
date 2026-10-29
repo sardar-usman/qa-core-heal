@@ -22,8 +22,16 @@ const { classifySeleniumFailure, byFromSentSelector } = await import(path.join(r
 const { parseSeleniumCalls, hasRemoteSession } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'parse.js'));
 const { compareVersions } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'version.js'));
 const { seleniumMatchIds } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'unique.js'));
-const { grepPatternFor } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'list-tests.js'));
+const { grepPatternFor, listMochaTests } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'list-tests.js'));
 const { hookFailureText } = await import(path.join(repoRoot, 'dist', 'adapters', 'selenium-js', 'report.js'));
+
+test('a brace or an escaped quote in a title does not move the suite', () => {
+  const braced = "describe('login', () => {\n  const css = '}';\n  it('stays', () => {});\n});\n";
+  const listed = listMochaTests(braced);
+  assert.deepEqual(listed.find((item) => item.title === 'stays')?.titlePath, ['login', 'stays']);
+  const escaped = "it('can\\'t log in', () => {});\n";
+  assert.equal(listMochaTests(escaped)[0]?.title, "can't log in");
+});
 
 test('Mocha grep is the anchored full title', () => {
   const source = "describe('login', () => {\n  it('logs in', async () => {});\n  it('hangs', async () => {});\n});\n";
@@ -82,6 +90,9 @@ test('parser accepts literal By calls and refuses js, objects, and variables', (
   assert.equal(calls.filter((call) => call.strategy === 'css').length, 1);
   assert.ok(calls.some((call) => call.unsafe && /By\.js/.test(call.unsafe)));
   assert.ok(calls.some((call) => call.unsafe && /string literal/.test(call.unsafe)));
+  const dynamic = parseSeleniumCalls("await driver.findElement(By.css(`#${'a'}`));\nawait driver.findElement(By.css('a' + b));", 'test/login.test.js');
+  assert.equal(dynamic.length, 2);
+  assert.ok(dynamic.every((call) => call.unsafe));
   assert.ok(calls.some((call) => call.unsafe && /Object locators/.test(call.unsafe)));
   assert.equal(hasRemoteSession("new Builder().usingServer(process.env.GRID).build()"), true);
 });
@@ -127,9 +138,13 @@ test('a beforeEach session error is reported, not zero tests', { skip: canRun ? 
 test('a heal starts Chrome when ChromeDriver is not on PATH', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 180000 }, async () => {
   const html = '<!doctype html><html><body><input id="user-name" data-test="username" /></body></html>';
   const stripped = (process.env.PATH || '').split(path.delimiter).filter((dir) => dir && !fs.existsSync(path.join(dir, 'chromedriver')) && !fs.existsSync(path.join(dir, 'chromedriver.exe'))).join(path.delimiter);
-  const result = await healHtml(html, loginSpec('await driver.findElement(By.css(\'[data-test="usrname"]\')).click();'), { pathEnv: stripped });
+  const result = await healHtml(html, loginSpec('await driver.findElement(By.css(\'[data-test="usrname"]\')).click();'), { pathEnv: stripped, omitDriver: true });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
-  assert.match(result.specAfter, /username|usrname/);
+  const payload = JSON.parse(result.stdout);
+  const row = payload.locators.find((entry) => entry.status === 'healed');
+  assert.ok(row, JSON.stringify(payload));
+  assert.match(row.new, /username/);
+  assert.equal(result.otherRan, false);
   assert.equal(result.qaCoreLeft, false);
 });
 
@@ -152,7 +167,52 @@ test('a Selenium test id typo heals from the captured page', { skip: canRun ? fa
   assert.equal(row.status, 'healed', JSON.stringify(row));
   assert.match(row.new, /username/);
   assert.equal(result.specAfter, result.specBefore);
+  assert.equal(result.otherRan, false);
   assert.equal(result.qaCoreLeft, false);
+});
+
+test('a template or concatenated locator is refused', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 60000 }, async () => {
+  const html = '<!doctype html><html><body><input id="user-name" /></body></html>';
+  const template = await healHtml(html, loginSpec('await driver.findElement(By.css(`#${\'missing\'}`)).click();'));
+  assert.equal(template.status, 1, `${template.stderr}\n${template.stdout}`);
+  const templatePayload = JSON.parse(template.stdout);
+  assert.ok(templatePayload.refused > 0 || templatePayload.unmatchedFailures.length > 0, JSON.stringify(templatePayload));
+  const joined = await healHtml(html, loginSpec("await driver.findElement(By.css('#miss' + 'ing')).click();"));
+  assert.equal(joined.status, 1, `${joined.stderr}\n${joined.stdout}`);
+  const joinedPayload = JSON.parse(joined.stdout);
+  assert.ok(joinedPayload.refused > 0 || joinedPayload.unmatchedFailures.length > 0, JSON.stringify(joinedPayload));
+});
+
+test('a mistyped test id next to By.id does not hang', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 25000 }, async () => {
+  const html = '<!doctype html><html><body><button id="login" data-test="login-button">Login</button></body></html>';
+  const body = 'await driver.findElement(By.css(\'[data-test="login-buton"]\')).click();\n    await driver.findElement(By.id(\'login\')).click();';
+  const result = await healHtml(html, loginSpec(body));
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  const payload = JSON.parse(result.stdout);
+  const row = payload.locators.find((entry) => String(entry.old).includes('login-buton'));
+  assert.ok(row, JSON.stringify(payload));
+  assert.equal(row.status, 'healed', JSON.stringify(row));
+  assert.match(row.new, /login-button/);
+});
+
+test('confirmSameElement finishes when the page has JavaScript disabled', async () => {
+  const { getAdapter } = await import(path.join(repoRoot, 'dist', 'adapters', 'index.js'));
+  const seleniumJs = getAdapter('selenium-js');
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.setContent('<button id="login" data-test="login-button">Login</button><button id="cancel">Cancel</button>');
+    const started = Date.now();
+    const match = await seleniumJs.confirmSameElement(page.locator('#login'), 'login');
+    const miss = await seleniumJs.confirmSameElement(page.locator('#cancel'), 'login-button');
+    assert.ok(Date.now() - started < 8000, `took ${Date.now() - started}ms`);
+    assert.equal(match.confirmed, true);
+    assert.equal(miss.confirmed, false);
+  } finally {
+    await browser.close();
+  }
 });
 
 test('selenium eval cases heal or refuse as specified', { skip: canRun ? false : 'set QA_CORE_HEAL_SELENIUM=1 with selenium-webdriver and mocha installed', timeout: 300000 }, async () => {
@@ -288,7 +348,7 @@ async function healHtml(html, spec, options = {}) {
   const previousPath = process.env.PATH;
   if (options.pathEnv) process.env.PATH = options.pathEnv;
   try {
-    writeProject(dir, server.base, spec, options.chromeMode || 'playwright');
+    writeProject(dir, server.base, spec, options.chromeMode || 'playwright', options.omitDriver === true);
     const specPath = path.join(dir, 'test', 'login.test.js');
     const specBefore = fs.readFileSync(specPath, 'utf8');
     const run = await runCli(['test/login.test.js', '--test', 'logs in', '--dry-run', '--json'], dir, { ...process.env });
@@ -307,7 +367,7 @@ async function healHtml(html, spec, options = {}) {
   }
 }
 
-function writeProject(dir, base, spec, chromeMode = 'playwright') {
+function writeProject(dir, base, spec, chromeMode = 'playwright', omitDriver = false) {
   fs.mkdirSync(path.join(dir, 'test'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
   fs.symlinkSync(seleniumRoot, path.join(dir, 'node_modules', 'selenium-webdriver'));
@@ -325,7 +385,7 @@ function writeProject(dir, base, spec, chromeMode = 'playwright') {
   process.env.QA_CORE_HEAL_PAGE = base;
   const resolved = chromeMode === 'system' ? resolveChrome('') : resolveChrome(chromeBinary());
   process.env.QA_CORE_HEAL_CHROME = resolved.browser;
-  process.env.QA_CORE_HEAL_CHROMEDRIVER = resolved.driver;
+  process.env.QA_CORE_HEAL_CHROMEDRIVER = omitDriver ? '' : resolved.driver;
   process.env.QA_CORE_HEAL_MARK = mark;
 }
 
@@ -361,7 +421,6 @@ async function signalCase(sig, extra) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-se-sig-'));
   writeProject(dir, server.base, loginSpec('await driver.findElement(By.id("missing")).click();'));
   const treeBefore = projectTree(dir);
-  const before = new Set(browserPids());
   const child = spawn(process.execPath, [cli, 'test/login.test.js', ...extra], { cwd: dir, env: process.env });
   let stdout = '';
   let stderr = '';
@@ -370,7 +429,7 @@ async function signalCase(sig, extra) {
   const closed = new Promise((resolve) => child.on('close', (status) => resolve(status)));
   try {
     if (sig) {
-      await waitFor(() => browserPids().some((pid) => !before.has(pid)), 'Chrome to start');
+      await waitFor(() => projectPids(dir).some((pid) => Number(pid) !== child.pid), 'Chrome to start');
       process.kill(child.pid, sig);
     }
     const status = await closed;
@@ -384,14 +443,6 @@ async function signalCase(sig, extra) {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
-}
-
-function browserPids() {
-  return fs.readdirSync('/proc').filter((name) => /^\d+$/.test(name)).filter((name) => {
-    if (Number(name) === process.pid) return false;
-    const cmd = readCmd(name);
-    return /chromedriver|(?:^|[/\\])chrome(?:\s|$)/i.test(cmd);
-  });
 }
 
 function projectTree(dir) {
@@ -410,11 +461,14 @@ function projectTree(dir) {
 }
 
 function projectPids(dir) {
+  if (!fs.existsSync('/proc')) return [];
   const real = fs.realpathSync(dir);
-  return browserPids().filter((pid) => {
-    const cmd = readCmd(pid);
-    if (cmd.includes(real) || cmd.includes('qa-core-heal')) return true;
-    try { return fs.readlinkSync(`/proc/${pid}/cwd`).startsWith(real); } catch { return false; }
+  return fs.readdirSync('/proc').filter((name) => /^\d+$/.test(name)).filter((name) => {
+    if (Number(name) === process.pid) return false;
+    const cmd = readCmd(name);
+    if (!/chromedriver|chrome/i.test(cmd) || cmd.includes(`${path.sep}dist${path.sep}cli.js`)) return false;
+    if (cmd.includes(real)) return true;
+    try { return fs.readlinkSync(`/proc/${name}/cwd`).startsWith(real); } catch { return false; }
   });
 }
 

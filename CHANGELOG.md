@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 (2026-10-29)
+## 0.7.0 (Unreleased)
 
 Selenium JS/TS healing with Mocha. Contract version 1 is unchanged. Playwright output for the same inputs stays the same except the version, the framework list, and the `--framework` help line.
 
@@ -8,6 +8,7 @@ Selenium JS/TS healing with Mocha. Contract version 1 is unchanged. Playwright o
 - **Added:** Literal `By.id`, `By.name`, `By.css`, `By.xpath`, `By.linkText`, and `By.partialLinkText` can be healed from the captured failing page. `By.js`, object locators, relative locators, and variables are refused. The refusal codes are the existing ones.
 - **Changed:** `capabilities` lists `playwright-js`, `cypress-js`, and `selenium-js`. `selenium-webdriver` below 4.6.0 and Mocha below 10.0.0 are refused.
 - **Fixed:** `--test` passes Mocha `--grep` as `^<full title>$`, the suite titles and the test title joined by a space, with regexp characters escaped. The spec path is relative to the scratch copy, so a `.mocharc` spec list still merges and the grep keeps a single test. A `before` hook that fails before the test ends is reported with that error. A dry run does not leave `.qa-core`.
+- **Fixed:** A template literal or a concatenated `By` argument is refused instead of being dropped. An identity check on a captured page does not wait on an in-page timer.
 
 ## 0.6.0 (Unreleased)
 

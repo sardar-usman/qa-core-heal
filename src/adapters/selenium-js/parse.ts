@@ -56,6 +56,18 @@ export function parseSeleniumCalls(source: string, file: string): SeleniumCall[]
     out.push(call(file, line, startCol, raw, strategy as SeleniumStrategy, value, quote, null));
   }
   const variable = /By\.(?:css|id|name|xpath|linkText|partialLinkText)\(\s*[A-Za-z_$]/g;
+  const nonLiteral = /By\.(?:css|id|name|xpath|linkText|partialLinkText)\(\s*(?:`|(['"])(?:\\.|(?!\1).)*\1\s*\+)/g;
+  for (const match of source.matchAll(nonLiteral)) {
+    const index = match.index ?? 0;
+    const before = source.slice(0, index);
+    const line = before.split('\n').length;
+    const startCol = index - before.lastIndexOf('\n') - 1;
+    const raw = match[0]!;
+    const reason = raw.includes('`')
+      ? 'A template literal cannot be healed.'
+      : 'A locator argument must be a string literal.';
+    out.push(call(file, line, startCol, raw, null, null, "'", reason));
+  }
   for (const match of source.matchAll(variable)) {
     const index = match.index ?? 0;
     const before = source.slice(0, index);

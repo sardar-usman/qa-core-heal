@@ -27,7 +27,7 @@ export interface SeleniumSpawnRequest {
   line?: number;
   timeoutMs?: number | (() => number | undefined);
   observe?: (run: ChildRun) => void;
-  /** Dry run: the scratch copy stays in the system temp directory. */
+  /** Dry run: the scratch copy stays under the project `.qa-core` directory and is removed afterwards. */
   preview?: boolean;
 }
 
@@ -188,8 +188,11 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     const grep = grepFor(specSource, request.titlePath, request.title, request.line);
     if (grep) args.push('--grep', grep);
     const childEnv: NodeJS.ProcessEnv = { ...process.env, QA_CORE_HEAL_CAPTURE: captureDir, QA_CORE_HEAL_PROJECT: request.projectRoot };
+    // The Node test runner sets NODE_CHANNEL_FD and NODE_TEST_*. Those make
+    // Mocha run as part of the test runner. NODE_OPTIONS is kept: a project
+    // loads ts-node or an ESM loader through it, and deleting it would break that.
     for (const key of Object.keys(childEnv)) {
-      if (key === 'MOCHA_OPTIONS' || key === 'NODE_OPTIONS' || key === 'NODE_CHANNEL_FD' || key.startsWith('NODE_TEST_')) delete childEnv[key];
+      if (key === 'MOCHA_OPTIONS' || key === 'NODE_CHANNEL_FD' || key.startsWith('NODE_TEST_')) delete childEnv[key];
     }
     const run = await spawnChild(process.execPath, args, scratch, sampleTimeout(request.timeoutMs), childEnv);
     request.observe?.(run);

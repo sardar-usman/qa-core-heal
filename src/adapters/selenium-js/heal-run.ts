@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Page } from 'playwright';
-import type { Edit, HealOptions, HealPlanEntry, HealResult, HealTarget, LocatorReport } from '../../heal.js';
+import type { Edit, HealOptions, HealPlanEntry, HealResult, HealTarget, LocatorReport, UnmatchedTarget } from '../../heal.js';
 import { matchFuzzy, type FuzzyCandidate } from '../../fuzzy.js';
 import type { ProbeQuery } from '../types.js';
 import { emitBy } from './emit.js';
@@ -95,7 +95,7 @@ export async function healSelenium(opts: HealOptions): Promise<HealResult> {
     await browser.close();
   }
   const plan: HealPlanEntry[] = [...planEdits.entries()].map(([file, entry]) => ({ file, src: entry.src, edits: entry.edits }));
-  return resultOf(locators, plan, specs);
+  return resultOf(locators, plan, specs, unmatchedFor(calls, targets));
 }
 
 async function propose(page: Page, call: SeleniumCall): Promise<{ code: string; level: 'testid' | 'css' | 'text' } | { ambiguous: true } | null> {
@@ -237,7 +237,20 @@ function matchesTarget(call: SeleniumCall, targets: HealTarget[]): boolean {
   return targets.some((target) => {
     const selector = target.selector.replace(/\s+/g, '');
     const raw = call.raw.replace(/\s+/g, '');
-    return raw.includes(selector) || selector.includes(call.value ?? '___none___') || selector.includes(raw);
+    if (raw.length > 0 && (raw.includes(selector) || selector.includes(raw))) return true;
+    if (!call.value) return false;
+    // The failure text quotes the literal (`*[id="user"]`), not an arbitrary substring.
+    return [`"${call.value}"`, `'${call.value}'`].some((quoted) => selector.includes(quoted));
+  });
+}
+
+function unmatchedFor(calls: SeleniumCall[], targets: HealTarget[]): UnmatchedTarget[] {
+  return targets.flatMap((target) => {
+    const literal = calls.some((call) => !call.unsafe && matchesTarget(call, [target]));
+    if (literal) return [];
+    const dynamic = calls.some((call) => call.unsafe && /template|string literal|variable/i.test(call.unsafe));
+    if (!dynamic) return [];
+    return [{ ...target, shape: 'unknown' as const }];
   });
 }
 
@@ -279,7 +292,7 @@ function rel(file: string): string {
   return path.relative(process.cwd(), file).split(path.sep).join('/');
 }
 
-function resultOf(locators: LocatorReport[], plan: HealPlanEntry[], specs: string[]): HealResult {
+function resultOf(locators: LocatorReport[], plan: HealPlanEntry[], specs: string[], unmatchedTargets: UnmatchedTarget[] = []): HealResult {
   const healed = locators.filter((item) => item.status === 'healed').map((item) => ({
     file: path.resolve(item.file), line: item.line, old: item.old, new: item.new ?? '', level: item.level,
     occurrences: 1, occurrenceLines: [item.line],
@@ -291,7 +304,7 @@ function resultOf(locators: LocatorReport[], plan: HealPlanEntry[], specs: strin
     unhealable: locators.filter((item) => item.status === 'refused').map((item) => ({ file: item.file, selector: item.old, reason: item.reason ?? '' })),
     total: locators.length, locators,
     specFiles: Object.fromEntries(specs.map((spec) => [spec, [spec]])),
-    unmatchedTargets: [], fileErrors: [], plan,
+    unmatchedTargets, fileErrors: [], plan,
   };
 }
 
