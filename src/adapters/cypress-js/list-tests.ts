@@ -37,6 +37,14 @@ export function listSpecTests(source: string): SpecTest[] {
       i += 2;
       continue;
     }
+    if (ch === '/' && regexCanStart(source, i)) {
+      const skipped = skipRegex(source, i, line);
+      if (skipped) {
+        i = skipped.index;
+        line = skipped.line;
+        continue;
+      }
+    }
     if (ch === '\'' || ch === '"' || ch === '`') {
       const skipped = skipString(source, i, line);
       i = skipped.index;
@@ -128,6 +136,49 @@ function readCall(source: string, index: number, line: number): { title: string;
   return { title: text.value, skip, index: text.index, line: text.line };
 }
 
+/** A `/` after `=` or `{` starts a regexp. A `/` after a name or a number is division. */
+function regexCanStart(source: string, slashIndex: number): boolean {
+  let j = slashIndex - 1;
+  while (j >= 0 && (source[j] === ' ' || source[j] === '\t' || source[j] === '\r' || source[j] === '\n')) j -= 1;
+  if (j < 0) return true;
+  const prev = source[j]!;
+  if (/[A-Za-z0-9_$]/.test(prev)) {
+    let k = j;
+    while (k >= 0 && /[A-Za-z0-9_$]/.test(source[k]!)) k -= 1;
+    const word = source.slice(k + 1, j + 1);
+    return word === 'return' || word === 'case' || word === 'throw' || word === 'typeof'
+      || word === 'void' || word === 'delete' || word === 'in' || word === 'of'
+      || word === 'yield' || word === 'await' || word === 'else' || word === 'do'
+      || word === 'instanceof';
+  }
+  return prev !== ')' && prev !== ']';
+}
+
+function skipRegex(source: string, index: number, line: number): { index: number; line: number } | null {
+  let i = index + 1;
+  let inClass = false;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === '\\') {
+      const next = source[i + 1] ?? '';
+      if (next === '\r' && source[i + 2] === '\n') { line += 1; i += 3; continue; }
+      if (next === '\n' || next === '\r') { line += 1; i += 2; continue; }
+      i += 2;
+      continue;
+    }
+    if (ch === '\n') return null;
+    if (ch === '[' && !inClass) { inClass = true; i += 1; continue; }
+    if (ch === ']' && inClass) { inClass = false; i += 1; continue; }
+    if (ch === '/' && !inClass) {
+      i += 1;
+      while (i < source.length && /[A-Za-z]/.test(source[i]!)) i += 1;
+      return { index: i, line };
+    }
+    i += 1;
+  }
+  return null;
+}
+
 function skipString(source: string, index: number, line: number): { value: string; index: number; line: number } {
   const quote = source[index]!;
   let i = index + 1;
@@ -136,7 +187,20 @@ function skipString(source: string, index: number, line: number): { value: strin
     const ch = source[i]!;
     if (ch === '\n') line += 1;
     if (ch === '\\') {
-      value += source[i + 1] ?? '';
+      const next = source[i + 1] ?? '';
+      // A backslash and a line break are a continuation. The break is not part of
+      // the string, and the next line still counts.
+      if (next === '\r' && source[i + 2] === '\n') {
+        line += 1;
+        i += 3;
+        continue;
+      }
+      if (next === '\n' || next === '\r') {
+        line += 1;
+        i += 2;
+        continue;
+      }
+      value += next;
       i += 2;
       continue;
     }
