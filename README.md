@@ -332,7 +332,7 @@ npm run evals                                   # the full eval harness
 
 Use `node dist/cli.js` in place of `npx qa-core-heal` from a checkout (run `npm run build` once). Optional `qa-core.config.json` in your repo root sets baseUrl, test dir, allowed locator levels, page objects, authSetup, and storage state; full schema in `skill/references/config.md`.
 
-Playwright is a peer dependency (`@playwright/test` and `playwright`, `>=1.49.0`). This package was tested at 1.49.0 and at 1.64.1. The evals in this repo run on Playwright 1.60.0. A Playwright prerelease, such as `1.65.0-alpha`, does not satisfy `>=1.49.0` under npm's semver rules. To install qa-core-heal next to a Playwright prerelease, use `npm install --legacy-peer-deps`.
+`playwright` is a required peer dependency (`>=1.49.0`). `@playwright/test` is an optional peer dependency at the same range: install it when this project runs the Playwright test runner. This package was tested at 1.49.0 and at 1.64.1. The evals in this repo run on Playwright 1.60.0. A Playwright prerelease, such as `1.65.0-alpha`, does not satisfy `>=1.49.0` under npm's semver rules. To install qa-core-heal next to a Playwright prerelease, use `npm install --legacy-peer-deps`.
 
 ## Use It as a Claude Code Skill
 

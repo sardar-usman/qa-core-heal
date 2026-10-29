@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
-import { registeredAdapters } from './adapters/index.js';
+import { enabledAdapters } from './adapters/index.js';
 import { playwrightVersion } from './playwright-version.js';
 
 export { playwrightVersion };
@@ -52,7 +52,11 @@ export interface Capabilities {
 }
 
 export function buildCapabilities(root: string): Capabilities {
-  const version = playwrightVersion(root);
+  const enabled = enabledAdapters();
+  const frameworkVersions: Record<string, string | null> = {};
+  for (const adapter of enabled) frameworkVersions[adapter.id] = adapter.version(root);
+  const version = frameworkVersions['playwright-js'] ?? playwrightVersion(root);
+  const playwrightConfig = enabled.some((adapter) => adapter.capabilities.features.playwrightConfig === true);
   return {
     schema: CAPABILITIES_SCHEMA,
     schemaVersion: 1,
@@ -64,11 +68,11 @@ export function buildCapabilities(root: string): Capabilities {
       targetedRun: true,
       ruleSuggestions: false,
       ai: false,
-      playwrightConfig: true,
+      playwrightConfig,
       runTimeout: true,
-      frameworks: registeredAdapters().map((adapter) => adapter.id),
+      frameworks: enabled.map((adapter) => adapter.id),
     },
-    frameworkVersions: { 'playwright-js': version },
+    frameworkVersions,
   };
 }
 

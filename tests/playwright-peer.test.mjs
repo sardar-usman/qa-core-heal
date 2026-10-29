@@ -23,6 +23,8 @@ test('playwright is a peer dependency in the tested range, not a hard dependency
   assert.equal(pkg.dependencies?.['@playwright/test'], undefined);
   assert.equal(pkg.peerDependencies.playwright, RANGE);
   assert.equal(pkg.peerDependencies['@playwright/test'], RANGE);
+  assert.equal(pkg.peerDependenciesMeta['@playwright/test'].optional, true);
+  assert.equal(pkg.peerDependenciesMeta.playwright, undefined);
   assert.equal(pkg.devDependencies.playwright, '1.60.0');
   assert.equal(pkg.devDependencies['@playwright/test'], '1.60.0');
 });

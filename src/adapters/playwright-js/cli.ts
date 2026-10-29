@@ -155,6 +155,18 @@ function runChild(spec: ChildSpec): Promise<PlaywrightRunResult> {
   });
 }
 
+export interface PlaywrightSpawnNotice {
+  root: string;
+  args: string[];
+}
+
+let playwrightSpawnObserver: ((notice: PlaywrightSpawnNotice) => void) | null = null;
+
+/** Tests set this to prove a code path did not start Playwright. Production leaves it unset. */
+export function setPlaywrightSpawnObserver(observer: ((notice: PlaywrightSpawnNotice) => void) | null): void {
+  playwrightSpawnObserver = observer;
+}
+
 export function runPlaywrightCli(
   root: string,
   args: string[],
@@ -166,6 +178,7 @@ export function runPlaywrightCli(
    */
   timeoutMs?: number | (() => number | undefined),
 ): Promise<PlaywrightRunResult> {
+  playwrightSpawnObserver?.({ root, args });
   const base = { cwd: root, maxBuffer, env, timeoutMs };
   let cliJs: string | null = null;
   try {

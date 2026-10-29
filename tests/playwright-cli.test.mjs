@@ -173,7 +173,13 @@ test('passes', async () => {});
     const out = await scratchVerify({
       root: dir,
       plan: [],
-      selectArgs: [toCliFileFilter('tests/a.spec.ts')],
+      selection: {
+        specPath: path.join(dir, 'tests/a.spec.ts'),
+        specRel: 'tests/a.spec.ts',
+        titlePath: ['passes'],
+        line: 0,
+      },
+      grepTitle: null,
       runs: 2,
       timeoutMs: () => (++n === 1 ? 60000 : 0),
     });

@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { findPlaywrightConfig } from './playwright-js/config.js';
 import { FRAMEWORK_IDS, type DetectHit, type FrameworkId } from './types.js';
-import { useAdapter } from './index.js';
+import { enabledAdapters, getAdapter, registeredAdapters, useAdapter } from './index.js';
 
 /**
  * Framework detection. It reads files only. It never runs a framework,
@@ -16,11 +15,18 @@ import { useAdapter } from './index.js';
  */
 
 export type Detection =
-  | { ok: true; id: 'playwright-js'; reason: string }
+  | { ok: true; id: FrameworkId; reason: string }
   | { ok: false; message: string };
 
-const SUPPORTED_NOW = 'playwright-js';
-const PLANNED_IDS = 'cypress-js, selenium-js, playwright-py, selenium-py';
+function supportedNow(): string {
+  const enabled = enabledAdapters().map((adapter) => adapter.id);
+  return enabled.length > 0 ? enabled.join(', ') : 'playwright-js';
+}
+
+function plannedIds(): string {
+  const enabled = new Set(enabledAdapters().map((adapter) => adapter.id));
+  return FRAMEWORK_IDS.filter((id) => !enabled.has(id)).join(', ');
+}
 const PYTHON_CONFIGS = new Set(['pytest.ini', 'pyproject.toml', 'setup.cfg', 'conftest.py']);
 const CYPRESS_CONFIGS = ['cypress.config.ts', 'cypress.config.js', 'cypress.config.mjs', 'cypress.config.cjs'];
 const PYTHON_PROJECT_FILES = ['pytest.ini', 'pyproject.toml', 'conftest.py'];
@@ -85,10 +91,17 @@ function hitsFromConfigPath(configPath: string, root: string): DetectHit[] | 'un
   return null;
 }
 
+function runnable(id: FrameworkId): boolean {
+  const adapter = getAdapter(id);
+  return adapter != null && adapter.enabled;
+}
+
 function hitsFromRoot(root: string): DetectHit[] {
   const hits: DetectHit[] = [];
-  const playwright = findPlaywrightConfig(root);
-  if (playwright) hits.push({ id: 'playwright-js', reason: path.basename(playwright) });
+  for (const adapter of registeredAdapters()) {
+    const hit = adapter.detect(root);
+    if (hit) hits.push(hit);
+  }
   for (const name of CYPRESS_CONFIGS) {
     if (isFile(path.join(root, name))) {
       hits.push({ id: 'cypress-js', reason: name });
@@ -119,24 +132,25 @@ function decide(hits: DetectHit[]): Detection {
   if (hits.length === 0) return { ok: true, id: 'playwright-js', reason: 'fallback' };
   if (hits.length > 1) return { ok: false, message: twoMatch(hits) };
   const only = hits[0]!;
-  if (only.id === 'playwright-js') return { ok: true, id: 'playwright-js', reason: only.reason };
+  if (runnable(only.id)) return { ok: true, id: only.id, reason: only.reason };
   return { ok: false, message: planned(only.id) };
 }
 
 /**
- * Choose the adapter for this command. On success the registry's active
- * adapter is playwright-js. On failure nothing is selected and nothing is run.
+ * Choose the adapter for this command. On success the active adapter is
+ * the enabled framework detection chose. On failure nothing is selected
+ * and nothing is run.
  */
 export function detectFramework(input: { root: string; flag?: string; configPath?: string | null }): Detection {
   if (input.flag !== undefined) {
     const flag = input.flag.trim();
     if (!FRAMEWORK_IDS.includes(flag as FrameworkId)) {
-      return { ok: false, message: `Unknown framework "${flag}". Supported now: ${SUPPORTED_NOW}. Planned: ${PLANNED_IDS}.` };
+      return { ok: false, message: `Unknown framework "${flag}". Supported now: ${supportedNow()}. Planned: ${plannedIds()}.` };
     }
     const id = flag as FrameworkId;
-    if (id !== 'playwright-js') return { ok: false, message: planned(id) };
-    useAdapter('playwright-js');
-    return { ok: true, id: 'playwright-js', reason: 'flag' };
+    if (!runnable(id)) return { ok: false, message: planned(id) };
+    useAdapter(id);
+    return { ok: true, id, reason: 'flag' };
   }
   if (input.configPath) {
     const fromConfig = hitsFromConfigPath(input.configPath, input.root);

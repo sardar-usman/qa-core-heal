@@ -232,3 +232,45 @@ export function parseLocatorCalls(src: string, file: string): LocatorCall[] {
   }
   return calls;
 }
+
+/**
+ * Canonical identity of a locator call: the method plus its identity-
+ * bearing arguments. Built from PARSED values, so quote style, spacing,
+ * quoted-vs-bare option keys, and the receiver prefix never matter.
+ */
+function argsSignature(method: LocatorMethod, args: LocatorArgs): string {
+  const sig: Record<string, unknown> = { method };
+  if (method === 'getByRole') {
+    sig.role = args.role ?? '';
+    if (args.name) sig.name = args.name;
+    if (args.exact) sig.exact = true;
+    for (const k of ROLE_BOOL_OPTS) {
+      if (args.roleOpts?.[k] !== undefined) sig[k] = args.roleOpts[k];
+    }
+    if (args.roleOpts?.level !== undefined) sig.level = args.roleOpts.level;
+  } else if (method === 'locator') {
+    if (args.xpath) sig.xpath = args.xpath;
+    else sig.css = args.css ?? '';
+    if (args.hasText) sig.hasText = args.hasText;
+  } else {
+    sig.value = args.label ?? args.placeholder ?? args.text ?? args.alt ?? args.title ?? args.testid ?? '';
+  }
+  return JSON.stringify(sig);
+}
+
+/** Canonical signature of an already parsed locator call. */
+export function locatorSignature(method: string, args: LocatorArgs): string {
+  return argsSignature(method as LocatorMethod, args);
+}
+
+/** Signature of a selector call TEXT (for example from an error message), or null. */
+export function selectorSignature(text: string): string | null {
+  const t = text.trim();
+  const m = t.match(/^(getByRole|getByLabel|getByPlaceholder|getByText|getByAltText|getByTitle|getByTestId|locator)\s*\(/);
+  if (!m) return null;
+  const method = m[1] as LocatorMethod;
+  const open = m[0].length - 1;
+  const close = matchParen(t, open);
+  if (close < 0) return null;
+  return argsSignature(method, parseArgs(method, t.slice(open + 1, close)));
+}

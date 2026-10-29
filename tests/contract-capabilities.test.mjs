@@ -56,6 +56,30 @@ test('capabilities runs nothing: no test, no browser, no file written', async ()
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('capabilities lists only enabled adapters in Playwright, Cypress, Selenium, and mixed projects', async () => {
+  const cases = [
+    ['playwright-only', { 'playwright.config.ts': 'export default {};\n' }],
+    ['cypress-only', { 'cypress.config.ts': 'export default {};\n' }],
+    ['selenium-only', { 'package.json': JSON.stringify({ devDependencies: { 'selenium-webdriver': '4.6.0' } }) }],
+    ['mixed', { 'playwright.config.ts': 'export default {};\n', 'cypress.config.js': 'module.exports = {};\n', 'package.json': JSON.stringify({ devDependencies: { 'selenium-webdriver': '4.6.0' } }) }],
+  ];
+  for (const [name, files] of cases) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `qa-core-heal-caps-${name}-`));
+    try {
+      for (const [file, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, file), text);
+      const r = await runCli(['capabilities', '--json'], dir);
+      assert.equal(r.status, 0, `${name}: ${r.stderr}`);
+      const caps = JSON.parse(r.stdout);
+      assert.deepEqual(caps.features.frameworks, ['playwright-js'], name);
+      assert.deepEqual(Object.keys(caps.frameworkVersions), ['playwright-js'], name);
+      assert.equal(caps.frameworkVersions['playwright-js'], caps.playwrightVersion, name);
+      const text = await runCli(['capabilities'], dir);
+      assert.equal(text.status, 0, text.stderr);
+      assert.match(text.stdout, /frameworks: playwright-js\n$/);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
 test('a folder named capabilities is still reachable as ./capabilities', async () => {
   const dir = fs.mkdtempSync(path.join(repoRoot, '.tmp-test-'));
   try {

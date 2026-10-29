@@ -9,8 +9,35 @@ const registry = new Map<FrameworkId, FrameworkAdapter>([
   ['playwright-js', playwrightJs],
 ]);
 
+/** Capabilities and detection list frameworks in this order. Python ids stay planned. */
+const REGISTERED_ORDER: readonly FrameworkId[] = [
+  'playwright-js',
+  'cypress-js',
+  'selenium-js',
+  'playwright-py',
+  'selenium-py',
+];
+
+/** Capabilities list only these ids, and only when the adapter is enabled. */
+const CAPABILITY_ORDER: readonly FrameworkId[] = ['playwright-js', 'cypress-js', 'selenium-js'];
+
 export function registeredAdapters(): FrameworkAdapter[] {
-  return [...registry.values()];
+  const out: FrameworkAdapter[] = [];
+  for (const id of REGISTERED_ORDER) {
+    const adapter = registry.get(id);
+    if (adapter) out.push(adapter);
+  }
+  return out;
+}
+
+/** Enabled adapters, in the fixed capabilities order. */
+export function enabledAdapters(): FrameworkAdapter[] {
+  const out: FrameworkAdapter[] = [];
+  for (const id of CAPABILITY_ORDER) {
+    const adapter = registry.get(id);
+    if (adapter?.enabled) out.push(adapter);
+  }
+  return out;
 }
 
 export function getAdapter(id: FrameworkId): FrameworkAdapter | null {
@@ -31,5 +58,17 @@ export function useAdapter(id: FrameworkId): FrameworkAdapter {
   return found;
 }
 
+/** Tests register a stub or a disabled adapter. Production does not call this. */
+export function registerAdapter(adapter: FrameworkAdapter): void {
+  registry.set(adapter.id, adapter);
+}
+
+/** Remove a test adapter and restore Playwright when it was the active one. */
+export function unregisterAdapter(id: FrameworkId): void {
+  registry.delete(id);
+  if (current.id === id) current = playwrightJs;
+}
+
 export type { FrameworkAdapter, FrameworkId } from './types.js';
+export type { LocatorArgs, LocatorCall, LocatorMethod } from './playwright-js/parse-locators.js';
 export { FRAMEWORK_IDS } from './types.js';

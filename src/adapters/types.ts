@@ -67,6 +67,148 @@ export interface ChildRun {
   timedOut?: boolean;
 }
 
+/**
+ * One test the core asks an adapter to run.
+ * The adapter turns this into its own CLI arguments or API call.
+ */
+export interface TestSelection {
+  /** Absolute spec path in the project that was scanned. */
+  specPath: string;
+  /**
+   * The same spec relative to the project root, with forward slashes.
+   * A scratch copy runs with a different root, and this relative path
+   * still names the copied file.
+   */
+  specRel: string;
+  /** Describe titles, then the test title. */
+  titlePath: string[];
+  /** 1-based declaration line. 0 means the run is not pinned to a line. */
+  line: number;
+}
+
+/**
+ * One test from a runner report, in a form the core can use for every framework.
+ * `title` is the test title the runner printed. `state` is passed or failed.
+ */
+export interface NeutralTestResult {
+  titlePath: string[];
+  file: string;
+  line: number;
+  state: 'passed' | 'failed';
+  errorText: string;
+  attempts: number;
+  /** The test title, which is the last title path entry for Playwright. */
+  title: string;
+  ok: boolean;
+  tracePath: string | null;
+  locations: Array<{ file: string; line: number }>;
+  /** The runner's own status word when the report has one. */
+  status: string;
+}
+
+/**
+ * A count question for the target framework's own matching rule.
+ * The probe page is Playwright Chromium. The adapter decides what a match is.
+ */
+export type ProbeQuery =
+  | { kind: 'css'; selector: string; frameChain?: string[] }
+  | { kind: 'xpath'; expression: string; frameChain?: string[] }
+  | { kind: 'testId'; value: string; frameChain?: string[] }
+  | { kind: 'role'; role: string; name?: string; exact?: boolean; frameChain?: string[] }
+  | { kind: 'text'; text: string; selector?: string; exact?: boolean; frameChain?: string[] }
+  | { kind: 'label'; text: string; exact?: boolean; frameChain?: string[] }
+  | { kind: 'placeholder'; text: string; exact?: boolean; frameChain?: string[] }
+  | { kind: 'title'; text: string; exact?: boolean; frameChain?: string[] }
+  | { kind: 'alt'; text: string; frameChain?: string[] };
+
+/** How the probe finds the page the test was on when it failed. */
+export interface PageSourceInput {
+  tracePath?: string | null;
+  capturePath?: string | null;
+}
+
+export interface ProbeBaseInput {
+  files: Array<{ src: string }>;
+  roots: string[];
+  baseUrl?: string;
+  project?: string;
+  explicitConfig?: string;
+}
+
+export interface ProbeBase {
+  url: string | null;
+  configStorageState: string | null;
+}
+
+/** A parsed locator call the probe can rebuild. */
+export interface ProbeCall {
+  method: string;
+  args: {
+    role?: string;
+    name?: string;
+    exact?: boolean;
+    label?: string;
+    placeholder?: string;
+    text?: string;
+    alt?: string;
+    title?: string;
+    testid?: string;
+    css?: string;
+    xpath?: string;
+    hasText?: string;
+    roleOpts?: Record<string, boolean | number>;
+  };
+  frameChain: string[];
+}
+
+export type SpecBatchOp = 'first' | 'scan-verify' | 'rerun' | 'isolate';
+
+/** The one-test filter spec mode and findings mode hand to the adapter. */
+export interface SpecBatchSelection {
+  specPath: string;
+  /** Project-relative spec path. Used when the run root is a copy. */
+  specRel?: string;
+  /** The grep title. This is the test title, not a joined title path. */
+  title: string;
+  line: number;
+  project?: string | null;
+  config?: string | null;
+}
+
+export interface SpecBatchRequest {
+  op: SpecBatchOp;
+  /** Relative spec paths, not yet escaped for the runner. */
+  specsRel: string[];
+  selection?: SpecBatchSelection;
+  /** Declaration line after a heal moved it. Used when `selection` is set. */
+  shiftedLine?: number;
+  grepTitles?: string[];
+  grepFilesRel?: string[];
+  oneTitle?: string;
+  oneFileRel?: string;
+  trace?: boolean;
+  outputDir?: string;
+  configRel?: string | null;
+  timeoutMs?: number | (() => number | undefined);
+  observe?: (run: ChildRun) => void;
+}
+
+export interface SpecBatchResult {
+  kind: 'ran' | 'timeout' | 'no-report';
+  run: ChildRun;
+  tests: NeutralTestResult[];
+  rootDir: string;
+  failureDetail: string;
+}
+
+export interface ListQuery {
+  specPath?: string;
+  line?: number | null;
+  title?: string | null;
+  project?: string | null;
+  config?: string | null;
+}
+
 export interface ParsedOutcome {
   file: string;
   title: string;
@@ -80,8 +222,16 @@ export interface ParsedOutcome {
 export type RunMode = 'first' | 'shadow' | 'rerun';
 
 export interface RunRequest {
-  selectArgs: string[];
+  selection: TestSelection;
+  /**
+   * Title for the runner's grep. Null means no grep.
+   * Omitted means the last title path entry.
+   */
+  grepTitle?: string | null;
+  project?: string | null;
+  config?: string | null;
   extraArgs?: string[];
+  outputDir?: string;
   timeoutMs?: number | (() => number | undefined);
   observe?: (run: ChildRun) => void;
   /** First runs record a trace unless this is set. */
@@ -89,7 +239,7 @@ export interface RunRequest {
 }
 
 export type RunResult =
-  | { kind: 'ran'; run: ChildRun; report: { config?: { rootDir?: string } }; test: ParsedOutcome; status: string }
+  | { kind: 'ran'; run: ChildRun; report: { config?: { rootDir?: string } }; test: NeutralTestResult; status: string }
   | { kind: 'timeout'; run: ChildRun }
   | { kind: 'error'; message: string; run: ChildRun };
 
@@ -134,6 +284,11 @@ export interface AdapterCapabilities {
 
 export interface FrameworkAdapter {
   id: FrameworkId;
+  /**
+   * False while the adapter is registered but not turned on.
+   * Detection still names it, and the answer stays "planned".
+   */
+  enabled: boolean;
   /** Config files and package manifests that mean this framework. Null when it is absent. */
   detect(root: string): DetectHit | null;
   /** Framework version for capabilities and the audit. Null when it is not installed. */
@@ -142,7 +297,7 @@ export interface FrameworkAdapter {
   /** List tests so the core can require exactly one match by title path. */
   listTests(
     root: string,
-    selectArgs: string[],
+    query: ListQuery,
     opts?: {
       timeoutMs?: number | (() => number | undefined);
       observe?: (run: ChildRun) => void;
@@ -151,8 +306,13 @@ export interface FrameworkAdapter {
   ): Promise<ListTestsResult>;
   /** First run, shadow run, or the re-run after apply. */
   runOne(root: string, test: RunRequest, mode: RunMode): Promise<RunResult>;
+  /**
+   * A spec-mode run of one file, one test, or a grep of several titles.
+   * The adapter builds the runner arguments and reads the report.
+   */
+  runBatch(root: string, request: SpecBatchRequest): Promise<SpecBatchResult>;
   /** Status, error text, file, line, and the failure URL when the report has one. */
-  parseReport(output: string): ParsedOutcome[];
+  parseReport(output: string): NeutralTestResult[];
   classifyFailure(message: string, stack?: string): FailureClass;
   /** Positions of the exact literal the core may edit. */
   parseLocators(source: string, file: string): unknown[];
@@ -161,14 +321,29 @@ export interface FrameworkAdapter {
     ladder: { level: string; arg: unknown; ambiguous?: boolean },
   ): Emit | null;
   /**
-   * True when `target` is unique under this framework's own matching rule.
+   * How many elements `query` matches under this framework's own rule.
+   * The core heals only when the count is exactly 1.
    *
-   * Playwright JS uses strict locator semantics: exactly one match
-   * (`count() === 1`). Other adapters must implement their own framework's
-   * rule (Cypress `cy.contains` and `cy.get`, Selenium first-match and
-   * non-piercing CSS and XPath). A Playwright count is not proof for them.
+   * Playwright JS uses strict locator semantics (`locator.count()`).
+   * Cypress and Selenium must use their own rules. A Playwright count is
+   * not proof for them.
    */
-  uniqueInTarget(probePage: unknown, target: { count(): Promise<number> }): Promise<boolean>;
+  uniqueInTarget(probePage: unknown, query: ProbeQuery): Promise<number>;
+  /** The page URL at failure time. Playwright reads it from the trace. */
+  pageSource(input: PageSourceInput): string | null;
+  /** Base URL and storage state for the probe. */
+  resolveProbeBase(input: ProbeBaseInput): Promise<ProbeBase>;
+  /** Rebuild a parsed call as a probe locator. The core reads the element from it. */
+  probeLocator(probePage: unknown, call: ProbeCall): unknown;
+  /** The frame scope a count or a tag fix uses. */
+  probeScope(probePage: unknown, frameChain: string[]): unknown;
+  /** Structural identity of a locator call printed in an error. */
+  selectorSignature(text: string): string | null;
+  /** Structural identity of a parsed locator call. */
+  locatorSignature(call: ProbeCall): string;
+  /** True when this project has a TypeScript config this Node cannot load. */
+  blocksTypeScriptConfig(root: string): boolean;
+  typeStrippingMessage(): string;
   assertionGrammar: WeakenGrammar;
   routeCalls: RouteGrammar;
   cleanup: CleanupRules;

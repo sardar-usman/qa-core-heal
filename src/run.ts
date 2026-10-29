@@ -1,3 +1,7 @@
+/**
+ * Report parsing lives in the Playwright adapter. This module re-exports it
+ * so existing imports keep working, and it keeps the apply-prompt answer.
+ */
 export {
   stripAnsi,
   classifyFailure,
@@ -10,8 +14,6 @@ export {
   type TestOutcome,
 } from './adapters/playwright-js/report.js';
 
-/* ─────────────────────────── consent ─────────────────────────── */
-
 /** y/Y/yes apply; n/no/empty decline; anything else re-prompts. */
 export function parseConsent(answer: string): 'yes' | 'no' | 'retry' {
   const a = answer.trim().toLowerCase();
@@ -19,4 +21,3 @@ export function parseConsent(answer: string): 'yes' | 'no' | 'retry' {
   if (a === 'n' || a === 'no' || a === '') return 'no';
   return 'retry';
 }
-

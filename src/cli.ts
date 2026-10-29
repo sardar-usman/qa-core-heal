@@ -5,18 +5,19 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { applyHealPlan, applyHealPlanExcluding, collectSpecFiles, heal, selectorSignature, type HealEvent, type HealResult, type HealTarget, type LocatorReport } from './heal.js';
-import { escapeRegex, type CascadeLevel } from './selectors.js';
+import { type CascadeLevel } from './selectors.js';
 import { loadConfig } from './config.js';
 import { appendAuditLog, type AuditEntry } from './audit.js';
-import { findPlaywrightConfig, supportsTypeStripping, typeStrippingGateMessage } from './playwright-config.js';
-import { classifyFailure, collectTests, parseConsent, parseJsonReport, traceFailureUrl, type TestOutcome } from './run.js';
-import { describeFailedRun, runPlaywrightCli, startRunBudget, toCliFileFilter, type PlaywrightRunResult } from './playwright-cli.js';
+import { parseConsent } from './run.js';
+import { startRunBudget } from './playwright-cli.js';
 import { clearUnverifiedApplies, installSignalCleanup, trackOutputDir, trackUnverifiedApply, untrackOutputDir } from './process-guard.js';
 import { projectRootFor } from './project-root.js';
 import { detectFramework } from './adapters/detect.js';
+import { activeAdapter } from './adapters/index.js';
+import type { ChildRun, NeutralTestResult, SpecBatchSelection } from './adapters/types.js';
 import { buildCapabilities, ContractError, parseFindings, toolVersion } from './contract.js';
-import { configArgFor, configIgnoreReason, lineShift, runFindingsFlow, withLine } from './findings-flow.js';
-import { matchTitle, outputArgs, resolveTarget, type Resolution } from './targeted.js';
+import { configArgFor, configIgnoreReason, lineShift, runFindingsFlow } from './findings-flow.js';
+import { matchTitle, resolveTarget, type Resolution } from './targeted.js';
 
 /**
  * qa-core-heal CLI.
@@ -433,7 +434,7 @@ function revertSummary(n: number, reasons: Array<'locator' | 'non-locator'>): st
 
 /** --verbose/--debug reporting around child Playwright runs. Extra lines
  *  only, on stderr — verdicts and messages stay untouched. */
-function logChildRun(cli: CliArgs, run: PlaywrightRunResult): void {
+function logChildRun(cli: CliArgs, run: ChildRun): void {
   if (cli.verbose) console.error(`[verbose] child: ${run.command} (exit ${run.status ?? 'spawn-error'})`);
   if (cli.debug) {
     if (run.stdout) console.error(`[debug] child stdout:\n${run.stdout}`);
@@ -473,10 +474,10 @@ async function runFindingsMode(cli: CliArgs, loaded: ReturnType<typeof loadConfi
   // One decision for the whole command, before any test runs. A refusal
   // writes no results file, the same way an unreadable findings file stops.
   applyFramework(cli, process.cwd(), parsed.doc.project.configPath);
-  if (!supportsTypeStripping() && !(cli.baseUrl ?? cfg.baseUrl ?? parsed.doc.project.baseUrl)) {
+  if (!(cli.baseUrl ?? cfg.baseUrl ?? parsed.doc.project.baseUrl)) {
     const roots = new Set<string>([process.cwd()]);
     for (const f of parsed.doc.findings) roots.add(projectRootFor(path.resolve(f.file)));
-    if ([...roots].some((r) => findPlaywrightConfig(r)?.endsWith('.ts'))) fail(typeStrippingGateMessage());
+    if ([...roots].some((r) => activeAdapter().blocksTypeScriptConfig(r))) fail(activeAdapter().typeStrippingMessage());
   }
   const write = cli.apply;
   const reportLines: string[] = [];
@@ -672,14 +673,14 @@ async function main(): Promise<void> {
   // Reading a TypeScript playwright config needs Node's native type
   // stripping (22.6+). Gate ONLY the path that actually needs it: with an
   // explicit base URL, or a .js config, older Node keeps working.
-  if (!baseUrl && !supportsTypeStripping()) {
+  if (!baseUrl) {
     const roots = [process.cwd()];
     for (const spec of specs) {
       const root = projectRootFor(spec);
       if (!roots.includes(root)) roots.push(root);
     }
-    if (roots.some((r) => findPlaywrightConfig(r)?.endsWith('.ts'))) {
-      fail(typeStrippingGateMessage());
+    if (roots.some((r) => activeAdapter().blocksTypeScriptConfig(r))) {
+      fail(activeAdapter().typeStrippingMessage());
     }
   }
   const maxHeals = cli.maxHeals ?? cfg.heal?.maxHealsPerRun;
@@ -821,7 +822,18 @@ async function main(): Promise<void> {
       if (res.kind === 'not-found') fail(`No test titled "${cli.test}" was found in ${where}. Nothing was run.`);
       if (res.kind === 'ambiguous') fail(`${res.count} tests match "${cli.test}" in ${where}, and --test runs exactly one. Use the full title ("Describe › test") or --project. Nothing was run.`);
       if (res.kind === 'error') fail(`${res.message} Nothing was run.`);
-      only = { selectArgs: res.selectArgs, file: target, line: res.test.line };
+      only = {
+        selection: {
+          specPath: res.selection.specPath,
+          specRel: res.selection.specRel,
+          title: res.grepTitle,
+          line: res.selection.line,
+          project: res.project,
+          config: res.config,
+        },
+        file: target,
+        line: res.test.line,
+      };
     }
     await runFirstFlow({
       cli, specs, write, verify, say, runPass, printDiff, writeAudit,
@@ -913,17 +925,21 @@ async function main(): Promise<void> {
         const rel = path.relative(root, spec);
         say(`▸ Verifying ${rel} with a re-run`);
         const scanOut = specOutputDir('scan-verify');
-        const run = await runPlaywrightCli(root, ['test', toCliFileFilter(rel), '--reporter=json', ...outputArgs(scanOut), ...(playwrightConfigRel ? ['--config', playwrightConfigRel] : [])], 32 * 1024 * 1024);
+        const run = await activeAdapter().runBatch(root, {
+          op: 'scan-verify',
+          specsRel: [rel],
+          outputDir: scanOut,
+          configRel: playwrightConfigRel,
+          observe: (child) => logChildRun(cli, child),
+        });
         endSpecOutput(scanOut);
-        logChildRun(cli, run);
-        verifiedBySpec.set(spec, run.status === 0);
-        if (run.status !== 0) {
+        verifiedBySpec.set(spec, run.run.status === 0);
+        if (run.run.status !== 0) {
           let reason: 'locator' | 'non-locator' = 'locator';
           let line: string | undefined;
-          const rep = parseJsonReport(run.stdout ?? '');
-          if (rep) {
-            const failing = collectTests(rep as Parameters<typeof collectTests>[0]).filter((x) => !x.ok);
-            const classes = failing.map((x) => classifyFailure(x.message));
+          if (run.kind === 'ran') {
+            const failing = run.tests.filter((x) => !x.ok);
+            const classes = failing.map((x) => activeAdapter().classifyFailure(x.errorText));
             if (classes.length > 0 && classes.every((c) => c.kind === 'other')) {
               reason = 'non-locator';
               line = classes.find((c) => c.kind === 'other' && c.summary)?.summary;
@@ -931,7 +947,7 @@ async function main(): Promise<void> {
           }
           revertReasonBySpec.set(spec, { reason, line });
         }
-        say(run.status === 0 ? '  ✓ re-run passed' : '  ✗ re-run FAILED (audit entries record verified=false)');
+        say(run.run.status === 0 ? '  ✓ re-run passed' : '  ✗ re-run FAILED (audit entries record verified=false)');
       }
     }
     clearUnverifiedApplies();
@@ -1012,8 +1028,8 @@ async function main(): Promise<void> {
   }
 }
 
-/** One test selected by --test: the exact Playwright selection that lists exactly one test. */
-interface OnlyTest { selectArgs: string[]; file: string; line: number }
+/** One test selected by --test. The adapter turns `selection` into runner arguments. */
+interface OnlyTest { selection: SpecBatchSelection; file: string; line: number }
 
 interface RunFirstCtx {
   cli: CliArgs;
@@ -1049,12 +1065,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   const root = projectRootFor(specs[0]!);
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-out-'));
   trackOutputDir(outRoot);
-  const childExtra = (name: string): string[] => [
-    ...outputArgs(path.join(outRoot, name)),
-    ...(ctx.playwrightConfigRel ? ['--config', ctx.playwrightConfigRel] : []),
-  ];
-  // Display form: forward slashes, unescaped. Child filters go through
-  // toCliFileFilter at the spawn sites.
+  // Display form: forward slashes, unescaped. The adapter escapes the child filter.
   const rels = specs.map((s) => path.relative(root, s).split(path.sep).join('/'));
 
   // The echo shows what the USER typed (verbatim, their separators), never
@@ -1063,28 +1074,30 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   // --no-trace: for setups where tracing is unavailable or unwanted (custom
   // browser launches, older Playwright); failure URLs then come from static
   // route inference, or the locator is refused when no route is knowable.
-  const traceArgs = cli.noTrace ? [] : ['--trace', 'retain-on-failure'];
-  const run = await runPlaywrightCli(
-    root,
-    ['test', ...(ctx.only ? ctx.only.selectArgs : rels.map(toCliFileFilter)), '--reporter=json', ...traceArgs, ...childExtra('first')],
-    64 * 1024 * 1024, undefined, ctx.childTimeout,
-  );
-  logChildRun(cli, run);
-  if (run.timedOut) fail(`The test run timed out after ${(cli.runTimeoutMs ?? 0) / 1000} seconds.`);
-  const report = parseJsonReport(run.stdout ?? '') as { config?: { rootDir?: string } } | null;
-  if (!report) {
+  const run = await activeAdapter().runBatch(root, {
+    op: 'first',
+    specsRel: rels,
+    selection: ctx.only?.selection,
+    trace: !cli.noTrace,
+    outputDir: path.join(outRoot, 'first'),
+    configRel: ctx.playwrightConfigRel,
+    timeoutMs: ctx.childTimeout,
+    observe: (child) => logChildRun(cli, child),
+  });
+  if (run.run.timedOut) fail(`The test run timed out after ${(cli.runTimeoutMs ?? 0) / 1000} seconds.`);
+  if (run.kind !== 'ran') {
     // The child's failure story travels whole: the exact command, the
     // spawn error code or exit status, and the stderr tail. A bare
     // "could not run" would leave a Windows ENOENT indistinguishable
     // from a broken config.
-    fail(`Could not run the Playwright tests (no JSON report). ${describeFailedRun(run)}`);
+    fail(`Could not run the Playwright tests (no JSON report). ${run.failureDetail}`);
   }
-  const tests = collectTests(report as Parameters<typeof collectTests>[0]);
+  const tests = run.tests;
   // Every test's declaration line, per file: a failing test's BODY span is
   // bounded by the next declaration in the same file. A heal applies to
   // every identical occurrence within that span (and never beyond it — an
   // identical literal in another test heals via that test's own failure).
-  const reportRootDir = (report as { config?: { rootDir?: string } }).config?.rootDir ?? root;
+  const reportRootDir = run.rootDir;
   const startsByFile = new Map<string, number[]>();
   for (const t of tests) {
     if (t.line > 0) {
@@ -1094,7 +1107,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
     }
   }
   for (const a of startsByFile.values()) a.sort((x, y) => x - y);
-  const spanOf = (t: TestOutcome): { file: string; startLine: number; endLine: number } | undefined => {
+  const spanOf = (t: NeutralTestResult): { file: string; startLine: number; endLine: number } | undefined => {
     if (t.line <= 0) return undefined;
     const next = (startsByFile.get(t.file) ?? []).find((l) => l > t.line);
     return { file: path.resolve(reportRootDir, t.file), startLine: t.line, endLine: next ?? Number.MAX_SAFE_INTEGER };
@@ -1110,7 +1123,7 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   // Declared before emit(): the all-green path emits with these still
   // empty, and emit's title lookup closes over `targets`.
   const targets: HealTarget[] = [];
-  const locatorTests: TestOutcome[] = [];
+  const locatorTests: NeutralTestResult[] = [];
   const nonLocator: Array<{ test: string; reason: string; file?: string }> = [];
   // Heals reverted because their test still failed after applying,
   // keyed "file|line" — feeds the verdicts and the audit.
@@ -1207,9 +1220,9 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   // 2. Classify each failure: only locator failures are heal candidates.
   say(`  ${failing.length} of ${tests.length} test(s) failing\n`);
   for (const t of failing) {
-    const c = classifyFailure(t.message);
+    const c = activeAdapter().classifyFailure(t.errorText);
     if (c.kind === 'locator' && c.selector) {
-      const url = !cli.noTrace && t.tracePath ? traceFailureUrl(t.tracePath) : null;
+      const url = !cli.noTrace && t.tracePath ? activeAdapter().pageSource({ tracePath: t.tracePath }) : null;
       targets.push({
         selector: c.selector,
         url: url ?? undefined,
@@ -1305,20 +1318,31 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
   let rerunPassed: boolean | null = null;
   const verifiedByTitle = new Map<string, boolean>();
   if (applied && verify && result.healed.length > 0) {
-    const rootDir = report.config?.rootDir ?? root;
-    const fileArgOf = (t: TestOutcome): string => toCliFileFilter(path.relative(root, path.resolve(rootDir, t.file)));
-    const fileArgs = [...new Set(locatorTests.map(fileArgOf))];
-    const grep = locatorTests.map((t) => escapeRegex(t.title)).join('|');
+    const rootDir = reportRootDir;
+    const fileRelOf = (t: NeutralTestResult): string => path.relative(root, path.resolve(rootDir, t.file));
+    const fileArgs = [...new Set(locatorTests.map(fileRelOf))];
     say(`▸ Verifying: re-running ${locatorTests.length} previously failing test(s)`);
     // The grep pattern joins titles with '|': under a Windows shell that
-    // would be a cmd.exe pipe — runPlaywrightCli passes argv verbatim.
+    // would be a cmd.exe pipe. The adapter passes argv verbatim.
     // With --test the re-run keeps the one-test selection. A heal can move
     // the declaration line, so the line is followed through the plan.
-    const onlyArgs = (): string[] => withLine(ctx.only!.selectArgs, ctx.only!.line, ctx.only!.line - lineShift(result.plan, ctx.only!.file, ctx.only!.line));
-    const rerun = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [...fileArgs, '--grep', grep]), ...childExtra('rerun')], 32 * 1024 * 1024, undefined, ctx.childTimeout);
-    logChildRun(cli, rerun);
-    rerunPassed = rerun.status === 0;
-    if (ctx.only && rerun.timedOut) {
+    const shiftedLine = ctx.only && ctx.only.line > 0
+      ? ctx.only.line - lineShift(result.plan, ctx.only.file, ctx.only.line)
+      : ctx.only?.line;
+    const rerun = await activeAdapter().runBatch(root, {
+      op: 'rerun',
+      specsRel: [],
+      selection: ctx.only?.selection,
+      shiftedLine,
+      grepTitles: locatorTests.map((t) => t.title),
+      grepFilesRel: fileArgs,
+      outputDir: path.join(outRoot, 'rerun'),
+      configRel: ctx.playwrightConfigRel,
+      timeoutMs: ctx.childTimeout,
+      observe: (child) => logChildRun(cli, child),
+    });
+    rerunPassed = rerun.run.status === 0;
+    if (ctx.only && rerun.run.timedOut) {
       applyHealPlanExcluding(result.plan, () => true);
       for (const h of result.healed) {
         const rel = path.relative(process.cwd(), h.file).split(path.sep).join('/');
@@ -1334,12 +1358,22 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
       say('  ✗ re-run FAILED — verifying per test to isolate the failing heal(s)');
       const rerunTimedOut = new Set<string>();
       for (const [i, t] of locatorTests.entries()) {
-        const one = await runPlaywrightCli(root, ['test', ...(ctx.only ? onlyArgs() : [fileArgOf(t), '--grep', escapeRegex(t.title)]), '--reporter=json', ...childExtra(`one-${i}`)], 32 * 1024 * 1024, undefined, ctx.childTimeout);
-        logChildRun(cli, one);
-        verifiedByTitle.set(t.title, one.status === 0);
+        const one = await activeAdapter().runBatch(root, {
+          op: 'isolate',
+          specsRel: [],
+          selection: ctx.only?.selection,
+          shiftedLine,
+          oneTitle: t.title,
+          oneFileRel: fileRelOf(t),
+          outputDir: path.join(outRoot, `one-${i}`),
+          configRel: ctx.playwrightConfigRel,
+          timeoutMs: ctx.childTimeout,
+          observe: (child) => logChildRun(cli, child),
+        });
+        verifiedByTitle.set(t.title, one.run.status === 0);
         // A per-test re-run that hits the budget is a timeout, not a
         // failed assertion. The heal is still reverted below.
-        if (one.timedOut) {
+        if (one.run.timedOut) {
           rerunTimedOut.add(t.title);
           revertReasonByTitle.set(t.title, { reason: 'locator' });
           continue;
@@ -1351,19 +1385,15 @@ async function runFirstFlow(ctx: RunFirstCtx): Promise<void> {
         // likely the test or the app, not the heal (0.3.3 field case:
         // a CORRECT heal was reverted with wording implying it was wrong).
         // The revert itself is unconditional either way.
-        if (one.status !== 0) {
+        if (one.run.status !== 0) {
           let reason: 'locator' | 'non-locator' = 'locator';
           let line: string | undefined;
-          const oneReport = parseJsonReport(one.stdout ?? '');
-          if (oneReport) {
-            const failed = collectTests(oneReport as Parameters<typeof collectTests>[0])
-              .find((x) => !x.ok && x.title === t.title);
-            if (failed?.message) {
-              const c = classifyFailure(failed.message);
-              if (c.kind === 'other') {
-                reason = 'non-locator';
-                line = c.summary;
-              }
+          const failed = one.tests.find((x) => !x.ok && x.title === t.title);
+          if (failed?.errorText) {
+            const c = activeAdapter().classifyFailure(failed.errorText);
+            if (c.kind === 'other') {
+              reason = 'non-locator';
+              line = c.summary;
             }
           }
           revertReasonByTitle.set(t.title, { reason, line });

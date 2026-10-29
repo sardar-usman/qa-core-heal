@@ -1,3 +1,6 @@
+/**
+ * Re-export. Playwright config loading lives in the Playwright adapter.
+ */
 export {
   findPlaywrightConfig,
   supportsTypeStripping,
