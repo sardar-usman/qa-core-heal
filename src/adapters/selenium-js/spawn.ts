@@ -45,6 +45,12 @@ const path = require('node:path');
 const { createRequire } = require('node:module');
 const dir = process.env.QA_CORE_HEAL_CAPTURE;
 const root = process.env.QA_CORE_HEAL_PROJECT;
+if (dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'argv.json'), JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(1) }));
+  } catch { /* the failure text can say the hook did not write */ }
+}
 if (dir && root) {
   try {
     const { WebDriver } = createRequire(path.join(root, 'package.json'))('selenium-webdriver');
@@ -193,7 +199,9 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     const grep = only ? null : grepFor(specSource, request.titlePath, request.title, request.line);
     if (grep) args.push('--fgrep', grep);
     const childEnv: NodeJS.ProcessEnv = { ...process.env, QA_CORE_HEAL_CAPTURE: captureDir, QA_CORE_HEAL_PROJECT: request.projectRoot };
-    delete childEnv.MOCHA_OPTIONS;
+    for (const key of Object.keys(childEnv)) {
+      if (key === 'MOCHA_OPTIONS' || key === 'NODE_OPTIONS' || key === 'NODE_CHANNEL_FD' || key.startsWith('NODE_TEST_')) delete childEnv[key];
+    }
     const run = await spawnChild(process.execPath, args, scratch, sampleTimeout(request.timeoutMs), childEnv);
     request.observe?.(run);
     if (run.timedOut) return { run, report: null, captureDir, timedOut: true, failureDetail: 'The Mocha run timed out.' };
@@ -205,9 +213,16 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
       const stats = report.stats?.tests;
       const seen = tests.map((test) => test.fullTitle ?? test.title ?? '').filter(Boolean).slice(0, 5).join('; ');
       const how = only ? 'it.only' : `fgrep ${grep}`;
+      let argvNote = '';
+      const argvFile = path.join(captureDir, 'argv.json');
+      if (fs.existsSync(argvFile)) {
+        argvNote = ` hook ${fs.readFileSync(argvFile, 'utf8').slice(0, 500)}`;
+      } else {
+        argvNote = ' hook did not run.';
+      }
       return {
         run, report, captureDir, timedOut: false,
-        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected. ${how}. spec ${specArg}.${stats !== undefined ? ` stats.tests=${stats}.` : ''}${seen ? ` titles ${seen}.` : ''}${note ? ` ${note}` : ''}`,
+        failureDetail: `The Mocha run reported ${tests.length} tests, but exactly one was expected. ${how}. spec ${specArg}.${stats !== undefined ? ` stats.tests=${stats}.` : ''}${seen ? ` titles ${seen}.` : ''}${argvNote}${note ? ` ${note}` : ''}`,
       };
     }
     if ((grep || only) && tests[0] && !sameFile(tests[0].file ?? scratchSpec, scratchSpec, scratch)) {
