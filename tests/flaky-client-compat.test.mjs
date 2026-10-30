@@ -15,7 +15,7 @@ function run(cli, args, cwd) {
 
 function scrub(text) {
   return text
-    .replaceAll('0.7.1', '0.4.2')
+    .replaceAll('0.7.2', '0.4.2')
     .replaceAll('0.6.0', '0.4.2')
     .replaceAll('0.5.0', '0.4.2')
     .replace(/"generatedAt":\s*"[^"]*"/g, '"generatedAt": "TIME"')

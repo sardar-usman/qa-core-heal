@@ -22,6 +22,13 @@ after(() => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * These checks find leftover processes by reading the Linux /proc table.
+ * macOS and Windows have no /proc, so the tests are skipped there with this
+ * reason instead of failing. CI runs them on Linux.
+ */
+const PROC_SKIP = fs.existsSync('/proc/self/cwd') ? false : 'reads the Linux /proc process table, so it runs on Linux only';
+
 function cmdline(pid) {
   try { return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replaceAll('\0', ' '); } catch { return ''; }
 }
@@ -93,8 +100,7 @@ async function stopAndJoin(child, closed, sig) {
   return result;
 }
 
-test('SIGTERM during a findings run removes the output folder and exits 143', { timeout: 120000 }, async () => {
-  assert.equal(fs.existsSync('/proc/self/cwd'), true, 'this check reads /proc');
+test('SIGTERM during a findings run removes the output folder and exits 143', { skip: PROC_SKIP, timeout: 120000 }, async () => {
   const server = await startServer('<html><body><input id="mail-x9" /></body></html>');
   const profiles = chromiumProfiles();
   const dir = makeProject(baseOf(server), {
@@ -124,7 +130,7 @@ test('fills mail', async ({ page }) => {
   }
 });
 
-test('SIGINT during a findings run exits 130 and leaves no output folder', { timeout: 120000 }, async () => {
+test('SIGINT during a findings run exits 130 and leaves no output folder', { skip: PROC_SKIP, timeout: 120000 }, async () => {
   const server = await startServer('<html><body><input id="mail-x9" /></body></html>');
   const profiles = chromiumProfiles();
   const dir = makeProject(baseOf(server), {
@@ -199,11 +205,11 @@ async function interruptApply(sig, expectStatus) {
   }
 }
 
-test('SIGINT during --apply verification restores the spec and writes an interrupted audit entry', { timeout: 120000 }, async () => {
+test('SIGINT during --apply verification restores the spec and writes an interrupted audit entry', { skip: PROC_SKIP, timeout: 120000 }, async () => {
   await interruptApply('SIGINT', 130);
 });
 
-test('SIGTERM during --apply verification restores the spec and exits 143', { timeout: 120000 }, async () => {
+test('SIGTERM during --apply verification restores the spec and exits 143', { skip: PROC_SKIP, timeout: 120000 }, async () => {
   await interruptApply('SIGTERM', 143);
 });
 
@@ -214,8 +220,7 @@ test('fills mail', async ({ page }) => {
 });
 `;
 
-test('a spec run timeout kills Playwright and removes the output folder', { timeout: 120000 }, async () => {
-  assert.equal(fs.existsSync('/proc/self/cwd'), true, 'this check reads /proc');
+test('a spec run timeout kills Playwright and removes the output folder', { skip: PROC_SKIP, timeout: 120000 }, async () => {
   const server = await startServer('<html><body><input id="mail-x9" /></body></html>');
   const profiles = chromiumProfiles();
   const dir = makeProject(baseOf(server), { 'tests/a.spec.ts': HANG }, { timeout: 180000 });
@@ -283,15 +288,15 @@ test('fills mail', async ({ page }) => {
   }
 }
 
-test('SIGINT during a findings --apply verification restores the spec and writes an interrupted audit entry', { timeout: 120000 }, async () => {
+test('SIGINT during a findings --apply verification restores the spec and writes an interrupted audit entry', { skip: PROC_SKIP, timeout: 120000 }, async () => {
   await interruptFindingsApply('SIGINT', 130);
 });
 
-test('SIGTERM during a findings --apply verification restores the spec and exits 143', { timeout: 120000 }, async () => {
+test('SIGTERM during a findings --apply verification restores the spec and exits 143', { skip: PROC_SKIP, timeout: 120000 }, async () => {
   await interruptFindingsApply('SIGTERM', 143);
 });
 
-test('a findings run timeout kills Playwright and removes the output folder', { timeout: 120000 }, async () => {
+test('a findings run timeout kills Playwright and removes the output folder', { skip: PROC_SKIP, timeout: 120000 }, async () => {
   const server = await startServer('<html><body><input id="mail-x9" /></body></html>');
   const profiles = chromiumProfiles();
   const dir = makeProject(baseOf(server), { 'tests/a.spec.ts': HANG }, { timeout: 180000 });

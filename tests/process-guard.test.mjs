@@ -11,7 +11,7 @@ const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const {
   killProcessTree, setProcessTableReader, setProcAvailable, setChildTempWatchStart, sweepChromiumTemps,
   trackChildGroup, untrackChildGroup, trackUnverifiedApply, cleanupChildrenAndOutputs,
-  watchChildGroup, trackedChildPids,
+  watchChildGroup, trackedChildPids, setPlatformForTest, setTaskkillRunner,
 } = await import(path.join(repoRoot, 'dist', 'process-guard.js'));
 
 /**
@@ -28,6 +28,16 @@ process.stdout.write(JSON.stringify({ same: same.pid, own: own.pid }) + '\\n');
 setInterval(() => {}, 1000);
 `;
 
+/**
+ * The sweep checks read the Linux /proc table to see which temp entries are
+ * in use. Without /proc the sweep removes nothing by design, so these tests
+ * are skipped on macOS and Windows with this reason. CI runs them on Linux.
+ */
+const PROC_SKIP = fs.existsSync('/proc/self/cwd') ? false : 'reads the Linux /proc process table, so it runs on Linux only';
+
+/** These checks use POSIX process groups and signals. Windows is covered by the taskkill tests below. */
+const POSIX_SKIP = process.platform === 'win32' ? 'uses POSIX process groups and signals, which Windows does not have' : false;
+
 describe('process guard', { concurrency: 1 }, () => {
 
 function alive(pid) {
@@ -39,7 +49,7 @@ function stop(pid) {
   try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
 }
 
-test('without /proc the fallback kills the child group and descendant groups', async () => {
+test('without /proc the fallback kills the child group and descendant groups', { skip: POSIX_SKIP }, async () => {
   const decoy = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
   decoy.unref();
   const sibling = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -75,7 +85,7 @@ test('without /proc the fallback kills the child group and descendant groups', a
   }
 });
 
-test('a zombie child does not use the full stop grace', async () => {
+test('a zombie child does not use the full stop grace', { skip: POSIX_SKIP }, async () => {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 100000)'], { stdio: 'ignore' });
   await new Promise((r) => setTimeout(r, 50));
   try {
@@ -93,7 +103,7 @@ test('a zombie child does not use the full stop grace', async () => {
   }
 });
 
-test('the final kill includes a process that was missing from the first snapshot', async () => {
+test('the final kill includes a process that was missing from the first snapshot', { skip: POSIX_SKIP }, async () => {
   const leader = spawn(process.execPath, ['-e', 'setInterval(() => {}, 100000)'], { detached: true, stdio: 'ignore' });
   const late = spawn(process.execPath, ['-e', 'setInterval(() => {}, 100000)'], { detached: true, stdio: 'ignore' });
   leader.unref();
@@ -179,7 +189,7 @@ test('signal restore writes the original only when the spec is still what heal w
   }
 });
 
-test('a killed child sweep removes only new Chromium temp folders in the OS temp directory', () => {
+test('a killed child sweep removes only new Chromium temp folders in the OS temp directory', { skip: PROC_SKIP }, () => {
   const pid = 2000000001;
   const temp = os.tmpdir();
   const older = path.join(temp, `.org.chromium.Chromium.qa-core-heal-old-${process.pid}`);
@@ -214,7 +224,7 @@ test('a killed child sweep removes only new Chromium temp folders in the OS temp
   }
 });
 
-test('a killed child sweep removes a new Chromium temp file and a new folder', () => {
+test('a killed child sweep removes a new Chromium temp file and a new folder', { skip: PROC_SKIP }, () => {
   const pid = 2000000002;
   const temp = os.tmpdir();
   const folder = path.join(temp, `.org.chromium.Chromium.qa-core-heal-dir-${process.pid}`);
@@ -234,7 +244,7 @@ test('a killed child sweep removes a new Chromium temp file and a new folder', (
   }
 });
 
-test('a sweep leaves an entry another live process holds open', async () => {
+test('a sweep leaves an entry another live process holds open', { skip: PROC_SKIP }, async () => {
   const pid = 2000000003;
   const temp = os.tmpdir();
   const folder = path.join(temp, `.org.chromium.Chromium.qa-core-heal-busy-${process.pid}`);
@@ -280,7 +290,7 @@ test('without /proc the sweep removes nothing', () => {
   }
 });
 
-test('without /proc, alive reads the process table once per loop', () => {
+test('without /proc, alive reads the process table once per loop', { skip: POSIX_SKIP }, () => {
   let reads = 0;
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   try {
@@ -325,7 +335,7 @@ test('a deleted spec gets its own audit warning and is not restored', () => {
   }
 });
 
-test('SIGHUP restores nothing extra, removes a tracked output folder, and exits 129', async () => {
+test('SIGHUP restores nothing extra, removes a tracked output folder, and exits 129', { skip: POSIX_SKIP }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-core-heal-hup-'));
   const code = `
     import { installSignalCleanup, trackOutputDir } from './dist/process-guard.js';
@@ -357,6 +367,103 @@ test('SIGHUP restores nothing extra, removes a tracked output folder, and exits 
     }
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/**
+ * Windows has no process groups. A stop runs `taskkill /T /F /PID <pid>` on
+ * the child and waits for it, so the Playwright workers and the browsers are
+ * stopped too. These tests force the Windows path with a fake taskkill, so
+ * they run on every host and no real process is signaled by the fake.
+ */
+function fakeTaskkill(result = { status: 0 }) {
+  const calls = [];
+  setTaskkillRunner((command, args, options) => {
+    calls.push({ command, args, options });
+    return result;
+  });
+  return calls;
+}
+
+function waitForExit(child) {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) resolve();
+    else child.once('exit', () => resolve());
+  });
+}
+
+test('on Windows a stop runs taskkill on the whole tree and sends no signal', async () => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const calls = fakeTaskkill();
+  try {
+    await new Promise((r) => setTimeout(r, 50));
+    setPlatformForTest('win32');
+    killProcessTree(child.pid);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, 'taskkill');
+    assert.deepEqual(calls[0].args, ['/T', '/F', '/PID', String(child.pid)]);
+    assert.equal(calls[0].options.windowsHide, true);
+    assert.equal(calls[0].options.stdio, 'ignore');
+    assert.ok(calls[0].options.timeout > 0, 'taskkill has a time limit');
+    assert.equal(alive(child.pid), true, 'the fake taskkill did the stop, so no signal reached the child');
+  } finally {
+    setPlatformForTest(null);
+    setTaskkillRunner(null);
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
+    await waitForExit(child);
+  }
+});
+
+test('on Windows the direct child is still killed when taskkill cannot start', async () => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const calls = fakeTaskkill({ status: null, error: Object.assign(new Error('spawnSync taskkill ENOENT'), { code: 'ENOENT' }) });
+  try {
+    await new Promise((r) => setTimeout(r, 50));
+    setPlatformForTest('win32');
+    killProcessTree(child.pid);
+    await waitForExit(child);
+    assert.equal(calls.length, 1);
+    assert.equal(alive(child.pid), false, 'the child was killed directly');
+  } finally {
+    setPlatformForTest(null);
+    setTaskkillRunner(null);
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
+  }
+});
+
+test('on Windows a child is tracked, and signal cleanup stops it with taskkill', () => {
+  const calls = fakeTaskkill();
+  const child = new EventEmitter();
+  child.pid = 2000000011;
+  try {
+    setPlatformForTest('win32');
+    watchChildGroup(child);
+    assert.deepEqual(trackedChildPids(), [2000000011]);
+    cleanupChildrenAndOutputs();
+    assert.deepEqual(calls.map((c) => c.args), [['/T', '/F', '/PID', '2000000011']]);
+    assert.deepEqual(trackedChildPids(), []);
+  } finally {
+    setPlatformForTest(null);
+    setTaskkillRunner(null);
+    untrackChildGroup(2000000011);
+  }
+});
+
+test('every child spawn hides its window on Windows and stops through killProcessTree', () => {
+  const files = [
+    'src/adapters/playwright-js/cli.ts',
+    'src/adapters/cypress-js/spawn.ts',
+    'src/adapters/selenium-js/spawn.ts',
+  ];
+  for (const rel of files) {
+    const source = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+    assert.match(source, /detached: process\.platform !== 'win32',\n\s+windowsHide: true,/, `${rel} keeps Windows children attached and hidden`);
+    assert.doesNotMatch(source, /!pid \|\| process\.platform === 'win32'/, `${rel} must not skip the Windows tree stop`);
+    assert.match(source, /killProcessTree\(pid\)/, `${rel} stops the child tree`);
+  }
+  const config = fs.readFileSync(path.join(repoRoot, 'src/adapters/playwright-js/config.ts'), 'utf8');
+  assert.match(config, /windowsHide: true/, 'the config loader child is hidden on Windows');
+  const selenium = fs.readFileSync(path.join(repoRoot, 'src/adapters/selenium-js/spawn.ts'), 'utf8');
+  assert.match(selenium, /process\.platform === 'win32' \? 'junction' : 'dir'/, 'node_modules is linked with a junction on Windows');
 });
 
 });

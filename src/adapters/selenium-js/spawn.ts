@@ -163,7 +163,9 @@ export async function runSeleniumInScratch(request: SeleniumSpawnRequest): Promi
     copyTree(request.projectRoot, scratch);
     const modules = path.join(request.projectRoot, 'node_modules');
     const link = path.join(scratch, 'node_modules');
-    if (fs.existsSync(modules) && !fs.existsSync(link)) fs.symlinkSync(modules, link);
+    // A junction on Windows needs no admin rights or Developer Mode. Other
+    // systems ignore the type.
+    if (fs.existsSync(modules) && !fs.existsSync(link)) fs.symlinkSync(modules, link, process.platform === 'win32' ? 'junction' : 'dir');
     const rel = path.relative(request.projectRoot, request.specPath);
     const specArg = rel.split(path.sep).join('/');
     const scratchSpec = path.join(scratch, rel);
@@ -252,11 +254,12 @@ function spawnChild(command: string, args: string[], cwd: string, timeoutMs: num
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
+      windowsHide: true,
     });
     const pid = child.pid;
     watchChildGroup(child);
     const stop = (): void => {
-      if (!pid || process.platform === 'win32') {
+      if (!pid) {
         try { child.kill('SIGKILL'); } catch { /* already gone */ }
         return;
       }

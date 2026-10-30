@@ -144,11 +144,12 @@ function spawnChild(command: string, args: string[], cwd: string, timeoutMs: num
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
+      windowsHide: true,
     });
     const pid = child.pid;
     watchChildGroup(child);
     const stop = (): void => {
-      if (!pid || process.platform === 'win32') {
+      if (!pid) {
         try { child.kill('SIGKILL'); } catch { /* already gone */ }
         return;
       }

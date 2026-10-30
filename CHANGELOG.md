@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.2 (2026-10-30)
+
+A Windows fix and test release. The healing engine, the CLI flags, the exit codes, and contract version 1 are unchanged. Behavior on macOS and Linux is unchanged.
+
+- **Fixed:** On Windows, a `--run-timeout` stop or an output overflow now stops the Playwright, Cypress, or Mocha child with `taskkill /T /F` and waits for it. Before, only the direct child was killed, so the test workers and the browser could keep running.
+- **Fixed:** On Windows, heal now tracks each child run, so a Ctrl+C or a closed console window stops the child tree before heal removes its temporary folders.
+- **Fixed:** On Windows, every child process heal starts is started with its window hidden, so no extra console window opens when heal runs without a console of its own.
+- **Fixed:** On Windows, a Selenium heal links the project's `node_modules` into the scratch copy with a junction. A junction needs no administrator rights or Developer Mode.
+- **Fixed:** The `author` block in `package.json` uses the same 2-space indent as the rest of the file.
+- **Tests:** The tests that read the Linux `/proc` process table are skipped on macOS and Windows with a clear reason instead of failing. They still run in CI on Linux.
+- **Tests:** The process guard tests that use POSIX process groups and signals are skipped on Windows with a clear reason.
+- **Tests:** New tests force the Windows path with a fake `taskkill` and check the exact arguments, the hidden window, the fallback when `taskkill` cannot start, and the cleanup of tracked children after a signal.
+- **Tests:** The version checks and the README wording checks now expect 0.7.2.
+- **Docs:** The README explains how heal stops child runs on Windows.
+- **Docs:** The `capabilities --json` example in the README shows version 0.7.2.
+
 ## 0.7.1 (2026-10-30)
 
 A documentation and package metadata release. The healing engine, the CLI flags, the exit codes, and contract version 1 are unchanged.

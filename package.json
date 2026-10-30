@@ -1,6 +1,6 @@
 {
   "name": "qa-core-heal",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Deterministic selector healing for Playwright, Cypress, and Selenium specs. No LLM, no API key.",
   "keywords": [
     "playwright",
@@ -30,7 +30,7 @@
     "type": "git",
     "url": "git+https://github.com/sprintsynergyhq/qa-core-heal.git"
   },
-    "author": {
+  "author": {
     "name": "SprintSynergy",
     "url": "https://sprintsynergy.com"
   },
