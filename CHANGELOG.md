@@ -10,7 +10,7 @@ A documentation and package metadata release. The healing engine, the CLI flags,
 - **Docs:** The `capabilities --json` example in the README shows version 0.7.1.
 - **Docs:** The leftover "Not in 0.4.2" note now says "Not in this version". The rule-based timing and selector fixes are still not included.
 - **Docs:** The README footer credits SprintSynergy and links to the maintainer's LinkedIn profile instead of a personal website.
-- Tests: update the version checks and the README wording checks for 0.7.1.
+- **Tests:** The version checks and the README wording checks now expect 0.7.1.
 
 ## 0.7.0 (2026-10-29)
 

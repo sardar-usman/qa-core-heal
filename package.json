@@ -30,16 +30,15 @@
     "type": "git",
     "url": "git+https://github.com/sprintsynergyhq/qa-core-heal.git"
   },
-  "author": {
+    "author": {
     "name": "SprintSynergy",
     "url": "https://sprintsynergy.com"
   },
-
   "contributors": [
     {
-    "name": "Muhammad Usman",
-    "url": "https://linkedin.com/in/sdet-muhammadusman"
-   }
+      "name": "Muhammad Usman",
+      "url": "https://linkedin.com/in/sdet-muhammadusman"
+    }
   ],
   "type": "module",
   "license": "MIT",
