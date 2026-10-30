@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.1 (2026-10-30)
+
+A documentation and package metadata release. The healing engine, the CLI flags, the exit codes, and contract version 1 are unchanged.
+
+- **Changed:** The `author` field in `package.json` is now SprintSynergy (https://sprintsynergy.com). Muhammad Usman is listed under `contributors`.
+- **Docs:** The README introduction names Playwright, Cypress, and Selenium tests, the same as the Frameworks section.
+- **Docs:** The `--framework` row in the README flag table lists `playwright-js`, `cypress-js`, and `selenium-js` as supported. Only `playwright-py` and `selenium-py` are planned.
+- **Docs:** The `capabilities --json` example in the README shows version 0.7.1.
+- **Docs:** The leftover "Not in 0.4.2" note now says "Not in this version". The rule-based timing and selector fixes are still not included.
+- **Docs:** The README footer credits SprintSynergy and links to the maintainer's LinkedIn profile instead of a personal website.
+- Tests: update the version checks and the README wording checks for 0.7.1.
+
 ## 0.7.0 (2026-10-29)
 
 This is the first npm release since 0.3.4. It also contains the changes listed under 0.6.0, 0.5.0, 0.4.2, 0.4.1, 0.4.0, and 0.3.5, which were not published to npm on their own.

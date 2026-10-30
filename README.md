@@ -1,6 +1,6 @@
 # qa-core-heal
 
-qa-core-heal runs your failing Playwright tests, reads the failure evidence, and repairs broken locators. It refuses to guess: every heal is verified against the live page and re-tested, every refusal explains itself.
+qa-core-heal runs your failing Playwright, Cypress, and Selenium tests, reads the failure evidence, and repairs broken locators. It refuses to guess: every heal is verified against the live page and re-tested, every refusal explains itself.
 
 ```text
 $ npx qa-core-heal tests/quantity.spec.ts
@@ -179,7 +179,7 @@ re-resolved element differs: expected an element matching "search panel 42"
 | `--debug` | implies `--verbose`; adds stack traces and raw child stdout/stderr |
 | `--config <file>` | use this qa-core config file instead of the default lookup; missing or invalid errors with the full story |
 | `--playwright-config <path>` | Playwright config for a spec run, passed through as `--config`. Same path rules as a findings `configPath`. Not with `--findings` |
-| `--framework <id>` | framework to use. Supported now: `playwright-js`. Planned: `cypress-js`, `selenium-js`, `playwright-py`, `selenium-py`. The flag overrides detection |
+| `--framework <id>` | framework to use. Supported now: `playwright-js`, `cypress-js`, `selenium-js`. Planned: `playwright-py`, `selenium-py`. The flag overrides detection |
 | `--base-url <url>` | override base URL resolution (config → goto scan) |
 | `--project <name>` | pick a Playwright project when their baseURLs disagree |
 | `--route <file>=<route>` | override route inference per file (repeatable) |
@@ -286,7 +286,7 @@ It prints one JSON object. `contracts.findings` and `contracts.results` are arra
 {
   "schema": "qa-core.heal-capabilities",
   "schemaVersion": 1,
-  "tool": { "name": "qa-core-heal", "version": "0.7.0" },
+  "tool": { "name": "qa-core-heal", "version": "0.7.1" },
   "contracts": { "findings": [1], "results": [1] },
   "playwrightVersion": "1.60.0",
   "features": { "findings": true, "targetedRun": true, "ruleSuggestions": false, "ai": false, "playwrightConfig": true, "runTimeout": true, "frameworks": ["playwright-js", "cypress-js", "selenium-js"] },
@@ -312,7 +312,7 @@ npx qa-core-heal tests/saucedemo-login.spec.ts --test "logs in with a valid user
 
 Exactly one test runs, in the first run and in the verify re-run. A title that matches more than one test (for example in two projects) is refused before anything runs. Give the full title (`"Describe › title"`) or `--project` to pick one.
 
-**Not in 0.4.2.** The rule-based timing and selector fixes.
+**Not in this version.** The rule-based timing and selector fixes.
 
 ## Limitations
 
@@ -364,4 +364,4 @@ The `skill/` folder makes heal a Claude Code skill: Claude detects locator-class
 
 MIT. Issues and eval-suite contributions welcome, especially broken-locator patterns from real projects that heal should handle or honestly refuse.
 
-Built by [Muhammad Usman](https://sardarusmanjutt.com), part of the QA-Core agentic testing project.
+Built by [SprintSynergy](https://sprintsynergy.com) and maintained by [Muhammad Usman](https://linkedin.com/in/sdet-muhammadusman).
