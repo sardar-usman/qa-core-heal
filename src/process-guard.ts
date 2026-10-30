@@ -35,6 +35,51 @@ const CHROMIUM_TEMP_PREFIX = '.org.chromium.Chromium.';
 
 const HAS_PROC = fs.existsSync('/proc');
 
+/** How long to wait for `taskkill` on Windows before giving up on it. */
+const TASKKILL_TIMEOUT_MS = 10_000;
+
+/** A test sets this to run the Windows path on another host. Null uses the real platform. */
+let platformForced: NodeJS.Platform | null = null;
+
+export function setPlatformForTest(value: NodeJS.Platform | null): void {
+  platformForced = value;
+}
+
+function onWindows(): boolean {
+  return (platformForced ?? process.platform) === 'win32';
+}
+
+/** Runs `taskkill`. A test injects a fake so no real process is touched. */
+export type TaskkillRunner = (command: string, args: string[], options: { stdio: 'ignore'; windowsHide: true; timeout: number }) => { error?: Error; status: number | null };
+
+let taskkillRunner: TaskkillRunner | null = null;
+
+export function setTaskkillRunner(runner: TaskkillRunner | null): void {
+  taskkillRunner = runner;
+}
+
+/**
+ * Stop a process and every process it started on Windows, and wait until
+ * `taskkill` is done. `/T` stops the whole tree and `/F` forces it. Windows
+ * has no process groups, so killing only the direct child would leave the
+ * Playwright workers and the browsers running. When `taskkill` cannot start,
+ * the direct child is still killed.
+ */
+function taskkillTree(pid: number): void {
+  const args = ['/T', '/F', '/PID', String(pid)];
+  const options = { stdio: 'ignore', windowsHide: true, timeout: TASKKILL_TIMEOUT_MS } as const;
+  let failed = false;
+  try {
+    const run = taskkillRunner ? taskkillRunner('taskkill', args, options) : spawnSync('taskkill', args, options);
+    failed = Boolean(run.error);
+  } catch {
+    failed = true;
+  }
+  if (failed) {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+}
+
 /** A test injects this to hide /proc. Null means that source has no table. */
 let tableReader: (() => ProcessRow[] | null) | null = null;
 
@@ -227,12 +272,14 @@ function treeOf(pid: number, rows: ProcessRow[]): TreeStop {
  * SIGTERM goes out first. After a short wait, the process table is read
  * again so a process that started after the first snapshot is included in
  * the final SIGKILL. Groups that are already dead are not signaled.
+ * On Windows there are no process groups, so `taskkill /T /F` stops the
+ * child and everything it started, and the call waits for it.
  */
 export function killProcessTree(pid: number): void {
   try {
     if (!Number.isInteger(pid) || pid <= 1) return;
-    if (process.platform === 'win32') {
-      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    if (onWindows()) {
+      taskkillTree(pid);
       return;
     }
     const rows = loadProcessTable();
@@ -476,10 +523,12 @@ export function trackedChildPids(): number[] {
  * Track a Playwright child until it exits. 'exit' fires when the process
  * is gone. 'close' waits for the pipes as well, and the pid can be reused
  * in that gap, so the group is dropped on 'exit' (and on 'error').
+ * On Windows the child is tracked as well, so a signal to heal stops the
+ * child tree with `taskkill` before the output folders are removed.
  */
 export function watchChildGroup(child: { pid?: number; on(event: string, listener: () => void): void }): void {
   const pid = child.pid;
-  if (!pid || process.platform === 'win32') return;
+  if (!pid) return;
   trackChildGroup(pid);
   const drop = (): void => { untrackChildGroup(pid); };
   child.on('exit', drop);

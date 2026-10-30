@@ -109,16 +109,18 @@ function runChild(spec: ChildSpec): Promise<PlaywrightRunResult> {
       shell: spec.shell ?? false,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
+      windowsHide: true,
     });
     const pid = child.pid;
     // Drop the group on 'exit', not 'close', so a reused pid is not tracked.
     watchChildGroup(child);
     const stopGroup = (): void => {
-      if (!pid || process.platform === 'win32') {
+      if (!pid) {
         try { child.kill('SIGKILL'); } catch { /* already gone */ }
         return;
       }
       // The child group, and browser groups it started, are stopped together.
+      // On Windows, taskkill stops the child and everything it started.
       killProcessTree(pid);
     };
     const take = (which: 'stdout' | 'stderr', chunk: Buffer): void => {

@@ -319,7 +319,7 @@ export async function resolvePlaywrightConfig(
     // stdout/stderr are discarded: loading a user config may print (dotenv
     // tips, conditional reporters). The result travels on fd 3.
     const child = spawn(process.execPath, args, {
-      cwd: dir, stdio: ['ignore', 'ignore', 'ignore', 'pipe'],
+      cwd: dir, stdio: ['ignore', 'ignore', 'ignore', 'pipe'], windowsHide: true,
     });
     let out = '';
     let done = false;
